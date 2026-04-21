@@ -2244,9 +2244,14 @@ async function handleAuthChange(session) {
     
     if (session) {
         currentUser = session.user;
+        console.log("Sesión iniciada para:", currentUser.email);
         if(authContainer) authContainer.style.display = 'none';
         if(appWrapper) appWrapper.style.display = 'flex';
-        await initializeApp();
+        try {
+            await initializeApp();
+        } catch (err) {
+            console.error("Error crítico durante la inicialización:", err);
+        }
     } else {
         currentUser = null;
         if(authContainer) authContainer.style.display = 'flex';
@@ -2262,16 +2267,38 @@ async function handleLogin(e) {
     const errorDiv = document.getElementById('loginError');
     const submitBtn = document.getElementById('loginSubmitBtn');
     
-    if(!supabaseClient) return;
+    if(!supabaseClient) {
+        alert("Error: No se pudo conectar con el servidor de base de datos. Verifique su conexión.");
+        return;
+    }
+    
     if(errorDiv) errorDiv.style.display = 'none';
     if(submitBtn) {
         submitBtn.textContent = 'Verificando...';
         submitBtn.disabled = true;
     }
     
-    const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
-    if (error) {
-        if(errorDiv) errorDiv.style.display = 'block';
+    try {
+        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+        if (error) {
+            console.error("Login error:", error.message);
+            if(errorDiv) {
+                errorDiv.textContent = error.message === 'Invalid login credentials' ? 'Correo o contraseña incorrectos' : error.message;
+                errorDiv.style.display = 'block';
+            }
+            if(submitBtn) {
+                submitBtn.textContent = 'Ingresar al Sistema';
+                submitBtn.disabled = false;
+            }
+        } else {
+            console.log("Login exitoso");
+        }
+    } catch (err) {
+        console.error("Excepción en login:", err);
+        if(errorDiv) {
+            errorDiv.textContent = "Error de conexión inesperado.";
+            errorDiv.style.display = 'block';
+        }
         if(submitBtn) {
             submitBtn.textContent = 'Ingresar al Sistema';
             submitBtn.disabled = false;
@@ -2281,7 +2308,12 @@ async function handleLogin(e) {
 
 async function handleLogout() {
     if(!supabaseClient) return;
-    await supabaseClient.auth.signOut();
+    try {
+        await supabaseClient.auth.signOut();
+        location.reload(); // Recargar para limpiar todo el estado
+    } catch (err) {
+        console.error("Error al cerrar sesión:", err);
+    }
 }
 
 async function initializeApp() {
@@ -2290,10 +2322,14 @@ async function initializeApp() {
 
     window.postDropSync = postDropSync;
     updatePeriodDisplay();
-    await loadMasterData();
     
-    if(supabaseClient) {
-        await loadTasksFromSupabase();
+    try {
+        await loadMasterData();
+        if(supabaseClient) {
+            await loadTasksFromSupabase();
+        }
+    } catch (err) {
+        console.error("Error cargando datos iniciales:", err);
     }
     
     renderBoard();
