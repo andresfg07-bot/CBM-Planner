@@ -526,18 +526,20 @@ function renderDashboardStats() {
     
     dashboardStats.innerHTML = html;
     dashboardStats.style.display = 'flex';
-    renderDashboardCharts();
+    
+    // Solo renderizar gráficos si estamos en la vista de dashboard
+    if (document.getElementById('view-dashboard').classList.contains('active-view')) {
+        renderDashboardCharts();
+    }
 }
 
 function updateGlobalFilter(type, value) {
     dashboardFilters[type] = value;
     
-    // Refresh all relevant views
+    // Refresh all relevant views via renderBoard
     renderBoard();
-    renderDashboardStats();
     renderCalendar();
     renderPlanningSidebar();
-    renderTasksView();
     populateGlobalFilterDropdowns();
 }
 
@@ -551,12 +553,9 @@ function resetGlobalFilters() {
     const filterTasksStatus = document.getElementById('filter-tasks-status');
     if(filterTasksStatus) filterTasksStatus.value = '';
     
-    // Refresh all views
     renderBoard();
-    renderDashboardStats();
     renderCalendar();
     renderPlanningSidebar();
-    renderTasksView();
     populateGlobalFilterDropdowns();
 }
 
@@ -572,11 +571,10 @@ function changeDashboardScope(scope) {
     if(activeBtn) activeBtn.classList.add('active');
     
     renderDashboardStats();
-    renderDashboardCharts();
 }
 
 function renderDashboardCharts() {
-    // 1. Preparar datos segun el scope actual (ya filtrados en renderDashboardStats o filtrarlos aqui)
+    // 1. Preparar datos segun el scope actual
     let chartData = tasks.filter(t => !t.isAbsence);
     
     if (dashboardScope === 'month') {
@@ -600,7 +598,6 @@ function renderDashboardCharts() {
 
     chartData.forEach(t => {
         if (!t.analyst) return;
-        // Solo contar analistas activos o que tengan data
         if (!workloadMap[t.analyst]) workloadMap[t.analyst] = 0;
         workloadMap[t.analyst]++;
 
@@ -615,7 +612,6 @@ function renderDashboardCharts() {
     const workloadValues = analysts.map(a => workloadMap[a]);
     const billingValues = analysts.map(a => billingMap[a] || 0);
 
-    // Colores premium
     const bgColors = [
         'rgba(37, 99, 235, 0.8)',  // clr-blue
         'rgba(147, 51, 234, 0.8)', // clr-purple
@@ -626,72 +622,78 @@ function renderDashboardCharts() {
         'rgba(100, 116, 139, 0.8)' // Slate
     ];
 
-    // Destruir instancias previas si existen
-    if(workloadChartInstance) workloadChartInstance.destroy();
-    if(billingChartInstance) billingChartInstance.destroy();
+    // Destruir instancias previas si existen (moved inside timeouts)
 
     const ctxWorkload = document.getElementById('workloadChart');
     if (ctxWorkload) {
-        workloadChartInstance = new Chart(ctxWorkload, {
-            type: 'pie',
-            data: {
-                labels: analysts,
-                datasets: [{
-                    data: workloadValues,
-                    backgroundColor: bgColors,
-                    borderWidth: 2,
-                    borderColor: '#ffffff'
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
-                    tooltip: {
-                        callbacks: {
-                            label: (context) => {
-                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                const percentage = Math.round((context.parsed / total) * 100);
-                                return `${context.label}: ${context.parsed} gestiones (${percentage}%)`;
+        if (window._workloadTimeout) clearTimeout(window._workloadTimeout);
+        window._workloadTimeout = setTimeout(() => {
+            if(workloadChartInstance) workloadChartInstance.destroy();
+            workloadChartInstance = new Chart(ctxWorkload, {
+                type: 'pie',
+                data: {
+                    labels: analysts,
+                    datasets: [{
+                        data: workloadValues,
+                        backgroundColor: bgColors,
+                        borderWidth: 2,
+                        borderColor: '#ffffff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+                        tooltip: {
+                            callbacks: {
+                                label: (context) => {
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = Math.round((context.parsed / total) * 100);
+                                    return `${context.label}: ${context.parsed} gestiones (${percentage}%)`;
+                                }
                             }
                         }
                     }
                 }
-            }
-        });
+            });
+        }, 50);
     }
 
     const ctxBilling = document.getElementById('billingChart');
     if (ctxBilling) {
-        billingChartInstance = new Chart(ctxBilling, {
-            type: 'pie',
-            data: {
-                labels: analysts,
-                datasets: [{
-                    data: billingValues,
-                    backgroundColor: bgColors,
-                    borderWidth: 2,
-                    borderColor: '#ffffff'
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
-                    tooltip: {
-                        callbacks: {
-                            label: (context) => {
-                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                const percentage = total > 0 ? Math.round((context.parsed / total) * 100) : 0;
-                                return `${context.label}: $${context.parsed.toLocaleString()} (${percentage}%)`;
+        if (window._billingTimeout) clearTimeout(window._billingTimeout);
+        window._billingTimeout = setTimeout(() => {
+            if(billingChartInstance) billingChartInstance.destroy();
+            billingChartInstance = new Chart(ctxBilling, {
+                type: 'pie',
+                data: {
+                    labels: analysts,
+                    datasets: [{
+                        data: billingValues,
+                        backgroundColor: bgColors,
+                        borderWidth: 2,
+                        borderColor: '#ffffff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+                        tooltip: {
+                            callbacks: {
+                                label: (context) => {
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = total > 0 ? Math.round((context.parsed / total) * 100) : 0;
+                                    return `${context.label}: $${context.parsed.toLocaleString()} (${percentage}%)`;
+                                }
                             }
                         }
                     }
                 }
-            }
-        });
+            });
+        }, 60); // Ligeramente diferente para no pisarse con el otro
     }
 }
 
@@ -756,7 +758,6 @@ function openAbsenceDetailModal(analystName) {
     
     const currentPeriodTasks = tasks.filter(t => t.period === formatPeriod() && t.isAbsence && t.analyst === analystName);
     
-    // Sort and collect all scheduled days
     let allAbsenceDays = [];
     currentPeriodTasks.forEach(t => {
         if(t.scheduledDays) {
@@ -769,7 +770,6 @@ function openAbsenceDetailModal(analystName) {
         }
     });
     
-    // Sort by day
     allAbsenceDays.sort((a, b) => a.day - b.day);
     
     if(allAbsenceDays.length === 0) {
@@ -795,1011 +795,600 @@ function renderPlanningSidebar() {
     if(!sidebarContainer) return;
     sidebarContainer.innerHTML = '';
     
-    // Filtrado de Tareas en Sidebar (respetando filtros globales)
     let filteredTasks = tasks.filter(t => t.status === 'proyectada' && isTaskInCurrentPeriod(t));
-    
+
     if(dashboardFilters.analyst) filteredTasks = filteredTasks.filter(t => t.analyst === dashboardFilters.analyst);
     if(dashboardFilters.client) filteredTasks = filteredTasks.filter(t => t.client === dashboardFilters.client);
+
+    if (filteredTasks.length === 0) {
+        sidebarContainer.innerHTML = '<div style="text-align:center; padding:1rem; font-size:0.8rem; color:var(--text-secondary)">No hay gestiones proyectadas</div>';
+        return;
+    }
 
     filteredTasks.forEach(t => {
         const item = document.createElement('div');
         item.className = 'planning-sidebar-item';
         item.draggable = true;
-        item.dataset.taskId = t.id;
+        item.id = t.id;
         item.innerHTML = `
-            <div style="font-weight:700; margin-bottom:0.2rem;">${t.client}</div>
-            <div style="font-size:0.75rem; color:var(--text-secondary)">Analista: ${t.analyst || 'Pendiente'}</div>
-            <div style="font-size:0.7rem; margin-top:0.3rem;">
-                <span class="card-analyst" style="font-size:0.6rem; padding:1px 4px;">${t.serviceType || 'CBM'}</span>
-                <span style="margin-left:0.5rem; color:var(--clr-green); font-weight:600">$${(t.budget||0).toLocaleString('es-CO')}</span>
-            </div>
+            <div style="font-weight:700; margin-bottom:0.25rem;">${t.client}</div>
+            <div style="font-size:0.7rem; color:var(--text-secondary)">${t.analyst || 'Sin Asignar'}</div>
         `;
         
-        item.addEventListener('dragstart', e => {
-            e.dataTransfer.setData('taskId', t.id);
-            item.classList.add('dragging');
-        });
-        
-        item.addEventListener('dragend', () => {
-            item.classList.remove('dragging');
-        });
-
-        item.addEventListener('click', () => openTaskDetailModal(t.id));
+        item.addEventListener('dragstart', handleDragStart);
+        item.addEventListener('dragend', handleDragEnd);
+        item.addEventListener('click', () => openTaskInfoModal(t.id));
         
         sidebarContainer.appendChild(item);
     });
 }
 
+function renderActivityLog() {
+    const logContainer = document.getElementById('activity-log-items');
+    if(!logContainer) return;
+    logContainer.innerHTML = '';
+
+    const dateFilter = document.getElementById('log-filter-date').value;
+    const typeFilter = document.getElementById('log-filter-type').value;
+
+    let filteredLog = activityLog;
+
+    if(dateFilter) {
+        filteredLog = filteredLog.filter(entry => entry.timestamp.startsWith(dateFilter));
+    }
+    if(typeFilter) {
+        filteredLog = filteredLog.filter(entry => entry.type === typeFilter);
+    }
+
+    if(filteredLog.length === 0) {
+        logContainer.innerHTML = '<div style="text-align:center; padding:2rem; color:var(--text-secondary)">No hay actividades registradas con estos filtros.</div>';
+        return;
+    }
+
+    filteredLog.forEach(entry => {
+        const item = document.createElement('div');
+        item.className = `log-entry ${entry.type}`;
+        
+        const date = new Date(entry.timestamp);
+        const dateStr = date.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        const timeStr = date.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+
+        item.innerHTML = `
+            <div class="log-entry-icon"></div>
+            <div class="log-entry-content">
+                <div class="log-entry-header">
+                    <span class="log-entry-type">${entry.type.toUpperCase()}</span>
+                    <span class="log-entry-time">${dateStr} ${timeStr}</span>
+                </div>
+                <div class="log-entry-message">${entry.message}</div>
+            </div>
+        `;
+        logContainer.appendChild(item);
+    });
+}
+
 function renderCalendar() {
-    const calendarGrid = document.getElementById('calendar-grid');
-    if(!calendarGrid) return;
-    calendarGrid.innerHTML = '';
+    const calendarBody = document.getElementById('calendar-body');
+    if(!calendarBody) return;
+    calendarBody.innerHTML = '';
+
+    let analystsToRender = dbAnalysts;
+    if(dashboardFilters.analyst) {
+        analystsToRender = dbAnalysts.filter(a => a.name === dashboardFilters.analyst);
+    }
+
+    const year = currentYear;
+    const month = currentMonth;
     
+    let daysToRender = [];
     if (calendarView === 'month') {
-        renderMonthView(calendarGrid);
+        const daysInMonth = new Date(year, month, 0).getDate();
+        for (let i = 1; i <= daysInMonth; i++) {
+            const date = new Date(year, month - 1, i);
+            daysToRender.push({
+                day: i,
+                dateStr: `${year}-${String(month).padStart(2, '0')}-${String(i).padStart(2, '0')}`,
+                isWeekend: date.getDay() === 0 || date.getDay() === 6
+            });
+        }
     } else {
-        renderWeekView(calendarGrid);
+        // Vista Semanal: 7 días desde currentWeekStart
+        for (let i = 0; i < 7; i++) {
+            const date = new Date(currentWeekStart);
+            date.setDate(date.getDate() + i);
+            const d = date.getDate();
+            const m = date.getMonth() + 1;
+            const y = date.getFullYear();
+            daysToRender.push({
+                day: d,
+                dateStr: `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
+                isWeekend: date.getDay() === 0 || date.getDay() === 6
+            });
+        }
     }
+
+    // Actualizar Header
+    const headerRow = document.getElementById('calendar-header-row');
+    if(headerRow) {
+        headerRow.innerHTML = '<th class="sticky-col">Analista</th>';
+        daysToRender.forEach(d => {
+            const th = document.createElement('th');
+            if(d.isWeekend) th.classList.add('weekend');
+            const dayName = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][new Date(d.dateStr + 'T00:00:00').getDay()];
+            th.innerHTML = `<div style="font-size:0.65rem; color:var(--text-secondary)">${dayName}</div>${d.day}`;
+            headerRow.appendChild(th);
+        });
+    }
+
+    analystsToRender.forEach(analyst => {
+        const row = document.createElement('tr');
+        row.innerHTML = `<td class="sticky-col analyst-name-cell">${analyst.name}</td>`;
+        
+        daysToRender.forEach(day => {
+            const cell = document.createElement('td');
+            cell.className = 'calendar-cell';
+            if(day.isWeekend) cell.classList.add('weekend');
+            cell.setAttribute('data-analyst', analyst.name);
+            cell.setAttribute('data-day', day.day);
+            cell.setAttribute('data-date', day.dateStr);
+            
+            // Find tasks for this analyst and day
+            const dayTasks = tasks.filter(t => {
+                let isAssigned = (t.analyst === analyst.name);
+                if (!isAssigned && t.analysts_assignment && t.analysts_assignment.length > 0) {
+                    isAssigned = t.analysts_assignment.some(a => a.name === analyst.name);
+                }
+                return isAssigned && t.scheduledDays && t.scheduledDays.some(sd => sd.date === day.dateStr);
+            });
+            
+            dayTasks.forEach(t => {
+                const pill = document.createElement('div');
+                const dayInfo = t.scheduledDays.find(sd => sd.date === day.dateStr);
+                const dayIdx = t.scheduledDays.findIndex(sd => sd.date === day.dateStr);
+                
+                pill.className = `calendar-task-pill ${t.status} ${dayInfo.type}`;
+                if(t.isAbsence) pill.classList.add('absence');
+                
+                pill.id = `pill-${t.id}-${dayIdx}`;
+                pill.setAttribute('data-task-id', t.id);
+                pill.setAttribute('data-day-index', dayIdx);
+                pill.draggable = (t.status !== 'facturada');
+                
+                let label = t.client;
+                if(t.isAbsence) label = t.serviceType || 'Ausencia';
+                pill.textContent = label;
+                pill.title = `${label} (${dayInfo.type === 'field' ? 'Planta' : 'Informe'})`;
+                
+                cell.appendChild(pill);
+            });
+            
+            row.appendChild(cell);
+        });
+        
+        calendarBody.appendChild(row);
+    });
+
+    setupCalendarListeners();
 }
 
-function renderMonthView(container) {
-    const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
-    const firstDayIndex = new Date(currentYear, currentMonth - 1, 1).getDay(); // 0 is Sunday
-    
-    const filterAnalyst = dashboardFilters.analyst;
-    const filterClient = dashboardFilters.client;
-
-    // Empty slots for previous month
-    for (let i = 0; i < firstDayIndex; i++) {
-        const emptyCell = document.createElement('div');
-        emptyCell.className = 'calendar-day empty';
-        container.appendChild(emptyCell);
-    }
-
-    const today = new Date();
-    const isCurrentMonth = today.getMonth() + 1 === currentMonth && today.getFullYear() === currentYear;
-
-    for (let d = 1; d <= daysInMonth; d++) {
-        const cell = document.createElement('div');
-        cell.className = 'calendar-day';
-        if(isCurrentMonth && today.getDate() === d) cell.classList.add('today');
-        
-        cell.innerHTML = `<div class="day-number">${d}</div><div class="tasks-container"></div>`;
-        
-        // Filter tasks scheduled on this day
-        const dayTasks = tasks.filter(t => 
-            t.status !== 'proyectada' && 
-            t.scheduledDays && 
-            t.scheduledDays.some(sd => {
-                const sdDate = sd.date ? new Date(sd.date + 'T00:00:00') : null;
-                if (sdDate) {
-                    return sdDate.getDate() === d && (sdDate.getMonth() + 1) === currentMonth && sdDate.getFullYear() === currentYear;
-                }
-                return sd.day === d && t.period === formatPeriod();
-            })
-        );
-        
-        const tasksContainer = cell.querySelector('.tasks-container');
-        
-        dayTasks.forEach(t => {
-            // Apply analyst and client filters
-            if(filterAnalyst && t.analyst !== filterAnalyst) return;
-            if(filterClient && t.client !== filterClient) return;
-
-            const taskEl = document.createElement('div');
-            taskEl.className = `calendar-task ${t.status}`;
-            if(t.isAbsence) taskEl.classList.add('absence');
-            
-            // Determinar si es un día de reporte o de campo
-            const dayInfo = t.scheduledDays.find(sd => {
-                const sdDate = sd.date ? new Date(sd.date + 'T00:00:00') : null;
-                if (sdDate) {
-                    return sdDate.getDate() === d && (sdDate.getMonth() + 1) === currentMonth && sdDate.getFullYear() === currentYear;
-                }
-                return sd.day === d;
-            });
-            const typeLabel = dayInfo && dayInfo.type === 'report' ? '📝' : '';
-            
-            taskEl.innerHTML = `<span>${typeLabel} ${t.client}</span>`;
-            taskEl.title = `${t.client} (${t.status.toUpperCase()})${t.analyst ? ' - ' + t.analyst : ''}`;
-            taskEl.addEventListener('click', (e) => {
-                e.stopPropagation();
-                openTaskDetailModal(t.id);
-            });
-            tasksContainer.appendChild(taskEl);
-        });
-
-        // Drop handling
+function setupCalendarListeners() {
+    document.querySelectorAll('.calendar-cell').forEach(cell => {
         cell.addEventListener('dragover', e => {
             e.preventDefault();
             cell.classList.add('drag-over');
         });
-        cell.addEventListener('dragleave', () => cell.classList.remove('drag-over'));
-        cell.addEventListener('drop', e => {
+        
+        cell.addEventListener('dragleave', e => {
+            cell.classList.remove('drag-over');
+        });
+        
+        cell.addEventListener('drop', async e => {
             e.preventDefault();
             cell.classList.remove('drag-over');
-            const taskId = e.dataTransfer.getData('taskId');
-            assignTaskToDay(taskId, d);
-        });
-
-        container.appendChild(cell);
-    }
-}
-
-function renderWeekView(container) {
-    container.style.gridTemplateColumns = 'repeat(7, 1fr)';
-    
-    const filterAnalyst = dashboardFilters.analyst;
-    const filterClient = dashboardFilters.client;
-
-    const today = new Date();
-    today.setHours(0,0,0,0);
-
-    for (let i = 0; i < 7; i++) {
-        const currentDay = new Date(currentWeekStart);
-        currentDay.setDate(currentDay.getDate() + i);
-        const dayNum = currentDay.getDate();
-        const monthNum = currentDay.getMonth() + 1;
-        const yearNum = currentDay.getFullYear();
-        
-        const cell = document.createElement('div');
-        cell.className = 'calendar-day week-view';
-        if (currentDay.getTime() === today.getTime()) cell.classList.add('today');
-        
-        const dayName = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"][currentDay.getDay()];
-        cell.innerHTML = `
-            <div class="day-header-week">
-                <span class="day-name">${dayName}</span>
-                <span class="day-number">${dayNum}</span>
-            </div>
-            <div class="tasks-container"></div>
-        `;
-        
-        // Filtrar tareas para este día específico
-        const dayTasks = tasks.filter(t => 
-            t.status !== 'proyectada' && 
-            t.scheduledDays && 
-            t.scheduledDays.some(sd => {
-                const sdDate = sd.date ? new Date(sd.date + 'T00:00:00') : null;
-                if (sdDate) {
-                    return sdDate.getDate() === dayNum && (sdDate.getMonth() + 1) === monthNum && sdDate.getFullYear() === yearNum;
+            
+            let dragInfo = draggedTaskId; 
+            let isPillMove = dragInfo && dragInfo.startsWith('pill-');
+            let taskId = dragInfo;
+            if (isPillMove) {
+                let dragEl = document.getElementById(dragInfo);
+                if (dragEl) {
+                    taskId = dragEl.getAttribute('data-task-id');
+                } else {
+                    taskId = dragInfo.split('-')[1]; // Fallback
                 }
-                // Fallback para datos viejos que solo tenían 'day' y dependían del 'period' global
-                return sd.day === dayNum && t.period === `${yearNum}-${monthNum.toString().padStart(2,'0')}`;
-            })
-        );
-        
-        const tasksContainer = cell.querySelector('.tasks-container');
-        dayTasks.forEach(t => {
-            if(filterAnalyst && t.analyst !== filterAnalyst) return;
-            if(filterClient && t.client !== filterClient) return;
-
-            const taskEl = document.createElement('div');
-            taskEl.className = `calendar-task ${t.status}`;
-            if(t.isAbsence) taskEl.classList.add('absence');
-            
-            const dayInfo = t.scheduledDays.find(sd => {
-                const sdDate = sd.date ? new Date(sd.date + 'T00:00:00') : null;
-                if (sdDate) return sdDate.getDate() === dayNum && (sdDate.getMonth() + 1) === monthNum;
-                return sd.day === dayNum;
-            });
-            const typeLabel = dayInfo && dayInfo.type === 'report' ? '📝' : '';
-            
-            taskEl.innerHTML = `
-                <div style="font-weight:700; font-size:0.75rem;">${typeLabel} ${t.client}</div>
-                <div style="font-size:0.65rem; opacity:0.9;">${t.analyst || ''}</div>
-            `;
-            taskEl.addEventListener('click', (e) => {
-                e.stopPropagation();
-                openTaskDetailModal(t.id);
-            });
-            tasksContainer.appendChild(taskEl);
-        });
-
-        // Drop handling
-        cell.addEventListener('dragover', e => {
-            e.preventDefault();
-            cell.classList.add('drag-over');
-        });
-        cell.addEventListener('dragleave', () => cell.classList.remove('drag-over'));
-        cell.addEventListener('drop', e => {
-            e.preventDefault();
-            cell.classList.remove('drag-over');
-            const taskId = e.dataTransfer.getData('taskId');
-            
-            // Para la vista semanal, necesitamos pasar la fecha completa o el día relativo al mes de la celda
-            assignTaskToDay(taskId, dayNum, `${yearNum}-${monthNum.toString().padStart(2,'0')}`);
-        });
-
-        container.appendChild(cell);
-    }
-}
-
-async function assignTaskToDay(taskId, day, customPeriod) {
-    const task = tasks.find(t => t.id === taskId);
-    if(!task) return;
-    
-    const targetPeriod = customPeriod || formatPeriod();
-
-    // Si ya está en otro estado, no permitir re-asignar desde el sidebar (aunque el sidebar solo muestra proyectadas)
-    if(task.status !== 'proyectada') {
-        // Lógica para mover entre días (拖拽 en el calendario) - Pendiente implementar
-        return;
-    }
-
-    // Validar disponibilidad del equipo
-    const isAvailable = await validateEquipmentAvailability(task.equipmentId, task.id, [{ day, type: 'field' }]);
-    if(!isAvailable) {
-        alert("El equipo seleccionado no está disponible para este día.");
-        return;
-    }
-
-    task.status = 'programada';
-    task.period = targetPeriod;
-    task.scheduledDays = [{ day: day, type: 'field', date: `${targetPeriod}-${String(day).padStart(2,'0')}` }];
-    
-    // Si la gestión requiere más días (field o report), abrir modal para completar
-    if(task.daysField > 1 || task.daysReport > 0) {
-        openEditTaskModal(task.id);
-    } else {
-        saveTasks();
-        if(supabaseClient) await saveTaskToSupabase(task);
-        renderCalendar();
-        renderPlanningSidebar();
-        logActivity(`📅 Se programó <strong>${task.client}</strong> para el día ${day}.`, 'assign');
-    }
-}
-
-function openTaskDetailModal(taskId) {
-    const task = tasks.find(t => t.id === taskId);
-    if(!task) return;
-    
-    const modal = document.getElementById('taskInfoModal');
-    const content = document.getElementById('taskInfoContent');
-    if(!modal || !content) return;
-    
-    const daysStr = task.scheduledDays ? task.scheduledDays.map(d => `${d.day} (${d.type === 'report' ? 'Reporte' : 'Campo'})`).join(', ') : 'No asignados';
-    
-    content.innerHTML = `
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-            <div>
-                <p><strong>Cliente:</strong><br>${task.client}</p>
-                <p><strong>Analista:</strong><br>${task.analyst || 'No asignado'}</p>
-                <p><strong>Estado:</strong><br><span class="card-status ${task.status}">${task.status.toUpperCase()}</span></p>
-                <p><strong>Tipo Servicio:</strong><br>${task.serviceType || 'CBM'}</p>
-            </div>
-            <div>
-                <p><strong>Presupuesto:</strong><br>$${(task.budget || 0).toLocaleString('es-CO')}</p>
-                <p><strong>Equipo:</strong><br>${task.equipment || 'Ninguno'}</p>
-                <p><strong>Días Programados:</strong><br>${daysStr}</p>
-                <p><strong>Mes Facturación:</strong><br>${task.mesFacturacion || task.period}</p>
-            </div>
-        </div>
-        ${task.csatScore ? `
-        <div style="margin-top:1rem; padding:1rem; background:var(--clr-green-light); border-radius:8px;">
-            <p style="margin:0"><strong>Satisfacción Cliente (CSAT):</strong> ⭐ ${task.csatScore}/5</p>
-            <p style="margin:0.5rem 0 0 0; font-style:italic; font-size:0.85rem">"${task.csatObservations || ''}"</p>
-        </div>` : ''}
-        <div style="margin-top: 1.5rem; display: flex; gap: 0.5rem;">
-            <button class="btn-primary" onclick="openEditTaskModal('${task.id}')">Editar Gestión</button>
-            <button class="btn-secondary" onclick="closeModal('taskInfoModal')">Cerrar</button>
-        </div>
-    `;
-    
-    modal.classList.add('active');
-}
-
-function closeModal(modalId) {
-    const modal = document.getElementById(modalId);
-    if(modal) modal.classList.remove('active');
-}
-
-function openTaskModal() {
-    // Reset form
-    document.getElementById('taskModalTitle').textContent = 'Nueva Gestión';
-    document.getElementById('taskFormSubmit').textContent = 'Crear Gestión';
-    document.getElementById('editTaskId').value = '';
-    document.getElementById('taskForm').reset();
-    
-    // Poblar clientes
-    const clientSelect = document.getElementById('taskClient');
-    clientSelect.innerHTML = '<option value="">Seleccione un cliente...</option>';
-    dbClients.forEach(c => {
-        clientSelect.innerHTML += `<option value="${c.id}">${getClientDisplayName(c)}</option>`;
-    });
-
-    // Poblar analistas en la tabla de asignación
-    resetAnalystAssignmentTable();
-    
-    // Poblar equipos
-    const equipSelect = document.getElementById('taskEquipment');
-    equipSelect.innerHTML = '<option value="">Seleccione un equipo...</option>';
-    dbEquipment.forEach(e => {
-        equipSelect.innerHTML += `<option value="${e.id}">${e.name} (${e.serial_number || 'S/N'})</option>`;
-    });
-
-    // Mes de facturacion default
-    document.getElementById('taskBillingMonth').value = formatPeriod();
-
-    document.getElementById('taskModal').classList.add('active');
-}
-
-function resetAnalystAssignmentTable() {
-    const tbody = document.querySelector('#analyst-assignment-table tbody');
-    tbody.innerHTML = '';
-    addAnalystRow(); // Empezar con una fila
-}
-
-function addAnalystRow(selectedAnalyst = '', isTitular = false, makesReport = false, percentage = 100) {
-    const tbody = document.querySelector('#analyst-assignment-table tbody');
-    const row = document.createElement('tr');
-    row.innerHTML = `
-        <td>
-            <select class="analyst-name" style="width:100%; font-size:0.8rem;">
-                <option value="">Seleccione...</option>
-                ${dbAnalysts.map(a => `<option value="${a.name}" ${selectedAnalyst === a.name ? 'selected' : ''}>${a.name}</option>`).join('')}
-            </select>
-        </td>
-        <td style="text-align:center"><input type="checkbox" class="analyst-titular" ${isTitular ? 'checked' : ''} onchange="handleTitularChange(this)"></td>
-        <td style="text-align:center"><input type="checkbox" class="analyst-report" ${makesReport ? 'checked' : ''}></td>
-        <td><input type="number" class="analyst-pct" value="${percentage}" min="0" max="100" style="width:100%; font-size:0.8rem;"></td>
-        <td><button type="button" class="btn-secondary" onclick="this.closest('tr').remove()" style="padding:2px 5px; font-size:0.7rem;">✕</button></td>
-    `;
-    tbody.appendChild(row);
-}
-
-function handleTitularChange(checkbox) {
-    if(checkbox.checked) {
-        // Desmarcar otros titulares
-        const allTitulars = document.querySelectorAll('.analyst-titular');
-        allTitulars.forEach(cb => {
-            if(cb !== checkbox) cb.checked = false;
-        });
-    }
-}
-
-document.getElementById('taskForm').addEventListener('submit', e => {
-    e.preventDefault();
-    
-    const editId = document.getElementById('editTaskId').value;
-    const clientId = document.getElementById('taskClient').value;
-    const clientObj = dbClients.find(c => c.id === clientId);
-    const clientNameFromSelect = clientObj ? getClientDisplayName(clientObj) : '';
-    
-    // Si es edición y no se cambió el cliente, usar el que ya tenía
-    const existingTask = editId ? tasks.find(t => t.id === editId) : null;
-    const finalClientName = clientNameFromSelect || (existingTask ? existingTask.client : '');
-
-    if(!finalClientName) {
-        alert("Por favor seleccione un cliente");
-        return;
-    }
-
-    const equipId = document.getElementById('taskEquipment').value;
-    const equipObj = dbEquipment.find(e => e.id === equipId);
-    const equipName = equipObj ? equipObj.name : '';
-    const budget = parseFloat(document.getElementById('taskBudget').value) || 0;
-    const dField = parseInt(document.getElementById('taskDaysField').value) || 1;
-    const dReport = parseInt(document.getElementById('taskDaysReport').value) || 0;
-    const serviceType = document.getElementById('taskServiceType').value;
-    const isAbsence = document.getElementById('taskIsAbsence').checked;
-
-    // Recoger asignación de analistas
-    const analystsAssignment = [];
-    let totalPercentage = 0;
-    document.querySelectorAll('#analyst-assignment-table tbody tr').forEach(row => {
-        const aName = row.querySelector('.analyst-name').value;
-        const isTitular = row.querySelector('.analyst-titular').checked;
-        const makesReport = row.querySelector('.analyst-report').checked;
-        const pct = parseFloat(row.querySelector('.analyst-pct').value) || 0;
-        
-        if(aName) {
-            totalPercentage += pct;
-            analystsAssignment.push({
-                name: aName,
-                isTitular: isTitular,
-                makesReport: makesReport,
-                percentage: pct
-            });
-        }
-    });
-
-    if(!isAbsence && analystsAssignment.length > 0 && Math.abs(totalPercentage - 100) > 0.01) {
-        alert("El porcentaje financiero total debe sumar exactamente 100%. Actualmente suma " + totalPercentage + "%.");
-        return;
-    }
-
-    const mainAnalyst = analystsAssignment.length > 0 
-        ? (analystsAssignment.find(a => a.isTitular) || analystsAssignment[0]).name 
-        : '';
-    let displayAnalyst = analystsAssignment.length > 0
-        ? analystsAssignment.map(a => `${a.name} (${a.percentage}%)`).join(', ')
-        : '';
-    if(analystsAssignment.length === 1) displayAnalyst = mainAnalyst;
-
-    // Validation
-    const taskObj = editId ? tasks.find(t=>t.id===editId) : null;
-    validateEquipmentAvailability(equipId, editId, taskObj ? taskObj.scheduledDays : []).then(available => {
-        if(!available) {
-            alert("Debe escoger otro equipo para esta fecha, el equipo seleccionado ya se encuentra ocupado.");
-            return;
-        }
-
-        if(editId) {
-            // ACTUALIZAR
-            const idx = tasks.findIndex(t => t.id === editId);
-            if(idx !== -1) {
-                tasks[idx].client = finalClientName;
-                tasks[idx].analyst = displayAnalyst || mainAnalyst;
-                tasks[idx].analysts_assignment = analystsAssignment;
-                tasks[idx].equipment = equipName;
-                tasks[idx].equipmentId = equipId;
-                tasks[idx].budget = isAbsence ? 0 : budget;
-                tasks[idx].daysField = dField;
-                tasks[idx].daysReport = dReport;
-                tasks[idx].serviceType = serviceType;
-                tasks[idx].isAbsence = isAbsence;
-                tasks[idx].mesFacturacion = document.getElementById('taskBillingMonth').value;
-                logActivity(`✏️ Se actualizó la gestión de <strong>${finalClientName}</strong>.`, 'update');
             }
-        } else {
-            // CREAR
-            const newTask = {
-                id: generateId(),
-                client: finalClientName,
-                analyst: displayAnalyst || mainAnalyst,
-                analysts_assignment: analystsAssignment,
-                equipment: equipName,
-                equipmentId: equipId,
-                budget: isAbsence ? 0 : budget,
-                daysField: dField,
-                daysReport: dReport,
-                serviceType: serviceType,
-                isAbsence: isAbsence,
-                scheduledDays: [],
-                status: 'proyectada',
-                period: formatPeriod(),
-                mesFacturacion: document.getElementById('taskBillingMonth').value
-            };
-            tasks.push(newTask);
-            logActivity(`✨ Se proyectó la gestión de <strong>${finalClientName}</strong>.`, 'create');
-        }
-        
-        saveTasks();
-        if(editId) {
-            const task = tasks.find(t=>t.id===editId);
-            if(task) saveTaskToSupabase(task);
-        } else {
-            saveTaskToSupabase(tasks[tasks.length - 1]);
-        }
-        
-        renderBoard();
-        renderCalendar();
-        renderPlanningSidebar();
-        renderTasksView(); 
-        closeModal('taskModal');
-    });
-    
-    // Limpiar estado edición para la próxima vez
-    document.getElementById('editTaskId').value = '';
-    document.getElementById('taskModalTitle').textContent = 'Nueva Gestión';
-    document.getElementById('taskFormSubmit').textContent = 'Crear Gestión';
-});
-
-function openClosingMeetingModal(taskId) {
-    const task = tasks.find(t => t.id === taskId);
-    if(!task) return;
-
-    openCsatModal(taskId, task.status);
-    
-    document.getElementById('csatModalTitle').textContent = 'Reunión de Cierre de Gestión';
-    document.getElementById('csatSubmitBtn').textContent = 'Guardar Registro de Cierre';
-    
-    // El openCsatModal ya resetea el form y añade la clase active, pero nosotros queremos sobreescribir campos:
-    document.getElementById('csatScore').value = task.csatScore || 5;
-    document.getElementById('csatObservations').value = task.csatObservations || '';
-    document.getElementById('checkAlertvox').checked = task.alertvoxChecked || false;
-}
-
-document.getElementById('csatForm').addEventListener('submit', async e => {
-    e.preventDefault();
-    const taskId = document.getElementById('csatTaskId').value;
-    const targetStatus = document.getElementById('csatTargetStatus').value;
-    const score = document.getElementById('csatScore').value;
-    const observations = document.getElementById('csatObservations').value;
-    const alertvox = document.getElementById('checkAlertvox').checked;
-    
-    const taskIndex = tasks.findIndex(t => t.id === taskId);
-    if(taskIndex !== -1) {
-        const oldStatus = tasks[taskIndex].status;
-        tasks[taskIndex].status = targetStatus;
-        tasks[taskIndex].csatScore = score;
-        tasks[taskIndex].csatObservations = observations;
-        tasks[taskIndex].alertvoxChecked = alertvox;
-        
-        let logMsg = `✅ Registro de cierre para <strong>${tasks[taskIndex].client}</strong> actualizado. CSAT: <strong>⭐ ${score}/5</strong>.`;
-        if (oldStatus !== targetStatus) {
-            logMsg += ` Estado cambió a <strong>${targetStatus.toUpperCase()}</strong>.`;
-        }
-        
-        logActivity(logMsg, 'csat');
-        
-        saveTasks();
-        await saveTaskToSupabase(tasks[taskIndex]);
-        
-        renderBoard();
-        renderCalendar();
-        renderPlanningSidebar();
-        renderTasksView();
-        closeModal('csatModal');
-    }
-});
-
-// View Navigation Logic
-function switchView(viewName) {
-    document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active-view'));
-    const targetView = document.getElementById(`view-${viewName}`);
-    if(targetView) {
-        targetView.classList.add('active-view');
-    }
-    
-    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-    const targetNav = document.getElementById(`nav-${viewName}`);
-    if(targetNav) {
-        targetNav.classList.add('active');
-    }
-    
-    const headerTitle = document.getElementById('header-title');
-    if (headerTitle) {
-        const titles = {
-            dashboard: 'Dashboard',
-            planning: 'Cronograma Semanal/Mensual',
-            message: 'Bitácora de Movimientos',
-            tasks: 'Gestión de Tareas',
-            finance: 'Módulo de Finanzas',
-            admin: 'Administración de Datos Maestros'
-        };
-        headerTitle.textContent = titles[viewName] || 'CBM Maestro';
-    }
-
-    if(viewName === 'planning') {
-        renderCalendar();
-        renderPlanningSidebar();
-    } else if(viewName === 'message') {
-        renderActivityLog();
-    } else if(viewName === 'tasks') {
-        renderTasksView();
-    } else if(viewName === 'finance') {
-        populateFinanceMonths();
-        renderFinanceView();
-    } else if(viewName === 'admin') {
-        renderAdminView();
-    } else {
-        renderBoard();
-    }
-}
-
-// Update Global Drop logic across Kanban to force sidebar sync
-function postDropSync() {
-    saveTasks();
-    renderBoard();
-    renderCalendar();
-    if(typeof renderPlanningSidebar === 'function') renderPlanningSidebar();
-}
-
-// Overwrite the normal saveTasks in the drop listeners:
-// Wait, to be elegant I'll define postDropSync above and call it inside the existing drop events.
-
-// Admin Data Module & App Initialization
-async function loadMasterData() {
-    if(!supabaseClient) {
-        console.warn("Supabase client is not available.");
-        return;
-    }
-    try {
-        const { data: clients, error: errC } = await supabaseClient.from('clients').select('*').order('company_name');
-        if(errC) console.error("Error fetching clients:", errC);
-        
-        const { data: analysts, error: errA } = await supabaseClient.from('analysts').select('*').order('name');
-        if(errA) console.error("Error fetching analysts:", errA);
-
-        const { data: equipment, error: errE } = await supabaseClient.from('equipment').select('*').eq('is_active', true).order('name');
-        if(errE) console.error("Error fetching equipment:", errE);
-        
-        if(clients) dbClients = clients;
-        if(analysts) dbAnalysts = analysts;
-        if(equipment) dbEquipment = equipment;
-        
-        populateGlobalFilterDropdowns();
-    } catch(err) {
-        console.error("Critical error in loadMasterData:", err);
-    }
-}
-
-async function renderAdminView() {
-    const analystsList = document.getElementById('admin-analysts-list');
-    const clientsList = document.getElementById('admin-clients-list');
-    if(!analystsList || !clientsList) return;
-
-    // Añadir botón de sincronización masiva si no existe
-    let syncBtnContainer = document.getElementById('admin-sync-container');
-    if(!syncBtnContainer) {
-        syncBtnContainer = document.createElement('div');
-        syncBtnContainer.id = 'admin-sync-container';
-        syncBtnContainer.style.marginBottom = '1.5rem';
-        syncBtnContainer.style.padding = '1rem';
-        syncBtnContainer.style.background = 'var(--clr-blue-light)';
-        syncBtnContainer.style.borderRadius = 'var(--radius-lg)';
-        syncBtnContainer.style.display = 'flex';
-        syncBtnContainer.style.justifyContent = 'space-between';
-        syncBtnContainer.style.alignItems = 'center';
-        syncBtnContainer.innerHTML = `
-            <div>
-                <h4 style="margin:0; color:var(--clr-blue)">Sincronización de Datos</h4>
-                <p style="margin:0; font-size:0.75rem; color:var(--text-secondary)">Sube tus datos locales actuales a la base de datos en la nube.</p>
-            </div>
-            <button class="btn-primary" onclick="syncAllToSupabase()" style="background:var(--clr-blue)">⬆️ Sincronizar con la Nube</button>
-        `;
-        document.querySelector('#view-admin').insertBefore(syncBtnContainer, document.querySelector('.admin-grid'));
-    }
-
-    
-    // Render Analysts Table
-    analystsList.innerHTML = `
-    <div class="table-container">
-        <table class="data-table dense-table">
-            <thead>
-                <tr>
-                    <th style="width: 35%;">Nombre</th>
-                    <th style="width: 30%;">Especialidad</th>
-                    <th style="width: 20%;">Estado</th>
-                    <th style="width: 15%;">Acción</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${dbAnalysts.map(a => `
-                <tr>
-                    <td><strong>${a.name}</strong></td>
-                    <td>${a.specialty || '-'}</td>
-                    <td><span class="card-analyst" style="background: ${a.is_active ? 'var(--clr-green-light)' : 'var(--clr-pink-light)'}; color: ${a.is_active ? 'var(--clr-green)' : 'var(--clr-pink)'}">${a.is_active ? 'Activo' : 'Inactivo'}</span></td>
-                    <td>
-                        <div class="action-icons" style="gap: 10px;">
-                            <span class="action-icon edit" onclick="editAnalyst('${a.id}')" title="Editar" style="font-size: 1.1rem; cursor: pointer;">📝</span>
-                            <span class="action-icon delete" onclick="deleteAnalyst('${a.id}')" title="Borrar" style="font-size: 1.1rem; cursor: pointer;">🗑️</span>
-                        </div>
-                    </td>
-                </tr>
-                `).join('')}
-                <tr>
-                    <td><input type="text" id="qa_analyst_name" placeholder="Nuevo analista..." onkeydown="if(event.key==='Enter') quickAddAnalyst()"></td>
-                    <td><input type="text" id="qa_analyst_spec" placeholder="Especialidad..." onkeydown="if(event.key==='Enter') quickAddAnalyst()"></td>
-                    <td style="font-size:0.8rem; color:var(--text-secondary)">Nuevo</td>
-                    <td><button class="btn-primary" style="padding:0.4rem; font-size:0.8rem; width:100%" onclick="quickAddAnalyst()">Guardar</button></td>
-                </tr>
-            </tbody>
-        </table>
-    </div>`;
-    
-    // Render Clients Table
-    clientsList.innerHTML = `
-    <div class="table-container">
-        <table class="data-table dense-table">
-            <thead>
-                <tr>
-                    <th style="width: 35%;">Planta</th>
-                    <th style="width: 30%;">Contacto</th>
-                    <th style="width: 20%;">Ciudad</th>
-                    <th style="width: 15%;">Acción</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${dbClients.map(c => `
-                <tr>
-                    <td><strong>${getClientDisplayName(c)}</strong></td>
-                    <td>${c.contact_name || '-'}</td>
-                    <td>
-                        <div class="action-icons" style="gap: 10px;">
-                            <span class="action-icon edit" onclick="openPreferencesModal('${c.id}', '${c.company_name}')" title="Prioridades" style="font-size: 1.1rem; cursor: pointer;">⭐</span>
-                            <span class="action-icon edit" onclick="editClient('${c.id}')" title="Editar" style="font-size: 1.1rem; cursor: pointer;">📝</span>
-                            <span class="action-icon delete" onclick="deleteClient('${c.id}')" title="Borrar" style="font-size: 1.1rem; cursor: pointer;">🗑️</span>
-                        </div>
-                    </td>
-                </tr>
-                `).join('')}
-                <tr>
-                    <td><input type="text" id="qa_client_plant" placeholder="Nombre Planta..." onkeydown="if(event.key==='Enter') quickAddClient()"></td>
-                    <td><input type="text" id="qa_client_contact" placeholder="Contacto..." onkeydown="if(event.key==='Enter') quickAddClient()"></td>
-                    <td><button class="btn-primary" style="padding:0.4rem; font-size:0.8rem; width:100%" onclick="quickAddClient()">Guardar</button></td>
-                </tr>
-            </tbody>
-        </table>
-    </div>`;
-
-    renderEquipmentTable();
-}
-
-// ----------------------------------------------------
-// ADMIN EQUIPMENT RENDER
-// ----------------------------------------------------
-function renderEquipmentTable() {
-    const equipList = document.getElementById('admin-equipment-list');
-    if(!equipList) return;
-    equipList.innerHTML = `
-    <div class="table-container">
-        <table class="data-table dense-table">
-            <thead><tr>
-                <th style="width: 40%;">Nombre del Equipo</th>
-                <th style="width: 25%;">Serie (S/N)</th>
-                <th style="width: 20%;">Estado</th>
-                <th style="width: 15%;">Acción</th>
-            </tr></thead>
-            <tbody>
-                ${dbEquipment.map(eq => `
-                <tr>
-                    <td><strong>${eq.name}</strong></td>
-                    <td style="font-size:0.85rem">${eq.serial_number || '-'}</td>
-                    <td><span class="card-analyst" style="background:${eq.is_active ? 'var(--clr-green-light)':'var(--clr-pink-light)'}; color:${eq.is_active ? 'var(--clr-green)':'var(--clr-pink)'}">${eq.is_active ? 'Activo':'Inactivo'}</span></td>
-                    <td>
-                        <div class="action-icons" style="gap: 10px;">
-                            <span class="action-icon edit" onclick="editEquipment('${eq.id}')" title="Editar" style="font-size: 1.1rem; cursor: pointer;">📝</span>
-                            <span class="action-icon delete" onclick="deleteEquipment('${eq.id}')" title="Borrar" style="font-size: 1.1rem; cursor: pointer;">🗑️</span>
-                        </div>
-                    </td>
-                </tr>
-                `).join('')}
-                <tr>
-                    <td><input type="text" id="qa_equip_name" placeholder="Ej: CSI 2140..." onkeydown="if(event.key==='Enter') quickAddEquipment()"></td>
-                    <td><input type="text" id="qa_equip_serial" placeholder="S/N (opcional)" onkeydown="if(event.key==='Enter') quickAddEquipment()"></td>
-                    <td style="font-size:0.8rem; color:var(--text-secondary)">Nuevo</td>
-                    <td><button class="btn-primary" style="padding:0.4rem; font-size:0.8rem; width:100%" onclick="quickAddEquipment()">Guardar</button></td>
-                </tr>
-            </tbody>
-        </table>
-    </div>`;
-}
-
-async function quickAddEquipment() {
-    if(!supabaseClient) return;
-    const name = document.getElementById('qa_equip_name').value.trim();
-    const serial = document.getElementById('qa_equip_serial').value.trim();
-    if(!name) { alert('El nombre del equipo es requerido'); return; }
-    try {
-        const { error } = await supabaseClient.from('equipment').insert({ name, serial_number: serial || null }); // Se quitó type: 'CBM'
-        if(error) { console.error(error); return; }
-        await loadMasterData();
-        renderAdminView();
-    } catch(err) { console.error(err); }
-}
-
-// ----------------------------------------------------
-// TASKS VIEW (GESTIONES) - QUICK ENTRY TABLE
-// ----------------------------------------------------
-function renderTasksView() {
-    const listContainer = document.getElementById('tasks-list-container');
-    if(listContainer) renderTasksTable(listContainer);
-}
-
-async function quickAddAnalyst() {
-    if(!supabaseClient) return;
-    const name = document.getElementById('qa_analyst_name').value.trim();
-    const spec = document.getElementById('qa_analyst_spec').value.trim();
-    if(!name) { alert("El nombre del analista es requerido"); return; }
-    
-    try {
-        const { error } = await supabaseClient.from('analysts').insert({ name: name, specialty: spec });
-        if(error) console.error(error);
-        await loadMasterData();
-        renderAdminView();
-        renderCalendar();
-    } catch(err) { console.error(err); }
-}
-
-async function quickAddClient() {
-    if(!supabaseClient) return;
-    const plant = document.getElementById('qa_client_plant').value.trim();
-    const contact = document.getElementById('qa_client_contact').value.trim();
-    if(!plant) { alert("Planta es requerido"); return; }
-    
-    try {
-        const { error } = await supabaseClient.from('clients').insert({ company_name: plant, plant: plant, contact_name: contact });
-        if(error) console.error(error);
-        await loadMasterData();
-        renderAdminView();
-        renderCalendar();
-    } catch(err) { console.error(err); }
-}
-
-function downloadClientTemplate() {
-    const ws = XLSX.utils.aoa_to_sheet([["Planta", "Contacto"]]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Plantilla");
-    XLSX.writeFile(wb, "Plantilla_Clientes.xlsx");
-}
-
-function handleClientImport(event) {
-    const file = event.target.files[0];
-    if(!file) return;
-    const reader = new FileReader();
-    reader.onload = async function(e) {
-        try {
-            const data = new Uint8Array(e.target.result);
-            const workbook = XLSX.read(data, {type: 'array'});
-            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-            const jsonData = XLSX.utils.sheet_to_json(firstSheet, {defval: ""});
             
-            if(jsonData.length === 0) { alert("El archivo está vacío"); return; }
-            
-            const recordsToInsert = jsonData.map(row => {
-                const plant = row['Planta'] || row['planta'] || row['PLANTA'] || '';
-                const contact = row['Contacto'] || row['contacto'] || row['CONTACTO'] || '';
-                return {
-                    company_name: plant,
-                    plant: plant,
-                    contact_name: contact
-                };
-            }).filter(r => r.plant);
-            
-            if(recordsToInsert.length === 0) {
-                alert("No se encontraron registros válidos. Asegúrate de tener la columna 'Planta'.");
-                event.target.value = '';
+            const taskIndex = tasks.findIndex(t => t.id === taskId);
+            if (taskIndex === -1) return;
+
+            const targetAnalyst = cell.getAttribute('data-analyst');
+            const targetDateStr = cell.getAttribute('data-date'); 
+            const targetDay = parseInt(cell.getAttribute('data-day'));
+            const task = tasks[taskIndex];
+
+            // Validation: Analyst Assignment
+            let isAssignedToTarget = (task.analyst === targetAnalyst);
+            if (!isAssignedToTarget && task.analysts_assignment && task.analysts_assignment.length > 0) {
+                isAssignedToTarget = task.analysts_assignment.some(a => a.name === targetAnalyst);
+            }
+
+            if (!isAssignedToTarget) {
+                alert(`Esta gestión está asignada a: ${task.analyst}. Debe arrastrarla a una de las filas de sus analistas.`);
                 return;
             }
-            
-            if(!supabaseClient) { alert("Error de conexión"); return; }
-            
-            const { error } = await supabaseClient.from('clients').insert(recordsToInsert);
-            if(error) {
-                console.error("Error importando:", error);
-                alert("Hubo un error importando los clientes.");
-            } else {
-                alert("Importación exitosa. Se añadieron " + recordsToInsert.length + " clientes.");
-                await loadMasterData();
-                renderAdminView();
-                renderCalendar();
+
+            // Check equipment availability before applying drop
+            if(task.equipmentId) {
+                let futureScheduledDays = [...task.scheduledDays];
+                if(isPillMove) {
+                    let dayIdx = 0;
+                    let dragEl = document.getElementById(dragInfo);
+                    if (dragEl) {
+                        dayIdx = parseInt(dragEl.getAttribute('data-day-index'), 10);
+                    } else {
+                        dayIdx = parseInt(dragInfo.split('-').pop(), 10); // Fallback
+                    }
+                    futureScheduledDays[dayIdx] = { ...futureScheduledDays[dayIdx], day: targetDay, date: targetDateStr };
+                } else if(task.scheduledDays.length === 0) {
+                    futureScheduledDays = [{ day: targetDay, date: targetDateStr, type: 'field' }];
+                }
+                
+                const available = await validateEquipmentAvailability(task.equipmentId, task.id, futureScheduledDays);
+                if(!available) {
+                    alert("Debe escoger otro equipo para esta fecha, el equipo seleccionado ya se encuentra ocupado.");
+                    return;
+                }
             }
-        } catch(err) {
-            console.error("Error procesando archivo:", err);
-            alert("Error procesando el archivo Excel/CSV.");
-        }
-        event.target.value = ''; // Reset input
-    };
-    reader.readAsArrayBuffer(file);
+
+            if (isPillMove) {
+                let dayIdx = 0;
+                let dragEl = document.getElementById(dragInfo);
+                if (dragEl) {
+                    dayIdx = parseInt(dragEl.getAttribute('data-day-index'), 10);
+                } else {
+                    dayIdx = parseInt(dragInfo.split('-').pop(), 10); // Fallback
+                }
+                task.scheduledDays[dayIdx].day = targetDay;
+                task.scheduledDays[dayIdx].date = targetDateStr;
+                task.analyst = targetAnalyst; // Sincronizar analista por si cambió de fila
+                logActivity(`🚚 Se movió un día de la gestión <strong>${task.client}</strong> al día <strong>${targetDay}</strong>.`, 'assign');
+            } else {
+                task.analyst = targetAnalyst;
+                
+                if (task.scheduledDays.length === 0) {
+                    const [yStr, mStr, dStr] = targetDateStr.split('-');
+                    let loopDate = new Date(parseInt(yStr), parseInt(mStr) - 1, parseInt(dStr));
+                    
+                    let fieldAsigned = 0;
+                    const totalFieldNeeded = task.daysField || 1;
+                    while(fieldAsigned < totalFieldNeeded) {
+                        const y = loopDate.getFullYear();
+                        const m = loopDate.getMonth() + 1;
+                        const d = loopDate.getDate();
+                        if(!isHolidayOrWeekend(y, m, d)) {
+                            task.scheduledDays.push({ day: d, date: `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`, type: 'field' });
+                            fieldAsigned++;
+                        }
+                        loopDate.setDate(loopDate.getDate() + 1);
+                    }
+                    
+                    let reportAsigned = 0;
+                    const totalReportNeeded = task.daysReport || 0;
+                    while(reportAsigned < totalReportNeeded) {
+                        const y = loopDate.getFullYear();
+                        const m = loopDate.getMonth() + 1;
+                        const d = loopDate.getDate();
+                        if(!isHolidayOrWeekend(y, m, d)) {
+                            task.scheduledDays.push({ day: d, date: `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`, type: 'report' });
+                            reportAsigned++;
+                        }
+                        loopDate.setDate(loopDate.getDate() + 1);
+                    }
+                    
+                    const totalScheduled = fieldAsigned + reportAsigned;
+                    logActivity(`📅 Se programaron automáticamente <strong>${totalScheduled} días hábiles</strong> para <strong>${task.client}</strong>.`, 'assign');
+                } else {
+                    logActivity(`📌 Se reasignó la gestión <strong>${task.client}</strong> al <strong>Analista ${targetAnalyst}</strong>.`, 'assign');
+                }
+
+                if(task.status === 'proyectada') {
+                    task.status = 'programada';
+                }
+            }
+            
+            await saveTaskToSupabase(task);
+            postDropSync();
+        });
+    });
+
+    document.querySelectorAll('.calendar-task-pill').forEach(pill => {
+        pill.addEventListener('dragstart', function(e) {
+            if(this.getAttribute('draggable') === 'false') {
+                e.preventDefault();
+                return;
+            }
+            draggedTaskId = this.id; 
+            this.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+        });
+        pill.addEventListener('dragend', function(e) {
+            this.classList.remove('dragging');
+        });
+        pill.addEventListener('click', function(e) {
+            const taskId = this.getAttribute('data-task-id');
+            openTaskInfoModal(taskId);
+        });
+    });
 }
 
-async function editAnalyst(id) {
-    const analyst = dbAnalysts.find(a => a.id === id);
-    if(!analyst) return;
-    const newName = prompt("Editar nombre:", analyst.name);
-    if(!newName) return;
-    const newSpec = prompt("Editar especialidad:", analyst.specialty || '');
-    if(!supabaseClient) return;
-    if(confirm("Desea activar el analista?")) { analyst.is_active = true; } else { analyst.is_active = false; }
-    try {
-        await supabaseClient.from('analysts').update({ name: newName, specialty: newSpec, is_active: analyst.is_active }).eq('id', id);
-        await loadMasterData();
-        renderAdminView();
-    } catch(err) { console.error(err); }
+let draggedTaskId = null;
+
+function handleDragStart(e) {
+    draggedTaskId = this.id;
+    this.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
 }
 
-async function deleteAnalyst(id) {
-    if(confirm("Está seguro de que desea eliminar este analista?")) {
-        if(!supabaseClient) return;
-        try {
-            await supabaseClient.from('analysts').delete().eq('id', id);
-            await loadMasterData();
-            renderAdminView();
-        } catch(err) { console.error(err); }
-    }
+function handleDragEnd(e) {
+    this.classList.remove('dragging');
 }
 
-async function editClient(id) {
-    const client = dbClients.find(c => c.id === id);
-    if(!client) return;
-    const newPlant = prompt("Editar Nombre de la Planta:", client.plant || client.company_name);
-    if(!newPlant) return;
-    const newContact = prompt("Editar Contacto:", client.contact_name || '');
-    if(!supabaseClient) return;
-    try {
-        await supabaseClient.from('clients').update({ company_name: newPlant, plant: newPlant, contact_name: newContact }).eq('id', id);
-        await loadMasterData();
-        renderAdminView();
-    } catch(err) { console.error(err); }
-}
-
-async function deleteClient(id) {
-    if(confirm("Está seguro de que desea eliminar este cliente?")) {
-        if(!supabaseClient) return;
-        try {
-            await supabaseClient.from('clients').delete().eq('id', id);
-            await loadMasterData();
-            renderAdminView();
-        } catch(err) { console.error(err); }
-    }
-}
-
-async function editEquipment(id) {
-    const eq = dbEquipment.find(e => e.id === id);
-    if(!eq) return;
-    const newName = prompt("Editar nombre equipo:", eq.name);
-    if(!newName) return;
-    const newSerial = prompt("Editar S/N:", eq.serial_number || '');
-    if(!supabaseClient) return;
-    try {
-        await supabaseClient.from('equipment').update({ name: newName, serial_number: newSerial }).eq('id', id);
-        await loadMasterData();
-        renderAdminView();
-    } catch(err) { console.error(err); }
-}
-
-async function deleteEquipment(id) {
-    if(confirm("Eliminar equipo?")) {
-        if(!supabaseClient) return;
-        try {
-            await supabaseClient.from('equipment').update({ is_active: false }).eq('id', id);
-            await loadMasterData();
-            renderAdminView();
-        } catch(err) { console.error(err); }
-    }
-}
-
-// Global Activity Log (Memory/Local)
-function renderActivityLog() {
-    const container = document.getElementById('activity-log-items');
-    if(!container) return;
+document.querySelectorAll('.kanban-column').forEach(column => {
+    column.addEventListener('dragover', e => {
+        e.preventDefault();
+        column.classList.add('drag-over');
+    });
     
-    if(activityLog.length === 0) {
-        container.innerHTML = '<div style="text-align:center; padding:2rem; color:var(--text-secondary)">Aún no hay actividad registrada.</div>';
+    column.addEventListener('dragleave', e => {
+        column.classList.remove('drag-over');
+    });
+    
+    column.addEventListener('drop', async e => {
+        e.preventDefault();
+        column.classList.remove('drag-over');
+        
+        let newStatus = column.getAttribute('data-status');
+        if(newStatus === 'proyectado' || newStatus === 'proyectada') newStatus = 'proyectada';
+        
+        let taskId = draggedTaskId;
+        if(taskId && taskId.startsWith('pill-')) {
+            let dragEl = document.getElementById(draggedTaskId);
+            if(dragEl && dragEl.classList.contains('calendar-task-pill')) {
+                taskId = dragEl.getAttribute('data-task-id');
+            } else {
+                taskId = taskId.split('-')[1]; 
+            }
+        }
+        
+        const task = tasks.find(t => t.id === taskId);
+        if (task && task.status !== newStatus) {
+            await updateTaskStatus(taskId, newStatus);
+        }
+    });
+});
+
+function isHolidayOrWeekend(year, month, day) {
+    const d = new Date(year, month - 1, day);
+    const dayOfWeek = d.getDay();
+    if (dayOfWeek === 0 || dayOfWeek === 6) return true;
+    
+    // Festivos Colombia 2026 (Manual)
+    const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const holidays = [
+        "2026-01-01", "2026-01-12", "2026-03-23", "2026-04-02", "2026-04-03",
+        "2026-05-01", "2026-05-18", "2026-06-08", "2026-06-15", "2026-06-29",
+        "2026-07-20", "2026-08-07", "2026-08-17", "2026-10-12", "2026-11-02",
+        "2026-11-16", "2026-12-08", "2026-12-25"
+    ];
+    return holidays.includes(dateStr);
+}
+
+function addAnalystToTask(existingData = null) {
+    const container = document.getElementById('taskAnalystsContainer');
+    const row = document.createElement('div');
+    row.className = 'analyst-row';
+    
+    const analystName = existingData ? existingData.name : '';
+    const isTitularChecked = existingData ? (existingData.isTitular ? 'checked' : '') : (container.children.length === 0 ? 'checked' : '');
+    const isReportChecked = existingData ? (existingData.makesReport ? 'checked' : '') : (container.children.length === 0 ? 'checked' : '');
+    const pctValue = existingData ? existingData.percentage : (container.children.length === 0 ? 100 : 0);
+
+    row.innerHTML = `
+        <select class="analyst-select" style="flex: 2; padding: 0.4rem; font-size: 0.8rem; border: 1px solid #cbd5e1; border-radius: 4px;" required>
+            <option value="">Analista...</option>
+            ${dbAnalysts.map(a => `<option value="${a.name}" ${analystName === a.name ? 'selected' : ''}>${a.name}</option>`).join('')}
+        </select>
+        <label style="font-size: 0.7rem; display: flex; align-items: center; gap: 2px;">
+            <input type="radio" name="titular" class="analyst-titular" ${isTitularChecked}> Titular
+        </label>
+        <label style="font-size: 0.7rem; display: flex; align-items: center; gap: 2px;">
+            <input type="checkbox" class="analyst-report" ${isReportChecked}> Informe
+        </label>
+        <div style="display: flex; align-items: center; gap: 2px;">
+            <input type="number" class="analyst-pct" value="${pctValue}" min="0" max="100" style="width: 50px; padding: 0.4rem; font-size: 0.8rem; border: 1px solid #cbd5e1; border-radius: 4px;" required>
+            <span style="font-size: 0.75rem;">%</span>
+        </div>
+        <button type="button" onclick="this.parentElement.remove()" style="background: none; border: none; color: #ef4444; font-size: 1rem; cursor: pointer; padding: 0 4px;" title="Eliminar">&times;</button>
+    `;
+
+    container.appendChild(row);
+}
+
+async function onTaskClientChange() {
+    const clientId = document.getElementById('taskClient').value;
+    const container = document.getElementById('taskAnalystsContainer');
+    
+    if(!clientId) {
+        container.innerHTML = '<div style="font-size: 0.8rem; color: var(--text-secondary); text-align: center;">Seleccione primero un cliente para añadir analistas.</div>';
         return;
     }
     
-    container.innerHTML = activityLog.map(log => {
-        const date = new Date(log.timestamp);
-        const timeStr = date.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
-        const dateStr = date.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' });
+    if(container.innerHTML.trim() === '' || container.innerHTML.includes('Seleccione primero')) {
+        container.innerHTML = '';
+        if(!supabaseClient) {
+            addAnalystToTask();
+            return;
+        }
         
-        let icon = 'ℹ️';
-        if(log.type === 'create') icon = '✨';
-        if(log.type === 'assign') icon = '📅';
-        if(log.type === 'update') icon = '✏️';
-        if(log.type === 'csat') icon = '⭐';
-        
-        return `
-            <div class="log-entry">
-                <div class="log-icon">${icon}</div>
-                <div class="log-content">
-                    <div class="log-message">${log.message}</div>
-                    <div class="log-time">${dateStr}, ${timeStr}</div>
-                </div>
-            </div>
-        `;
-    }).join('');
+        try {
+            const { data: preferences, error } = await supabaseClient
+                .from('client_analyst_preferences')
+                .select('priority_level, analysts(id, name)')
+                .eq('client_id', clientId);
+                
+            if (error) console.error("Error cargando prioridades:", error);
+            
+            const priorityOrder = { 'Primary': 1, 'Secondary': 2, 'Backup': 3 };
+            const sortedPrefs = (preferences || []).sort((a,b) => priorityOrder[a.priority_level] - priorityOrder[b.priority_level]);
+            
+            let titularAdded = false;
+            sortedPrefs.forEach(pref => {
+                if(pref.analysts && !Array.isArray(pref.analysts)) {
+                    addAnalystToTask({
+                        name: pref.analysts.name,
+                        isTitular: !titularAdded,
+                        makesReport: !titularAdded,
+                        percentage: !titularAdded ? 100 : 0
+                    });
+                    titularAdded = true;
+                }
+            });
+
+            if(!titularAdded) {
+                addAnalystToTask();
+            }
+        } catch(err) {
+            console.error("Error in onTaskClientChange:", err);
+            addAnalystToTask();
+        }
+    }
 }
 
-// CSAT and Meeting Closure
-function openCsatModal(taskId, targetStatus) {
-    document.getElementById('csatTaskId').value = taskId;
-    document.getElementById('csatTargetStatus').value = targetStatus;
-    document.getElementById('csatForm').reset();
-    document.getElementById('csatModal').classList.add('active');
-}
-
-// Finance Module View
-let financeFilters = {
-    type: 'single', // 'single', 'multiple', 'year'
-    selectedMonths: []
-};
-
-function changeFinanceType(type) {
-    financeFilters.type = type;
-    document.querySelectorAll('.view-toggle-group button').forEach(btn => btn.classList.remove('active'));
-    document.getElementById(`fin-${type}`).classList.add('active');
+function onTaskServiceTypeChange() {
+    const serviceType = document.getElementById('taskServiceType').value;
+    const isAbsence = (serviceType === 'Vacaciones' || serviceType === 'Incapacidad');
     
-    const monthsContainer = document.getElementById('finance-months-selector');
-    if(monthsContainer) {
-        monthsContainer.style.display = type === 'multiple' ? 'block' : 'none';
+    const fieldsToToggle = ['group-client', 'group-budget', 'group-equipment', 'group-report'];
+    fieldsToToggle.forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.style.display = isAbsence ? 'none' : 'block';
+    });
+    
+    const container = document.getElementById('taskAnalystsContainer');
+
+    if(isAbsence) {
+        if(container.innerHTML.trim() === '' || container.innerHTML.includes('Seleccione primero')) {
+            container.innerHTML = '';
+            addAnalystToTask();
+        }
+        
+        document.getElementById('taskClient').required = false;
+        document.getElementById('taskBudget').required = false;
+        document.getElementById('taskDaysReport').required = false;
+    } else {
+        document.getElementById('taskClient').required = true;
+        document.getElementById('taskBudget').required = true;
+        document.getElementById('taskDaysReport').required = true;
+        onTaskClientChange(); 
+    }
+}
+
+function openTaskInfoModal(taskId) {
+    const task = tasks.find(t => t.id === taskId);
+    if(!task) return;
+    
+    document.getElementById('infoClient').textContent = task.client;
+    document.getElementById('infoAnalyst').textContent = task.analyst ? `Analista ${task.analyst}` : 'Sin Asignar';
+    
+    const equipEl = document.getElementById('infoEquipment');
+    if(task.equipment) {
+        equipEl.textContent = task.equipment;
+    } else {
+        equipEl.textContent = 'Sin equipo asignado';
     }
     
-    renderFinanceView();
+    const scheduledDaysText = task.scheduledDays && task.scheduledDays.length > 0 
+        ? task.scheduledDays.map(d => `${d.day}(${d.type === 'field' ? 'P' : 'I'})`).join(', ')
+        : 'Aún sin programar';
+    document.getElementById('infoDate').textContent = scheduledDaysText;
+    document.getElementById('infoBudget').textContent = task.budget.toLocaleString('es-CO');
+    
+    document.getElementById('infoDaysPlanned').textContent = `${task.daysField} Planta / ${task.daysReport} Informe`;
+    document.getElementById('infoDaysScheduledCount').textContent = `${task.scheduledDays.length} de ${task.daysField + task.daysReport} días asignados`;
+    
+    const statusEl = document.getElementById('infoStatus');
+    statusEl.textContent = task.status;
+    
+    const colors = {
+        'proyectada': 'var(--clr-blue)',
+        'programada': 'var(--clr-purple)',
+        'ejecutada': 'var(--clr-pink)',
+        'facturada': 'var(--clr-green)'
+    };
+    statusEl.style.color = colors[task.status] || 'var(--text-primary)';
+    
+    const csatContainer = document.getElementById('infoCsat');
+    const alertvoxContainer = document.getElementById('infoAlertvox');
+    
+    if(task.csatScore) {
+        csatContainer.style.display = 'block';
+        document.getElementById('infoCsatScore').textContent = task.csatScore;
+    } else {
+        csatContainer.style.display = 'none';
+    }
+    
+    if(task.alertvoxChecked) {
+        alertvoxContainer.style.display = 'block';
+    } else {
+        alertvoxContainer.style.display = 'none';
+    }
+    
+    document.getElementById('taskInfoModal').classList.add('active');
+
+    const editBtn = document.getElementById('btnEditTask');
+    const deleteBtn = document.getElementById('btnDeleteTask');
+
+    if(editBtn) {
+        if(task.status === 'facturada') {
+            editBtn.style.opacity = '0.5';
+            editBtn.style.cursor = 'not-allowed';
+            editBtn.onclick = () => alert("Las gestiones facturadas están bloqueadas y no pueden ser editadas.");
+        } else {
+            editBtn.style.opacity = '1';
+            editBtn.style.cursor = 'pointer';
+            editBtn.onclick = () => openEditTaskModal(taskId);
+        }
+    }
+    if(deleteBtn) {
+        if(task.status === 'facturada') {
+            deleteBtn.style.opacity = '0.5';
+            deleteBtn.style.cursor = 'not-allowed';
+            deleteBtn.onclick = () => alert("Las gestiones facturadas están bloqueadas y no pueden ser eliminadas.");
+        } else {
+            deleteBtn.style.opacity = '1';
+            deleteBtn.style.cursor = 'pointer';
+            deleteBtn.onclick = () => deleteTask(taskId);
+        }
+    }
+}
+
+// Finance View Logic
+let financeFilters = {
+    type: 'single', 
+    selectedMonths: [] 
+};
+
+function toggleFinancePeriodInputs() {
+    const type = document.getElementById('finance-period-type').value;
+    financeFilters.type = type;
+    
+    const selector = document.getElementById('finance-weeks-selector');
+    if(type === 'multiple') {
+        selector.style.display = 'block';
+        populateFinanceMonths();
+    } else {
+        selector.style.display = 'none';
+    }
 }
 
 function populateFinanceMonths() {
@@ -1807,7 +1396,6 @@ function populateFinanceMonths() {
     if(!container) return;
     container.innerHTML = '';
     
-    // Obtener todos los meses presentes en las tareas para que el usuario elija
     const periods = [...new Set(tasks.map(t => t.mesFacturacion || t.period))].sort();
     
     periods.forEach(p => {
@@ -1841,7 +1429,6 @@ function renderFinanceView() {
     const currentPeriod = formatPeriod();
     const currentYearStr = String(currentYear);
     
-    // Decidir qué meses filtrar
     let filteredPeriods = [currentPeriod];
     if(financeFilters.type === 'multiple') {
         filteredPeriods = financeFilters.selectedMonths;
@@ -1854,7 +1441,6 @@ function renderFinanceView() {
         const targetPeriod = t.mesFacturacion || t.period;
         if(!filteredPeriods.includes(targetPeriod)) return false;
         
-        // Match analyst filter
         if(analystFilter) {
             if(t.analysts_assignment && t.analysts_assignment.length > 0) {
                 return t.analysts_assignment.some(a => a.name === analystFilter);
@@ -1945,7 +1531,6 @@ function renderFinanceView() {
 async function validateEquipmentAvailability(equipmentId, taskId, scheduledDays) {
     if(!equipmentId || !scheduledDays || scheduledDays.length === 0) return true;
     
-    // Check locally first (for speed and offline support)
     const conflictLocal = tasks.find(t => 
         t.id !== taskId && 
         t.equipmentId === equipmentId && 
@@ -1954,7 +1539,6 @@ async function validateEquipmentAvailability(equipmentId, taskId, scheduledDays)
     );
     
     if(conflictLocal) return false;
-    
     if(!supabaseClient) return true;
     
     try {
@@ -1967,7 +1551,7 @@ async function validateEquipmentAvailability(equipmentId, taskId, scheduledDays)
             
         if(error) {
             console.error("Error validating availability:", error);
-            return true; // Proceed anyway or block? Let's proceed but log.
+            return true;
         }
         
         const conflictDb = data.find(t => 
@@ -1986,7 +1570,7 @@ async function saveTaskToSupabase(task) {
     if(!supabaseClient) return;
     try {
         const taskData = {
-            id: (task.id && task.id.startsWith('t')) ? undefined : task.id, // Ignorar IDs locales (t1, t_...) para dejar que Supabase genere UUIDs
+            id: (task.id && task.id.startsWith('t')) ? undefined : task.id, 
             client: task.client,
             analyst: task.analyst,
             budget: task.budget,
@@ -2002,7 +1586,7 @@ async function saveTaskToSupabase(task) {
             csat_observations: task.csatObservations || null,
             alertvox_checked: task.alertvoxChecked || false,
             mes_facturacion: task.mesFacturacion || task.period,
-            analysts_assignment: task.analysts_assignment || [] // Nueva columna en DB
+            analysts_assignment: task.analysts_assignment || [] 
         };
         
         let result;
@@ -2032,8 +1616,6 @@ async function loadTasksFromSupabase() {
             return;
         }
         
-        // Si logramos conectar a Supabase, eliminamos los datos de prueba iniciales
-        // si aún están presentes (id t1, t2, t3) para que no se mezclen con los reales
         tasks = tasks.filter(t => !['t1', 't2', 't3'].includes(t.id));
 
         if(data && data.length > 0) {
@@ -2069,7 +1651,6 @@ async function loadTasksFromSupabase() {
             saveTasks();
         }
         
-        // Populate finance months if in finance view
         if(document.getElementById('view-finance').classList.contains('active-view')) {
             populateFinanceMonths();
         }
@@ -2078,7 +1659,6 @@ async function loadTasksFromSupabase() {
     }
 }
 
-// Nueva función para sincronizar todos los datos locales que no están en Supabase
 async function syncAllToSupabase() {
     if(!supabaseClient) {
         alert("No hay conexión con Supabase.");
@@ -2095,8 +1675,7 @@ async function syncAllToSupabase() {
     try {
         let syncCount = 0;
         for (const task of tasks) {
-            // Solo sincronizar si no tiene id de Supabase o es un ID temporal de local
-            if (!task.supabaseId || task.id.startsWith('t')) {
+            if (!task.supabaseId || task.id.startsWith('t_')) {
                 await saveTaskToSupabase(task);
                 syncCount++;
             }
@@ -2116,19 +1695,16 @@ async function syncAllToSupabase() {
     }
 }
 
-
 function openEditTaskModal(taskId) {
     const task = tasks.find(t => t.id === taskId);
     if(!task) return;
 
     closeModal('taskInfoModal');
     
-    // Preparar el formulario
     document.getElementById('taskModalTitle').textContent = 'Editar Gestión';
     document.getElementById('taskFormSubmit').textContent = 'Guardar Cambios';
     document.getElementById('editTaskId').value = taskId;
 
-    // Poblar clientes y seleccionar el actual
     const clientSelect = document.getElementById('taskClient');
     clientSelect.innerHTML = '<option value="">Seleccione un cliente...</option>';
     dbClients.forEach(c => {
@@ -2137,7 +1713,6 @@ function openEditTaskModal(taskId) {
         clientSelect.innerHTML += `<option value="${c.id}" ${selected}>${clientText}</option>`;
     });
 
-    // Cargar presupuesto e ID de edición
     document.getElementById('taskBudget').value = task.budget;
     document.getElementById('taskDaysField').value = task.daysField || 1;
     document.getElementById('taskDaysReport').value = task.daysReport || 0;
@@ -2145,38 +1720,525 @@ function openEditTaskModal(taskId) {
     const dateInputStr = task.scheduledDays && task.scheduledDays.length > 0
         ? task.scheduledDays.map(d => d.date ? d.date : `${task.period}-${String(d.day).padStart(2,'0')}`).join(', ')
         : '';
-    document.getElementById('taskDate').value = dateInputStr;
-    
-    document.getElementById('taskEquipment').value = task.equipmentId || '';
-    document.getElementById('taskServiceType').value = task.serviceType || 'CBM';
-    document.getElementById('taskIsAbsence').checked = task.isAbsence || false;
-    document.getElementById('taskBillingMonth').value = task.mesFacturacion || task.period || formatPeriod();
+    const dateInputEl = document.getElementById('taskScheduledDate');
+    if(dateInputEl) dateInputEl.value = dateInputStr;
 
-    // Poblar analistas en la tabla de asignación
-    const tbody = document.querySelector('#analyst-assignment-table tbody');
-    tbody.innerHTML = '';
-    if(task.analysts_assignment && task.analysts_assignment.length > 0) {
-        task.analysts_assignment.forEach(a => {
-            addAnalystRow(a.name, a.isTitular, a.makesReport, a.percentage);
-        });
+    const equipSel = document.getElementById('taskEquipment');
+    equipSel.innerHTML = '<option value="">Sin equipo asignado</option>';
+    dbEquipment.forEach(eq => {
+        const selected = (task.equipmentId === eq.id) ? 'selected' : '';
+        equipSel.innerHTML += `<option value="${eq.id}" ${selected}>${eq.name}${eq.serial_number ? ' - S/N: '+eq.serial_number : ''}</option>`;
+    });
+
+    const container = document.getElementById('taskAnalystsContainer');
+    container.innerHTML = '';
+    
+    if (task.analysts_assignment && task.analysts_assignment.length > 0) {
+        task.analysts_assignment.forEach(a => addAnalystToTask(a));
     } else {
-        // Fallback: tratar al analista principal como titular 100%
-        addAnalystRow(task.analyst, true, true, 100);
+        addAnalystToTask({
+            name: task.analyst || '',
+            isTitular: true,
+            makesReport: true,
+            percentage: 100
+        });
+    }
+
+    const serviceTypeSel = document.getElementById('taskServiceType');
+    if(serviceTypeSel) {
+        serviceTypeSel.value = task.serviceType || '';
+        onTaskServiceTypeChange(); 
     }
 
     document.getElementById('taskModal').classList.add('active');
+    
+    populateBillingMonthSelect();
+    document.getElementById('taskBillingMonth').value = task.mesFacturacion || task.period || formatPeriod();
 }
 
-// Auth Management
-let currentUser = null;
+function openCsatModal(taskId, targetStatus) {
+    document.getElementById('csatForm').reset();
+    document.getElementById('csatTaskId').value = taskId;
+    document.getElementById('csatTargetStatus').value = targetStatus;
+    document.getElementById('csatModal').classList.add('active');
+}
+
+function closeModal(modalId) {
+    document.getElementById(modalId).classList.remove('active');
+}
+
+document.getElementById('taskForm').addEventListener('submit', e => {
+    e.preventDefault();
+    
+    const clientSelect = document.getElementById('taskClient');
+    const clientName = clientSelect.options[clientSelect.selectedIndex].text;
+    
+    const equipSelect = document.getElementById('taskEquipment');
+    const equipId = equipSelect.value;
+    const equipName = equipId ? equipSelect.options[equipSelect.selectedIndex].text : '';
+    
+    const budget = parseFloat(document.getElementById('taskBudget').value);
+    const dField = parseInt(document.getElementById('taskDaysField').value) || 1;
+    const dReport = parseInt(document.getElementById('taskDaysReport').value) || 0;
+    const serviceType = document.getElementById('taskServiceType').value;
+    const editId = document.getElementById('editTaskId').value;
+
+    const isAbsence = (serviceType === 'Vacaciones' || serviceType === 'Incapacidad');
+    const finalClientName = isAbsence ? `AUSENCIA: ${serviceType}` : clientName;
+
+    const container = document.getElementById('taskAnalystsContainer');
+    const rows = container.querySelectorAll('.analyst-row');
+    let analystsAssignment = [];
+    let totalPercentage = 0;
+    
+    rows.forEach(row => {
+        const aName = row.querySelector('.analyst-select').value;
+        const isTitular = row.querySelector('.analyst-titular').checked;
+        const makesReport = row.querySelector('.analyst-report').checked;
+        const pct = parseFloat(row.querySelector('.analyst-pct').value) || 0;
+        
+        if(aName) {
+            totalPercentage += pct;
+            analystsAssignment.push({
+                name: aName,
+                isTitular: isTitular,
+                makesReport: makesReport,
+                percentage: pct
+            });
+        }
+    });
+
+    if(!isAbsence && analystsAssignment.length > 0 && Math.abs(totalPercentage - 100) > 0.01) {
+        alert("El porcentaje financiero total debe sumar exactamente 100%. Actualmente suma " + totalPercentage + "%.");
+        return;
+    }
+
+    const mainAnalyst = analystsAssignment.length > 0 
+        ? (analystsAssignment.find(a => a.isTitular) || analystsAssignment[0]).name 
+        : '';
+    let displayAnalyst = analystsAssignment.length > 0
+        ? analystsAssignment.map(a => `${a.name} (${a.percentage}%)`).join(', ')
+        : '';
+    if(analystsAssignment.length === 1) displayAnalyst = mainAnalyst;
+
+    const taskObj = editId ? tasks.find(t=>t.id===editId) : null;
+    validateEquipmentAvailability(equipId, editId, taskObj ? taskObj.scheduledDays : []).then(available => {
+        if(!available) {
+            alert("Debe escoger otro equipo para esta fecha, el equipo seleccionado ya se encuentra ocupado.");
+            return;
+        }
+
+        if(editId) {
+            const idx = tasks.findIndex(t => t.id === editId);
+            if(idx !== -1) {
+                tasks[idx].client = finalClientName;
+                tasks[idx].analyst = displayAnalyst || mainAnalyst;
+                tasks[idx].analysts_assignment = analystsAssignment;
+                tasks[idx].equipment = equipName;
+                tasks[idx].equipmentId = equipId;
+                tasks[idx].budget = isAbsence ? 0 : budget;
+                tasks[idx].daysField = dField;
+                tasks[idx].daysReport = dReport;
+                tasks[idx].serviceType = serviceType;
+                tasks[idx].isAbsence = isAbsence;
+                tasks[idx].mesFacturacion = document.getElementById('taskBillingMonth').value;
+                logActivity(`✏️ Se actualizó la gestión de <strong>${finalClientName}</strong>.`, 'update');
+            }
+        } else {
+            const newTask = {
+                id: generateId(),
+                client: finalClientName,
+                analyst: displayAnalyst || mainAnalyst,
+                analysts_assignment: analystsAssignment,
+                equipment: equipName,
+                equipmentId: equipId,
+                budget: isAbsence ? 0 : budget,
+                daysField: dField,
+                daysReport: dReport,
+                serviceType: serviceType,
+                isAbsence: isAbsence,
+                scheduledDays: [],
+                status: 'proyectada',
+                period: formatPeriod(),
+                mesFacturacion: document.getElementById('taskBillingMonth').value
+            };
+            tasks.push(newTask);
+            logActivity(`✨ Se proyectó la gestión de <strong>${finalClientName}</strong>.`, 'create');
+        }
+        
+        saveTasks();
+        if(editId) {
+            const task = tasks.find(t=>t.id===editId);
+            if(task) saveTaskToSupabase(task);
+        } else {
+            saveTaskToSupabase(tasks[tasks.length - 1]);
+        }
+        
+        renderBoard();
+        renderCalendar();
+        renderPlanningSidebar();
+        renderTasksView(); 
+        closeModal('taskModal');
+    });
+    
+    document.getElementById('editTaskId').value = '';
+    document.getElementById('taskModalTitle').textContent = 'Nueva Gestión';
+    document.getElementById('taskFormSubmit').textContent = 'Crear Gestión';
+});
+
+function openClosingMeetingModal(taskId) {
+    const task = tasks.find(t => t.id === taskId);
+    if(!task) return;
+
+    openCsatModal(taskId, task.status);
+    
+    document.getElementById('csatModalTitle').textContent = 'Reunión de Cierre de Gestión';
+    document.getElementById('csatSubmitBtn').textContent = 'Guardar Registro de Cierre';
+    
+    document.getElementById('csatScore').value = task.csatScore || 5;
+    document.getElementById('csatObservations').value = task.csatObservations || '';
+    document.getElementById('checkAlertvox').checked = task.alertvoxChecked || false;
+}
+
+document.getElementById('csatForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const taskId = document.getElementById('csatTaskId').value;
+    const targetStatus = document.getElementById('csatTargetStatus').value;
+    const score = document.getElementById('csatScore').value;
+    const observations = document.getElementById('csatObservations').value;
+    const alertvox = document.getElementById('checkAlertvox').checked;
+    
+    const taskIndex = tasks.findIndex(t => t.id === taskId);
+    if(taskIndex !== -1) {
+        const oldStatus = tasks[taskIndex].status;
+        tasks[taskIndex].status = targetStatus;
+        tasks[taskIndex].csatScore = score;
+        tasks[taskIndex].csatObservations = observations;
+        tasks[taskIndex].alertvoxChecked = alertvox;
+        
+        let logMsg = `✅ Registro de cierre para <strong>${tasks[taskIndex].client}</strong> actualizado. CSAT: <strong>⭐ ${score}/5</strong>.`;
+        if (oldStatus !== targetStatus) {
+            logMsg += ` Estado cambió a <strong>${targetStatus.toUpperCase()}</strong>.`;
+        }
+        
+        logActivity(logMsg, 'csat');
+        
+        saveTasks();
+        await saveTaskToSupabase(tasks[taskIndex]);
+        
+        renderBoard();
+        renderCalendar();
+        renderPlanningSidebar();
+        renderTasksView();
+        closeModal('csatModal');
+    }
+});
+
+function switchView(viewName) {
+    document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active-view'));
+    const targetView = document.getElementById(`view-${viewName}`);
+    if(targetView) {
+        targetView.classList.add('active-view');
+    }
+    
+    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+    const targetNav = document.getElementById(`nav-${viewName}`);
+    if(targetNav) {
+        targetNav.classList.add('active');
+    }
+    
+    const headerTitle = document.getElementById('header-title');
+    if (headerTitle) {
+        const titles = {
+            dashboard: 'Dashboard',
+            planning: 'Cronograma Semanal/Mensual',
+            message: 'Bitácora de Movimientos',
+            tasks: 'Gestión de Tareas',
+            finance: 'Módulo de Finanzas',
+            admin: 'Administración de Datos Maestros'
+        };
+        headerTitle.textContent = titles[viewName] || 'CBM Maestro';
+    }
+
+    if(viewName === 'planning') {
+        renderCalendar();
+        renderPlanningSidebar();
+    } else if(viewName === 'message') {
+        renderActivityLog();
+    } else if(viewName === 'tasks') {
+        renderTasksView();
+    } else if(viewName === 'finance') {
+        populateFinanceMonths();
+        renderFinanceView();
+    } else if(viewName === 'admin') {
+        renderAdminView();
+    } else {
+        renderBoard();
+    }
+}
+
+function postDropSync() {
+    saveTasks();
+    renderBoard();
+    renderCalendar();
+    if(typeof renderPlanningSidebar === 'function') renderPlanningSidebar();
+}
+
+async function loadMasterData() {
+    if(!supabaseClient) return;
+    try {
+        const { data: clients, error: errC } = await supabaseClient.from('clients').select('*').order('company_name');
+        if(errC) console.error("Error fetching clients:", errC);
+        
+        const { data: analysts, error: errA } = await supabaseClient.from('analysts').select('*').order('name');
+        if(errA) console.error("Error fetching analysts:", errA);
+
+        const { data: equipment, error: errE } = await supabaseClient.from('equipment').select('*').eq('is_active', true).order('name');
+        if(errE) console.error("Error fetching equipment:", errE);
+        
+        if(clients) dbClients = clients;
+        if(analysts) dbAnalysts = analysts;
+        if(equipment) dbEquipment = equipment;
+        
+        populateGlobalFilterDropdowns();
+    } catch(err) {
+        console.error("Critical error in loadMasterData:", err);
+    }
+}
+
+async function renderAdminView() {
+    const analystsList = document.getElementById('admin-analysts-list');
+    const clientsList = document.getElementById('admin-clients-list');
+    if(!analystsList || !clientsList) return;
+
+    let syncBtnContainer = document.getElementById('admin-sync-container');
+    if(!syncBtnContainer) {
+        syncBtnContainer = document.createElement('div');
+        syncBtnContainer.id = 'admin-sync-container';
+        syncBtnContainer.style.marginBottom = '1.5rem';
+        syncBtnContainer.style.padding = '1rem';
+        syncBtnContainer.style.background = 'var(--clr-blue-light)';
+        syncBtnContainer.style.borderRadius = 'var(--radius-lg)';
+        syncBtnContainer.style.display = 'flex';
+        syncBtnContainer.style.justifyContent = 'space-between';
+        syncBtnContainer.style.alignItems = 'center';
+        syncBtnContainer.innerHTML = `
+            <div>
+                <h4 style="margin:0; color:var(--clr-blue)">Sincronización de Datos</h4>
+                <p style="margin:0; font-size:0.75rem; color:var(--text-secondary)">Sube tus datos locales actuales a la base de datos en la nube.</p>
+            </div>
+            <button class="btn-primary" onclick="syncAllToSupabase()" style="background:var(--clr-blue)">⬆️ Sincronizar con la Nube</button>
+        `;
+        document.querySelector('#view-admin').insertBefore(syncBtnContainer, document.querySelector('.admin-grid'));
+    }
+
+    analystsList.innerHTML = `
+    <div class="table-container">
+        <table class="data-table dense-table">
+            <thead>
+                <tr>
+                    <th style="width: 35%;">Nombre</th>
+                    <th style="width: 30%;">Especialidad</th>
+                    <th style="width: 15%;">Activo</th>
+                    <th style="width: 20%;">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${dbAnalysts.map(a => `
+                    <tr>
+                        <td><strong>${a.name}</strong></td>
+                        <td>${a.specialty || '-'}</td>
+                        <td><span class="status-tag ${a.is_active ? 'ejecutada' : 'proyectada'}">${a.is_active ? 'SI' : 'NO'}</span></td>
+                        <td>
+                            <div class="action-icons">
+                                <span class="action-icon edit" onclick="editAnalyst('${a.id}')">📝</span>
+                                <span class="action-icon delete" onclick="deleteAnalyst('${a.id}')">🗑️</span>
+                            </div>
+                        </td>
+                    </tr>
+                `).join('')}
+                <tr>
+                    <td><input type="text" id="qa_analyst_name" placeholder="Nuevo analista..." style="width:100%; padding:0.4rem; font-size:0.8rem"></td>
+                    <td><input type="text" id="qa_analyst_spec" placeholder="Esp..." style="width:100%; padding:0.4rem; font-size:0.8rem"></td>
+                    <td>-</td>
+                    <td><button class="btn-primary" style="padding:0.4rem; font-size:0.8rem; width:100%" onclick="quickAddAnalyst()">Guardar</button></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>`;
+
+    clientsList.innerHTML = `
+    <div class="table-container">
+        <div style="margin-bottom: 0.5rem; display: flex; gap: 0.5rem;">
+            <button class="btn-primary" style="font-size:0.7rem; padding:0.25rem 0.5rem; background:var(--clr-green)" onclick="downloadClientTemplate()">📥 Plantilla Excel</button>
+            <input type="file" id="importClientsFile" style="display:none" accept=".xlsx, .xls, .csv" onchange="handleClientImport(event)">
+            <button class="btn-primary" style="font-size:0.7rem; padding:0.25rem 0.5rem; background:var(--clr-purple)" onclick="document.getElementById('importClientsFile').click()">📤 Importar Excel</button>
+        </div>
+        <table class="data-table dense-table">
+            <thead>
+                <tr>
+                    <th style="width: 45%;">Planta / Cliente</th>
+                    <th style="width: 35%;">Contacto</th>
+                    <th style="width: 20%;">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${dbClients.map(c => `
+                    <tr>
+                        <td><strong>${getClientDisplayName(c)}</strong></td>
+                        <td>${c.contact_name || '-'}</td>
+                        <td>
+                            <div class="action-icons">
+                                <span class="action-icon edit" onclick="openPreferenceModal('${c.id}')" title="Asignar Analistas">👥</span>
+                                <span class="action-icon edit" onclick="editClient('${c.id}')" title="Editar">📝</span>
+                                <span class="action-icon delete" onclick="deleteClient('${c.id}')" title="Borrar">🗑️</span>
+                            </div>
+                        </td>
+                    </tr>
+                `).join('')}
+                <tr>
+                    <td><input type="text" id="qa_client_plant" placeholder="Nueva planta..." style="width:100%; padding:0.4rem; font-size:0.8rem"></td>
+                    <td><input type="text" id="qa_client_contact" placeholder="Contacto..." style="width:100%; padding:0.4rem; font-size:0.8rem"></td>
+                    <td><button class="btn-primary" style="padding:0.4rem; font-size:0.8rem; width:100%" onclick="quickAddClient()">Guardar</button></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>`;
+
+    const equipmentList = document.getElementById('admin-equipment-list');
+    if(equipmentList) {
+        equipmentList.innerHTML = `
+        <div class="table-container">
+            <table class="data-table dense-table">
+                <thead>
+                    <tr>
+                        <th style="width: 45%;">Equipo</th>
+                        <th style="width: 35%;">S/N</th>
+                        <th style="width: 20%;">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${dbEquipment.map(e => `
+                        <tr>
+                            <td><strong>${e.name}</strong></td>
+                            <td>${e.serial_number || '-'}</td>
+                            <td>
+                                <div class="action-icons">
+                                    <span class="action-icon edit" onclick="editEquipment('${e.id}')">📝</span>
+                                    <span class="action-icon delete" onclick="deleteEquipment('${e.id}')">🗑️</span>
+                                </div>
+                            </td>
+                        </tr>
+                    `).join('')}
+                    <tr>
+                        <td><input type="text" id="qa_equip_name" placeholder="Nuevo equipo..." style="width:100%; padding:0.4rem; font-size:0.8rem"></td>
+                        <td><input type="text" id="qa_equip_serial" placeholder="S/N..." style="width:100%; padding:0.4rem; font-size:0.8rem"></td>
+                        <td><button class="btn-primary" style="padding:0.4rem; font-size:0.8rem; width:100%" onclick="quickAddEquipment()">Guardar</button></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>`;
+    }
+}
+
+function openPreferenceModal(clientId) {
+    const client = dbClients.find(c => c.id === clientId);
+    if(!client) return;
+    
+    document.getElementById('adminModalTitle').textContent = `Preferencias: ${getClientDisplayName(client)}`;
+    const content = document.getElementById('adminModalContent');
+    content.innerHTML = `
+        <form onsubmit="submitPreferenceForm(event, '${clientId}')" style="background:#f8fafc; padding:1rem; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:1rem;">
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.5rem; margin-bottom:1rem;">
+                <select id="prefAnalyst" class="form-control" required>
+                    <option value="">Seleccione Analista...</option>
+                    ${dbAnalysts.map(a => `<option value="${a.id}">${a.name}</option>`).join('')}
+                </select>
+                <select id="prefLevel" class="form-control" required>
+                    <option value="Primary">Titular (Primary)</option>
+                    <option value="Secondary">Secundario (Secondary)</option>
+                    <option value="Backup">Respaldo (Backup)</option>
+                </select>
+            </div>
+            <button type="submit" class="btn-primary bg-purple" style="width:100%">Vincular Analista</button>
+        </form>
+        <div id="prefList" style="margin-top: 1.5rem; border-top: 1px solid #e2e8f0; padding-top: 1rem;">
+            <div style="text-align:center; font-size:0.8rem;">Cargando prioridades...</div>
+        </div>
+    `;
+    
+    document.getElementById('adminDataModal').classList.add('active');
+    loadPreferences(clientId);
+}
+
+async function loadPreferences(clientId) {
+    const prefList = document.getElementById('prefList');
+    if (!supabaseClient) return;
+    try {
+        const { data: prefs, error } = await supabaseClient
+            .from('client_analyst_preferences')
+            .select('*, analysts(name)')
+            .eq('client_id', clientId);
+            
+        if(error) console.error("Error cargando preferencias:", error);
+        
+        if(!prefs || prefs.length === 0) {
+            prefList.innerHTML = '<div style="text-align:center; font-size:0.8rem; color:var(--text-secondary)">Aún no tiene analistas vinculados.</div>';
+            return;
+        }
+        
+        prefList.innerHTML = prefs.map(p => `
+            <div style="background:var(--bg-color); padding: 0.5rem; border-radius: 4px; margin-bottom:0.5rem; font-size:0.85rem; display:flex; justify-content:space-between">
+                <span><strong>${p.priority_level}:</strong> ${p.analysts.name}</span>
+                <span style="color:var(--clr-pink); cursor:pointer" onclick="deletePreference('${p.client_id}', '${p.analyst_id}')">x</span>
+            </div>
+        `).join('');
+    } catch(err) {
+        console.error("Error in loadPreferences:", err);
+    }
+}
+
+async function submitAdminForm(e, type) {
+    e.preventDefault();
+    if(!supabaseClient) return;
+    try {
+        if(type === 'analyst') {
+            await supabaseClient.from('analysts').insert({
+                name: document.getElementById('addA_name').value,
+                specialty: document.getElementById('addA_spec').value
+            });
+        } else if(type === 'client') {
+            await supabaseClient.from('clients').insert({
+                company_name: document.getElementById('addC_plant').value,
+                plant: document.getElementById('addC_plant').value,
+                contact_name: document.getElementById('addC_contact').value
+            });
+        } else if(type === 'equipment') {
+            await supabaseClient.from('equipment').insert({
+                name: document.getElementById('addE_name').value,
+                serial_number: document.getElementById('addE_serial').value || null
+            });
+        }
+    } catch(err) {
+        console.error("Error inserting data:", err);
+    }
+    closeModal('adminDataModal');
+    await loadMasterData();
+    renderAdminView();
+    renderCalendar();
+}
 
 async function checkSession() {
     if(!supabaseClient) return;
     const { data: { session } } = await supabaseClient.auth.getSession();
-    handleAuthChange(session);
+    await handleAuthChange(session);
+
+    supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+        await handleAuthChange(session);
+    });
 }
 
-function handleAuthChange(session) {
+async function handleAuthChange(session) {
     const authContainer = document.getElementById('auth-container');
     const appWrapper = document.getElementById('app-wrapper');
     
@@ -2184,123 +2246,117 @@ function handleAuthChange(session) {
         currentUser = session.user;
         if(authContainer) authContainer.style.display = 'none';
         if(appWrapper) appWrapper.style.display = 'flex';
-        initializeApp();
+        await initializeApp();
     } else {
         currentUser = null;
         if(authContainer) authContainer.style.display = 'flex';
         if(appWrapper) appWrapper.style.display = 'none';
+        window._appInitialized = false; 
     }
 }
 
 async function handleLogin(e) {
     e.preventDefault();
-    const email = document.getElementById('login-email').value;
-    const pass = document.getElementById('login-pass').value;
-    const loginBtn = document.getElementById('login-btn');
+    const email = document.getElementById('loginEmail').value;
+    const password = document.getElementById('loginPassword').value;
+    const errorDiv = document.getElementById('loginError');
+    const submitBtn = document.getElementById('loginSubmitBtn');
     
-    loginBtn.textContent = 'Entrando...';
-    loginBtn.disabled = true;
+    if(!supabaseClient) return;
+    if(errorDiv) errorDiv.style.display = 'none';
+    if(submitBtn) {
+        submitBtn.textContent = 'Verificando...';
+        submitBtn.disabled = true;
+    }
     
-    const { error } = await supabaseClient.auth.signInWithPassword({ email, password: pass });
-    
+    const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
     if (error) {
-        alert("Error: " + error.message);
-        loginBtn.textContent = 'Entrar al Sistema';
-        loginBtn.disabled = false;
+        if(errorDiv) errorDiv.style.display = 'block';
+        if(submitBtn) {
+            submitBtn.textContent = 'Ingresar al Sistema';
+            submitBtn.disabled = false;
+        }
     }
 }
 
 async function handleLogout() {
+    if(!supabaseClient) return;
     await supabaseClient.auth.signOut();
 }
 
 async function initializeApp() {
-    await loadMasterData();
-    await loadTasksFromSupabase();
-    
+    if(window._appInitialized) return;
+    window._appInitialized = true;
+
+    window.postDropSync = postDropSync;
     updatePeriodDisplay();
-    renderBoard();
-    renderCalendar();
-    renderPlanningSidebar();
+    await loadMasterData();
     
-    // Auth listeners
-    supabaseClient.auth.onAuthStateChange((_event, session) => {
-        handleAuthChange(session);
-    });
-}
-
-// Client Preferences (⭐)
-function openPreferencesModal(clientId, clientName) {
-    const modal = document.getElementById('preferencesModal');
-    const title = document.getElementById('prefModalTitle');
-    const tbody = document.querySelector('#pref-analysts-table tbody');
-    
-    if(!modal || !tbody) return;
-    
-    title.textContent = `Analistas Preferidos: ${clientName}`;
-    document.getElementById('prefClientId').value = clientId;
-    tbody.innerHTML = '';
-    
-    // Fetch current preferences for this client
-    fetchPreferences(clientId).then(prefs => {
-        dbAnalysts.forEach(a => {
-            const pref = prefs.find(p => p.analyst_id === a.id);
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td>${a.name}</td>
-                <td style="text-align:center"><input type="radio" name="priority_1" value="${a.id}" ${pref && pref.priority === 1 ? 'checked' : ''}></td>
-                <td style="text-align:center"><input type="radio" name="priority_2" value="${a.id}" ${pref && pref.priority === 2 ? 'checked' : ''}></td>
-                <td style="text-align:center"><input type="radio" name="priority_3" value="${a.id}" ${pref && pref.priority === 3 ? 'checked' : ''}></td>
-            `;
-            tbody.appendChild(row);
-        });
-    });
-    
-    modal.classList.add('active');
-}
-
-async function fetchPreferences(clientId) {
-    if(!supabaseClient) return [];
-    const { data, error } = await supabaseClient.from('client_analyst_preferences').select('*').eq('client_id', clientId);
-    if(error) return [];
-    return data;
-}
-
-async function savePreferences() {
-    const clientId = document.getElementById('prefClientId').value;
-    const prefsToSave = [];
-    
-    [1, 2, 3].forEach(priority => {
-        const selected = document.querySelector(`input[name="priority_${priority}"]:checked`);
-        if(selected) {
-            prefsToSave.push({
-                client_id: clientId,
-                analyst_id: selected.value,
-                priority: priority
-            });
-        }
-    });
-    
-    if(!supabaseClient) return;
-    
-    // Delete old
-    await supabaseClient.from('client_analyst_preferences').delete().eq('client_id', clientId);
-    // Insert new
-    if(prefsToSave.length > 0) {
-        await supabaseClient.from('client_analyst_preferences').insert(prefsToSave);
+    if(supabaseClient) {
+        await loadTasksFromSupabase();
     }
     
-    closeModal('preferencesModal');
-    alert("Preferencias guardadas.");
+    renderBoard();
+    renderCalendar();
+    if(typeof renderPlanningSidebar === 'function') renderPlanningSidebar();
+    if(typeof renderAdminView === 'function') renderAdminView();
+
+    const sidebarContainer = document.getElementById('planning-sidebar-items');
+    if (sidebarContainer && !window._sidebarListenerAttached) {
+        window._sidebarListenerAttached = true;
+        sidebarContainer.addEventListener('dragover', e => {
+            e.preventDefault();
+            sidebarContainer.parentElement.classList.add('drag-over');
+        });
+        sidebarContainer.addEventListener('dragleave', e => {
+            sidebarContainer.parentElement.classList.remove('drag-over');
+        });
+        sidebarContainer.addEventListener('drop', async e => {
+            e.preventDefault();
+            sidebarContainer.parentElement.classList.remove('drag-over');
+            
+            let dragInfo = draggedTaskId;
+            let taskId = dragInfo;
+            if (dragInfo && dragInfo.startsWith('pill-')) {
+                const dragEl = document.getElementById(dragInfo);
+                taskId = dragEl ? dragEl.getAttribute('data-task-id') : dragInfo.split('-')[1];
+            }
+
+            const task = tasks.find(t => t.id === taskId);
+            if (task && task.status !== 'proyectada') {
+                logActivity(`🔄 La gestión <strong>${task.client}</strong> se ha devuelto al estado <strong>PROYECTADA</strong>.`, 'status');
+                await updateTaskStatus(task.id, 'proyectada');
+            }
+        });
+    }
+
+    const logDateFilter = document.getElementById('log-filter-date');
+    const logTypeFilter = document.getElementById('log-filter-type');
+    if(logDateFilter && !window._logDateListenerAttached) {
+        window._logDateListenerAttached = true;
+        logDateFilter.addEventListener('input', renderActivityLog);
+    }
+    if(logTypeFilter && !window._logTypeListenerAttached) {
+        window._logTypeListenerAttached = true;
+        logTypeFilter.addEventListener('change', renderActivityLog);
+    }
 }
 
-// Start everything
-document.addEventListener('DOMContentLoaded', () => {
-    checkSession();
-    
-    const loginForm = document.getElementById('login-form');
-    if(loginForm) loginForm.addEventListener('submit', handleLogin);
-    
-    const logoutBtn = document.getElementById('btn-logout');
-    if(logoutBtn) logoutBtn.addEventListener('click', handleLogout);
+function populateBillingMonthSelect() {
+    const select = document.getElementById('taskBillingMonth');
+    if(!select) return;
+    select.innerHTML = '';
+    const now = new Date();
+    for(let i = -3; i <= 6; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+        const y = d.getFullYear();
+        const m = d.getMonth() + 1;
+        const val = `${y}-${String(m).padStart(2, '0')}`;
+        const label = `${monthNames[m-1]} ${y}`;
+        select.innerHTML += `<option value="${val}">${label}</option>`;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    await checkSession();
 });
