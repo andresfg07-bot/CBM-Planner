@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Planeador Maestro CBM</title>
+    <link rel="icon" href="logo.png">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- PANTALLA DE LOGIN -->
+    <div id="auth-container" class="auth-wrapper">
+        <div class="auth-card">
+            <div class="auth-header">
+                <img src="logo.png" alt="A-MAQ Logo" class="auth-logo">
+                <h2>Iniciar Sesión</h2>
+                <p>Acceso restringido a personal autorizado</p>
+            </div>
+            <form id="loginForm" onsubmit="handleLogin(event)">
+                <div class="form-group">
+                    <label>Correo Electrónico</label>
+                    <input type="email" id="loginEmail" placeholder="agonzalez@a-maq.com" required>
+                </div>
+                <div class="form-group">
+                    <label>Contraseña</label>
+                    <input type="password" id="loginPassword" placeholder="••••••••" required>
+                </div>
+                <div id="loginError" class="auth-error" style="display: none;">Credenciales no válidas</div>
+                <button type="submit" class="btn-primary auth-submit" id="loginSubmitBtn">Ingresar al Sistema</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- APLICACIÓN PRINCIPAL -->
+    <div class="app-container" id="app-wrapper" style="display: none;">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <div class="logo-icon">
+                    <img src="logo.png" alt="A-MAQ Logo" style="height: 48px; width: auto; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));">
+                </div>
+                <div class="logo-text">
+                    <span class="logo-title">Planning CBM</span>
+                    <span class="logo-subtitle">A-MAQ S.A.</span>
+                </div>
+            </div>
+            <button class="sidebar-toggle" onclick="document.querySelector('.sidebar').classList.toggle('collapsed');" style="background: none; border: none; color: #a2a3b7; font-size: 1.3rem; cursor: pointer; width: 100%; text-align: left; padding: 0.5rem 0.75rem; border-radius: 6px; display:flex; align-items:center; gap:0.5rem; margin-bottom: 1rem;">
+                <span>☰</span><span class="nav-text" style="font-size:0.75rem; font-weight:600;">Colapsar menú</span>
+            </button>
+            <nav class="nav-menu">
+                <div class="nav-section">PRINCIPAL</div>
+                <a href="#" class="nav-item active" id="nav-dashboard" onclick="switchView('dashboard')">
+                    <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 12l4-8"/><path d="M12 8v4"/><circle cx="12" cy="12" r="2"/></svg></span>
+                    <span class="nav-text">Dashboard</span>
+                </a>
+                <a href="#" class="nav-item" id="nav-tasks" onclick="switchView('tasks')">
+                    <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="4"/><circle cx="17" cy="8" r="2.5"/><path d="M5 12h8"/><path d="M14.5 8h5"/><path d="m7 10 2 2 0 0"/><path d="m16 6.5 1.5 1.5"/></svg></span>
+                    <span class="nav-text">Gestiones</span>
+                </a>
+                <a href="#" class="nav-item" id="nav-planning" onclick="switchView('planning')">
+                    <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="17" cy="19" r="3"/><path d="M17 17.5v1.5l1 1"/></svg></span>
+                    <span class="nav-text">Planning</span>
+                </a>
+
+                <div class="nav-section">DATOS</div>
+                <a href="#" class="nav-item" id="nav-message" onclick="switchView('message')">
+                    <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="12" y2="14"/><path d="M16 18l2.5-2.5"/><circle cx="15" cy="19" r="1.5"/></svg></span>
+                    <span class="nav-text">Bitácora</span>
+                </a>
+                <a href="#" class="nav-item" id="nav-finance" onclick="switchView('finance')">
+                    <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10l4-2v12"/><path d="M10 20V8l4-3v15"/><path d="M16 20V6l4-4v18"/><path d="M2 20h20"/><path d="M15 4l5-2"/><path d="M18 3l2-1-1 2"/></svg></span>
+                    <span class="nav-text">Finanzas</span>
+                </a>
+
+                <div class="nav-section">SISTEMA</div>
+                <a href="#" class="nav-item" id="nav-admin" onclick="switchView('admin')">
+                    <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v4c0 1.66 3.58 3 8 3s8-1.34 8-3V6"/><path d="M4 10v4c0 1.66 3.58 3 8 3s8-1.34 8-3v-4"/><path d="M4 14v4c0 1.66 3.58 3 8 3s8-1.34 8-3v-4"/></svg></span>
+                    <span class="nav-text">Admin de Datos</span>
+                </a>
+                <a href="#" class="nav-item nav-logout" onclick="handleLogout()" style="margin-top: auto; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem; color: var(--clr-pink);">
+                    <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span>
+                    <span class="nav-text">Cerrar Sesión</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <p>© 2026 Control Presupuestario</p>
+                <span>v1.1.2-weeks</span>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="header">
+                <div style="display: flex; align-items: center; gap: 1.25rem;">
+                    <img src="logo.png" alt="Logo" style="height: 48px; width: auto; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));">
+                    <div>
+                        <h1 id="header-title">Task Management</h1>
+                        <p class="subtitle">Planeador Maestro CBM - A-MAQ</p>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <!-- PERIOD CONTROLS -->
+                    <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--card-bg); padding: 0.5rem 1rem; border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); margin-right: 1.5rem;">
+                        <button onclick="changePeriod(-1)" style="background:none; border:none; cursor:pointer; font-size:1.2rem; color:var(--text-secondary); padding: 0 0.5rem;">&#8592;</button>
+                        <span id="currentPeriodDisplay" style="font-weight: 700; min-width: 120px; text-align: center; color: var(--clr-blue);">Marzo 2026</span>
+                        <button onclick="changePeriod(1)" style="background:none; border:none; cursor:pointer; font-size:1.2rem; color:var(--text-secondary); padding: 0 0.5rem;">&#8594;</button>
+                    </div>
+                
+                    <div class="profile">
+                        <div class="profile-info">
+                            <span class="name">Admin de Datos</span>
+                            <span class="role">Operaciones</span>
+                        </div>
+                        <div class="avatar">Admin</div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- DASHBOARD VIEW -->
+            <div id="view-dashboard" class="view-section active-view">
+                <!-- Dashboard Control Bar -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; background: #fff; padding: 1rem; border-radius: var(--radius-lg); border: 1px solid #e2e8f0; box-shadow: var(--shadow-sm);">
+                    <div style="display: flex; gap: 1rem; align-items: center;">
+                        <h2 style="margin: 0; font-size: 1.25rem;">Panel de Control</h2>
+                        <div class="view-toggle-group" style="margin-left: 1rem;">
+                            <button id="scope-month" class="active" onclick="changeDashboardScope('month')">Mismo Mes</button>
+                            <button id="scope-year" onclick="changeDashboardScope('year')">Este Año</button>
+                            <button id="scope-all" onclick="changeDashboardScope('all')">Todo</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts Section -->
+                <div class="dashboard-charts-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
+                    <div class="stats-card pie-chart-card">
+                        <div class="card-header">
+                            <h3>Distribución de Gestiones</h3>
+                            <p class="subtitle">Cantidad de tareas asignadas por analista</p>
+                        </div>
+                        <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+                            <canvas id="workloadChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="stats-card pie-chart-card">
+                        <div class="card-header">
+                            <h3>Distribución de Facturación</h3>
+                            <p class="subtitle">Montos presupuestados (Estado: Facturada)</p>
+                        </div>
+                        <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+                            <canvas id="billingChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Top Dashboard Stats Area (Original KPI Row) -->
+                <section class="dashboard-stats" style="margin-bottom: 2rem;">
+                    <!-- Rendered by JS -->
+                </section>
+            </div>
+
+            <!-- PLANNING VIEW -->
+            <div id="view-planning" class="view-section" style="flex-direction: column; gap: 1rem; height: calc(100vh - 120px);">
+
+                 <!-- Calendar Central View (ocupa todo el ancho) -->
+                 <section class="calendar-board" style="flex: 1; display: flex; flex-direction: column;">
+                     <div class="calendar-card" style="flex: 1; display: flex; flex-direction: column; background: var(--card-bg); border-radius: var(--radius-lg); padding: 1.5rem; box-shadow: var(--shadow-sm);">
+                         <div class="kanban-header" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+                             <div style="display: flex; align-items: center; gap: 1rem;">
+                                 <h2 style="margin: 0;" id="calendar-title">Cronograma Mensual</h2>
+                                 <div class="view-toggle-group">
+                                     <button class="view-btn active" id="btn-view-month" onclick="changeCalendarView('month')">Mes</button>
+                                     <button class="view-btn" id="btn-view-week" onclick="changeCalendarView('week')">Semana</button>
+                                 </div>
+                             </div>
+                             <button class="btn-secondary" onclick="goToToday()" style="padding: 0.4rem 1rem; font-size: 0.8rem; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; border: 1px solid var(--border-color); background: white;">Hoy</button>
+                         </div>
+                         <div class="calendar-container">
+                             <div class="calendar-grid" id="calendarGrid">
+                                 <!-- Renderizado por JS -->
+                             </div>
+                         </div>
+                     </div>
+                 </section>
+
+                 <!-- Bottom Bar: Unassigned Tasks (Por Programar) -->
+                 <div class="unassigned-sidebar" style="width: 100%; background: white; border-radius: var(--radius-lg); padding: 1rem 1.5rem; display: flex; flex-direction: column; box-shadow: var(--shadow-sm); max-height: 180px;">
+                     <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem;">
+                         <h3 style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; font-weight: 700; margin: 0;">Por Programar</h3>
+                         <div class="column-line bg-blue" style="flex:1; height: 2px; border-radius: 3px; opacity: 1;"></div>
+                         <span class="subtitle" style="font-size: 0.7rem; white-space: nowrap;">Arrastra las gestiones hacia el cronograma.</span>
+                     </div>
+                     <!-- Drop zone horizontal -->
+                     <div id="planning-sidebar-items" class="kanban-column" data-status="proyectado" style="flex: 1; overflow-x: auto; overflow-y: hidden; display: flex; flex-direction: row; gap: 0.75rem; background: transparent; padding: 0; align-items: flex-start;"></div>
+                 </div>
+            </div>
+
+            <!-- TASKS / ENTRY VIEW -->
+            <div id="view-tasks" class="view-section" style="max-width: 1000px; margin: 0 auto; width: 100%; padding-top: 2rem; gap: 2rem;">
+                <div class="kanban-header" style="margin-bottom: 1rem;">
+                    <div>
+                        <h2>Gestiones del Mes</h2>
+                        <p class="subtitle">Relaciona las gestiones a programar en el mes con su presupuesto y analista, para enviarlas al cronograma.</p>
+                    </div>
+                    <button class="btn-primary" onclick="openNewTaskModal()">+ Nueva Gestión</button>
+                </div>
+
+                <!-- Filtros de Gestiones -->
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; background: #fff; padding: 1rem; border-radius: 8px; border: 1px solid #e2e8f0; box-shadow: var(--shadow-sm); margin-bottom: 2rem;">
+                    <!-- Smart filter now dynamically matches calendar view, manual range removed -->
+                    <div style="display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 150px;">
+                        <label style="font-size: 0.6rem; font-weight: 700; color: #64748b; padding-left: 0.2rem;">ANALISTA</label>
+                        <select id="filter-tasks-analyst" onchange="updateGlobalFilter('analyst', this.value)" style="padding: 0.4rem; font-size: 0.8rem; border: 1px solid #cbd5e1; border-radius: 4px; width: 100%;">
+                            <option value="">Todos los Analistas</option>
+                            <!-- Opciones pobladas por JS o estáticas si se prefiere, pero el JS las manejará -->
+                        </select>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 2px; flex: 1.5; min-width: 200px;">
+                        <label style="font-size: 0.6rem; font-weight: 700; color: #64748b; padding-left: 0.2rem;">CLIENTE</label>
+                        <select id="filter-tasks-client" onchange="updateGlobalFilter('client', this.value)" style="padding: 0.4rem; font-size: 0.8rem; border: 1px solid #cbd5e1; border-radius: 4px; width: 100%;">
+                            <option value="">Todos los Clientes</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 120px;">
+                        <label style="font-size: 0.6rem; font-weight: 700; color: #64748b; padding-left: 0.2rem;">ESTADO</label>
+                        <select id="filter-tasks-status" onchange="updateGlobalFilter('status', this.value)" style="padding: 0.4rem; font-size: 0.8rem; border: 1px solid #cbd5e1; border-radius: 4px; width: 100%;">
+                            <option value="">Todos</option>
+                            <option value="proyectada">Proyectada</option>
+                            <option value="programada">Programada</option>
+                            <option value="ejecutada">Ejecutada</option>
+                            <option value="facturada">Facturada</option>
+                        </select>
+                    </div>
+                    <button class="btn-secondary" onclick="resetGlobalFilters()" style="margin-top: 15px; padding: 0.4rem 1rem; font-size: 0.8rem; border: 1px solid #ef4444; color: #ef4444; background: white; border-radius: 4px; font-weight: 600; cursor: pointer;">
+                        ✕ Limpiar
+                    </button>
+                </div>
+
+                <div class="stats-card">
+                    <div id="tasks-list-container">
+                        <!-- JS render for tasks data table -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- FINANCE VIEW -->
+            <div id="view-finance" class="view-section" style="max-width: 1000px; margin: 0 auto; width: 100%; padding-top: 2rem;">
+                <div class="kanban-header" style="margin-bottom: 2rem;">
+                    <div>
+                        <h2>Módulo de Finanzas</h2>
+                        <p class="subtitle">Resumen consolidado de presupuestos por estado de gestión.</p>
+                    </div>
+                </div>
+                
+                <div id="finance-filters" style="display: flex; gap: 1rem; align-items: flex-end; background: white; padding: 1.25rem; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); margin-bottom: 2rem; border: 1px solid #e2e8f0;">
+                    <div style="flex: 1; min-width: 200px;">
+                        <label style="font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase;">Período de Facturación (Analíticos)</label>
+                        <select id="finance-period-type" onchange="toggleFinancePeriodInputs()" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.85rem; margin-top: 4px;">
+                            <option value="single">Un solo mes (Actual)</option>
+                            <option value="multiple">Selección Múltiple</option>
+                            <option value="year">Todo el presente año</option>
+                        </select>
+                    </div>
+                    
+                    <div style="flex: 1; min-width: 200px;">
+                        <label style="font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase;">Analista (Filtro Cruzado)</label>
+                        <select id="finance-analyst-filter" onchange="renderFinanceView()" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.85rem; margin-top: 4px;">
+                            <option value="">Todos los analistas</option>
+                            <!-- JS poblará este select con dbAnalysts -->
+                        </select>
+                    </div>
+
+                    <div id="finance-weeks-selector" style="display: none; flex: 2; min-width: 300px; max-height: 80px; overflow-y: auto; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 4px; background: #f8fafc;">
+                        <div id="finance-months-list" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; font-size: 0.75rem;">
+                            <!-- Checkboxes populated by JS -->
+                        </div>
+                    </div>
+
+                    <button class="btn-primary" onclick="renderFinanceView()" style="height: 38px;">Recalcular Totales</button>
+                </div>
+                
+                <div id="finance-summary-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem;">
+                    <!-- Totales: Proyectado, Programado, Ejecutado, Facturable -->
+                </div>
+            </div>
+
+            <!-- MESSAGES / ACTIVITY LOG VIEW -->
+            <div id="view-message" class="view-section" style="max-width: 800px; margin: 0 auto; width: 100%; padding-top: 2rem;">
+                <div class="kanban-header" style="margin-bottom: 2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem;">
+                    <div>
+                        <h2>Bitácora de Movimientos</h2>
+                        <p class="subtitle" style="font-size: 1rem; color: var(--text-secondary);">Registro de todas las gestiones y asignaciones.</p>
+                    </div>
+                </div>
+
+                <!-- Filtros de Bitácora -->
+                <div class="log-filters" style="display: flex; gap: 1rem; margin-bottom: 2rem; background: var(--card-bg); padding: 1.25rem; border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); align-items: flex-end; flex-wrap: wrap;">
+                    <div class="form-group" style="margin: 0; flex: 1; min-width: 150px;">
+                        <label style="font-size: 0.75rem; text-transform: uppercase; font-weight: 700; color: var(--text-secondary); margin-bottom: 0.5rem; display: block;">Filtrar por Fecha</label>
+                        <input type="date" id="log-filter-date" style="width: 100%; padding: 0.6rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); font-family: inherit;">
+                    </div>
+                    <div class="form-group" style="margin: 0; flex: 1; min-width: 150px;">
+                        <label style="font-size: 0.75rem; text-transform: uppercase; font-weight: 700; color: var(--text-secondary); margin-bottom: 0.5rem; display: block;">Tipo de Actividad</label>
+                        <select id="log-filter-type" style="width: 100%; padding: 0.6rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); font-family: inherit; cursor: pointer;">
+                            <option value="all">Todos los registros</option>
+                            <option value="create">🆕 Creaciones</option>
+                            <option value="assign">📅 Asignaciones</option>
+                            <option value="status">🔄 Cambios de Estado</option>
+                            <option value="csat">✅ Cierres / CSAT</option>
+                        </select>
+                    </div>
+                    <button class="btn-secondary" onclick="resetLogFilters()" style="padding: 0.6rem 1.2rem; height: 38px; border: 1px solid var(--border-color); background: white; color: var(--text-secondary); border-radius: var(--radius-md); font-weight: 600; cursor: pointer;">Limpiar</button>
+                </div>
+                <div id="activity-feed" style="display: flex; flex-direction: column; gap: 1.5rem; padding-bottom: 4rem;">
+                    <!-- Renderizado por JS -->
+                    <div style="text-align: center; color: var(--text-secondary); margin-top: 2rem;">Sin actividad reciente.</div>
+                </div>
+            </div>
+
+            <!-- ADMIN DATA VIEW -->
+            <div id="view-admin" class="view-section admin-full-width" style="padding-top: 2rem;">
+                <div class="kanban-header" style="margin-bottom: 2rem;">
+                    <div>
+                        <h2>Administración de Datos Maestros</h2>
+                        <p class="subtitle">Gestiona Clientes, Analistas y Equipos del Planeador.</p>
+                    </div>
+                </div>
+
+                <div class="admin-grid">
+                    <div class="stats-card" style="flex: 1;">
+                        <div class="kanban-header" style="margin-bottom: 1rem;">
+                            <h3>Clientes</h3>
+                            <div>
+                                <button class="btn-secondary" onclick="downloadClientTemplate()" style="margin-right: 0.5rem; font-size: 0.75rem; padding: 0.3rem 0.6rem; border: 1px solid var(--clr-blue); color: var(--clr-blue); background: transparent; border-radius: 4px; cursor: pointer;" title="Descargar Plantilla">Descargar Plantilla</button>
+                                <button class="btn-secondary" onclick="document.getElementById('importClientsFile').click()" style="margin-right: 0.5rem; font-size: 0.75rem; padding: 0.3rem 0.6rem; border: 1px solid var(--clr-green); color: var(--clr-green); background: transparent; border-radius: 4px; cursor: pointer;" title="Importar Excel/CSV">Importar</button>
+                                <input type="file" id="importClientsFile" style="display: none;" accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" onchange="handleClientImport(event)">
+                                <button class="btn-primary" onclick="openAdminModal('client')">+ Nuevo Cliente</button>
+                            </div>
+                        </div>
+                        <div id="admin-clients-list" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 400px; overflow-y: auto;">
+                            <!-- JS render -->
+                        </div>
+                    </div>
+
+                    <!-- Panel: Analistas -->
+                    <div class="stats-card" style="flex: 1;">
+                        <div class="kanban-header" style="margin-bottom: 1rem;">
+                            <h3>Analistas</h3>
+                            <button class="btn-primary" onclick="openAdminModal('analyst')">+ Nuevo Analista</button>
+                        </div>
+                        <div id="admin-analysts-list" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 400px; overflow-y: auto;">
+                            <!-- JS render -->
+                        </div>
+                    </div>
+
+                    <!-- Panel: Equipos de Medición -->
+                    <div class="stats-card" style="flex: 1;">
+                        <div class="kanban-header" style="margin-bottom: 1rem;">
+                            <h3>Equipos de Medición</h3>
+                            <button class="btn-primary" onclick="openAdminModal('equipment')">+ Nuevo Equipo</button>
+                        </div>
+                        <div id="admin-equipment-list" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 400px; overflow-y: auto;">
+                            <!-- JS render -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <!-- New Task Modal -->
+    <div id="taskModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeModal('taskModal')">&times;</span>
+            <h2 id="taskModalTitle">Nueva Gestión</h2>
+            <form id="taskForm">
+                <input type="hidden" id="editTaskId">
+                <div class="form-group" id="group-client">
+                    <label>Cliente</label>
+                    <select id="taskClient" required onchange="onTaskClientChange()">
+                        <option value="">Seleccione un cliente...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label style="display:flex; justify-content:space-between; align-items:center;">
+                        Analistas Asignados
+                        <button type="button" class="btn-secondary" onclick="addAnalystToTask()" style="padding: 0.2rem 0.5rem; font-size: 0.7rem; cursor: pointer;">+ Añadir Analista</button>
+                    </label>
+                    <div id="taskAnalystsContainer" style="display: flex; flex-direction: column; gap: 0.5rem; border: 1px solid #e2e8f0; padding: 0.5rem; border-radius: 4px; background: #f8fafc; margin-top: 4px; max-height: 200px; overflow-y: auto;">
+                        <div style="font-size: 0.8rem; color: var(--text-secondary); text-align: center;">Seleccione primero un cliente para añadir analistas.</div>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 1rem;">
+                    <div class="form-group" style="flex: 1;">
+                        <label>Días Planta</label>
+                        <input type="number" id="taskDaysField" min="1" value="1" required>
+                    </div>
+                    <div class="form-group" id="group-report" style="flex: 1;">
+                        <label>Días Informe</label>
+                        <input type="number" id="taskDaysReport" min="0" value="0" required>
+                    </div>
+                    <div class="form-group" id="group-date" style="flex: 1.5;">
+                        <label>Fechas Asignadas (Lectura)</label>
+                        <input type="text" id="taskScheduledDate" disabled placeholder="Asignar en cronograma" style="background:#f1f5f9; cursor:not-allowed;">
+                    </div>
+                </div>
+                <div class="form-group" id="group-budget">
+                    <label>Valor Presupuestado ($)</label>
+                    <input type="number" id="taskBudget" required>
+                </div>
+                <div style="display: flex; gap: 1rem;">
+                    <div class="form-group" style="flex: 1;">
+                        <label>Mes de Facturación</label>
+                        <select id="taskBillingMonth" required>
+                            <!-- Pobaldo por JS (Periodo actual - 3 meses a Futuro + 3) -->
+                        </select>
+                    </div>
+                    <div class="form-group" id="group-equipment" style="flex: 1.5;">
+                        <label>Equipo Asignado</label>
+                        <select id="taskEquipment">
+                            <option value="">Sin equipo asignado</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Tipo de Servicio / Ausencia</label>
+                    <select id="taskServiceType" required onchange="onTaskServiceTypeChange()">
+                        <option value="">Seleccione tipo...</option>
+                        <option value="Balanceo">Balanceo</option>
+                        <option value="Alineación">Alineación</option>
+                        <option value="Vibraciones">Vibraciones</option>
+                        <option value="Termografía">Termografía</option>
+                        <option value="Ultrasonido">Ultrasonido</option>
+                        <option value="Rotodinámico">Rotodinámico</option>
+                        <option value="Capacitación">Capacitación</option>
+                        <option value="Vacaciones">🌴 Vacaciones</option>
+                        <option value="Incapacidad">💊 Incapacidad</option>
+                    </select>
+                </div>
+                <button type="submit" id="taskFormSubmit" class="btn-primary">Crear Gestión</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Admin Form Modal (Dynamic for Clients or Analysts) -->
+    <div id="adminDataModal" class="modal">
+        <div class="modal-content" style="max-width: 500px;">
+            <span class="close-btn" onclick="closeModal('adminDataModal')">&times;</span>
+            <h2 id="adminModalTitle">Nuevo Registro</h2>
+            <div id="adminModalContent">
+                <!-- Injected via JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Task Info Modal -->
+    <div id="taskInfoModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeModal('taskInfoModal')">&times;</span>
+            <h2 id="infoClient" style="font-size: 1.5rem; margin-bottom: 0.5rem; color: var(--text-primary);">Nombre del Cliente</h2>
+            <div class="info-details" style="margin-top: 1.5rem; display: flex; flex-direction: column; gap: 0.75rem;">
+                <p><strong>Analista Asignado:</strong> <span id="infoAnalyst" style="color: var(--text-secondary);"></span></p>
+                <p><strong>Equipo Asignado:</strong> <span id="infoEquipment" style="color: var(--text-secondary);"></span></p>
+                <p><strong>Planeación:</strong> <span id="infoDaysPlanned" style="color: var(--text-secondary);"></span> (Planta/Informe)</p>
+                <p><strong>Días Programados:</strong> <span id="infoDaysScheduledCount" style="color: var(--text-secondary);"></span></p>
+                <p><strong>Día del Mes:</strong> <span id="infoDate" style="color: var(--text-secondary);"></span></p>
+                <p><strong>Presupuesto:</strong> $<span id="infoBudget" style="color: var(--clr-green); font-weight: 600;"></span></p>
+                <p><strong>Estado de Gestión:</strong> <span id="infoStatus" style="text-transform: uppercase; font-weight: 800; padding: 0.25rem 0.5rem; border-radius: var(--radius-md); background: var(--bg-color);"></span></p>
+                <p id="infoCsat" style="display:none; margin-top: 0.5rem;"><strong>Calificación CSAT:</strong> ⭐ <span id="infoCsatScore" style="font-weight: bold; font-size: 1.1rem; color: var(--clr-yellow);"></span>/5</p>
+                <p id="infoAlertvox" style="display:none; color: var(--clr-green); font-weight: 600;">✓ Reunión Alertvox Realizada</p>
+            </div>
+            <div style="margin-top: 2rem; display: flex; gap: 1rem; flex-wrap: wrap;">
+                <button class="btn-primary" id="btnEditTask" style="flex: 1; min-width: 120px; background: var(--clr-purple);">Editar Gestión</button>
+                <button class="btn-primary" id="btnDeleteTask" style="flex: 1; min-width: 120px; background: var(--clr-pink);">Eliminar Gestión</button>
+                <button class="btn-secondary" onclick="closeModal('taskInfoModal')" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); background: transparent; color: var(--text-secondary); border-radius: var(--radius-md); font-weight: 600; cursor: pointer;">Cerrar Ventana</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cierre/CSAT Modal -->
+    <!-- Modal para Reunión de Cierre y CSAT -->
+    <div id="csatModal" class="modal">
+        <div class="modal-content" style="max-width: 450px;">
+            <span class="close-btn" onclick="closeModal('csatModal')">&times;</span>
+            <h2 id="csatModalTitle">Reunión de Cierre de Gestión</h2>
+            <p id="csatModalDesc">Registra la calificación del cliente y las observaciones del cierre.</p>
+            <form id="csatForm">
+                <input type="hidden" id="csatTaskId">
+                <input type="hidden" id="csatTargetStatus">
+                
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" id="checkAlertvox">
+                    <label for="checkAlertvox">Reunión de cierre realizada (vía Alertvox u otro)</label>
+                </div>
+                
+                <div class="form-group">
+                    <label>Calificación que te dio el cliente (1 - 5)</label>
+                    <input type="number" id="csatScore" min="1" max="5" value="5" required style="font-weight: 700; color: var(--clr-green);">
+                </div>
+                
+                <div class="form-group">
+                    <label>Observaciones del Cierre</label>
+                    <textarea id="csatObservations" placeholder="Escribe aquí lo que el cliente aportó u observaciones finales..." style="width: 100%; min-height: 100px; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: var(--radius-md); font-family: inherit; font-size: 0.85rem;"></textarea>
+                </div>
+                
+                <button type="submit" id="csatSubmitBtn" class="btn-primary bg-green" style="width: 100%;">Guardar Registro de Cierre</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Absence Detail Modal -->
+    <div id="absenceDetailModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeModal('absenceDetailModal')">&times;</span>
+            <h2 id="absenceModalTitle" style="font-size: 1.5rem; margin-bottom: 1rem; color: var(--text-primary);">Detalle de Días No Laborales</h2>
+            <div id="absenceModalList" style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1rem; max-height: 300px; overflow-y: auto; padding-right: 0.5rem;">
+                <!-- Injected via JS -->
+            </div>
+            <button class="btn-secondary" onclick="closeModal('absenceDetailModal')" style="width: 100%; margin-top: 1.5rem; padding: 0.75rem; border: 1px solid var(--border-color); background: transparent; color: var(--text-secondary); border-radius: var(--radius-md); font-weight: 600; cursor: pointer;">Cerrar</button>
+        </div>
+    </div>
+
+    <!-- Supabase & SheetJS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

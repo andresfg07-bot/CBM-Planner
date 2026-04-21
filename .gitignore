@@ -1,0 +1,11 @@
+# Directorios de agentes y temporales
+.agents/
+tmp/
+
+# Archivos de bitácora locales
+cbm_activity_log.json
+cbm_tasks.json
+
+# Otros
+.DS_Store
+Thumbs.db
