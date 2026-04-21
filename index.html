@@ -12,24 +12,62 @@
 <body>
     <!-- PANTALLA DE LOGIN -->
     <div id="auth-container" class="auth-wrapper">
-        <div class="auth-card">
-            <div class="auth-header">
-                <img src="logo.png" alt="A-MAQ Logo" class="auth-logo">
-                <h2>Iniciar Sesión</h2>
-                <p>Acceso restringido a personal autorizado</p>
+        <div class="auth-split">
+            <!-- Left Side: Login Form -->
+            <div class="auth-left">
+                <div class="auth-form-container">
+                    <div class="auth-brand">
+                        <img src="logo.png" alt="A-MAQ Logo" class="auth-logo">
+                        <span>A-MAQ S.A.</span>
+                    </div>
+                    
+                    <div class="auth-user-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <circle cx="12" cy="7" r="4" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+
+                    <form id="loginForm" onsubmit="handleLogin(event)">
+                        <div class="form-group icon-input">
+                            <span class="input-icon">👤</span>
+                            <input type="email" id="loginEmail" placeholder="CORREO ELECTRÓNICO" required>
+                        </div>
+                        <div class="form-group icon-input">
+                            <span class="input-icon">🔒</span>
+                            <input type="password" id="loginPassword" placeholder="CONTRASEÑA" required>
+                        </div>
+                        
+                        <div id="loginError" class="auth-error" style="display: none;">Credenciales no válidas</div>
+                        
+                        <button type="submit" class="btn-primary auth-submit" id="loginSubmitBtn">LOGIN</button>
+                        
+                        <div class="auth-options">
+                            <label class="remember-me">
+                                <input type="checkbox"> Recordarme
+                            </label>
+                            <a href="#" class="forgot-password">¿Olvilaste tu contraseña?</a>
+                        </div>
+                    </form>
+
+                    <div class="auth-footer-dots">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                </div>
             </div>
-            <form id="loginForm" onsubmit="handleLogin(event)">
-                <div class="form-group">
-                    <label>Correo Electrónico</label>
-                    <input type="email" id="loginEmail" placeholder="agonzalez@a-maq.com" required>
+
+            <!-- Right Side: Welcome message with abstract background -->
+            <div class="auth-right">
+                <div class="auth-welcome-content">
+                    <h1>Welcome.</h1>
+                    <p>Accede al Planeador Maestro CBM de A-MAQ para gestionar tus tareas y cronogramas de mantenimiento predictivo.</p>
                 </div>
-                <div class="form-group">
-                    <label>Contraseña</label>
-                    <input type="password" id="loginPassword" placeholder="••••••••" required>
+                <div class="auth-signup-text">
+                    ¿No tienes cuenta? <a href="#">Contáctanos</a>
                 </div>
-                <div id="loginError" class="auth-error" style="display: none;">Credenciales no válidas</div>
-                <button type="submit" class="btn-primary auth-submit" id="loginSubmitBtn">Ingresar al Sistema</button>
-            </form>
+            </div>
         </div>
     </div>
 
