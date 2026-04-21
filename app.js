@@ -1986,7 +1986,7 @@ async function saveTaskToSupabase(task) {
     if(!supabaseClient) return;
     try {
         const taskData = {
-            id: task.id.startsWith('t_') ? undefined : task.id, // Let DB generate UUID if it's local temp ID
+            id: (task.id && task.id.startsWith('t')) ? undefined : task.id, // Ignorar IDs locales (t1, t_...) para dejar que Supabase genere UUIDs
             client: task.client,
             analyst: task.analyst,
             budget: task.budget,
@@ -2006,7 +2006,7 @@ async function saveTaskToSupabase(task) {
         };
         
         let result;
-        if(task.supabaseId || !task.id.startsWith('t_')) {
+        if(task.supabaseId || (task.id && !task.id.startsWith('t'))) {
             result = await supabaseClient.from('tasks').upsert({ ...taskData, id: task.supabaseId || task.id });
         } else {
             result = await supabaseClient.from('tasks').insert(taskData).select();
@@ -2096,7 +2096,7 @@ async function syncAllToSupabase() {
         let syncCount = 0;
         for (const task of tasks) {
             // Solo sincronizar si no tiene id de Supabase o es un ID temporal de local
-            if (!task.supabaseId || task.id.startsWith('t_')) {
+            if (!task.supabaseId || task.id.startsWith('t')) {
                 await saveTaskToSupabase(task);
                 syncCount++;
             }
