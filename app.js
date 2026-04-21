@@ -1,5 +1,5 @@
 // Supabase Config
-const supabaseUrl = 'https://gvjemehvtrxwsokmyyby.supabase.co';
+const supabaseUrl = 'https://gvjemehvtrzwsokmyyby.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2amVtZWh2dHJ4d3Nva215eWJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4NTkxOTMsImV4cCI6MjA4OTQzNTE5M30.TSVtuYnGI2j9JymCJbjKsXlbs1hG2EpaHHuEksJuAqE';
 let supabaseClient = null;
 
@@ -1570,7 +1570,7 @@ async function saveTaskToSupabase(task) {
     if(!supabaseClient) return;
     try {
         const taskData = {
-            id: (task.id && task.id.startsWith('t')) ? undefined : task.id, 
+            id: (task.id && (typeof task.id === 'string' && task.id.startsWith('t'))) ? undefined : task.id, 
             client: task.client,
             analyst: task.analyst,
             budget: task.budget,
@@ -1675,7 +1675,7 @@ async function syncAllToSupabase() {
     try {
         let syncCount = 0;
         for (const task of tasks) {
-            if (!task.supabaseId || task.id.startsWith('t_')) {
+            if (!task.supabaseId || (typeof task.id === 'string' && task.id.startsWith('t_'))) {
                 await saveTaskToSupabase(task);
                 syncCount++;
             }
