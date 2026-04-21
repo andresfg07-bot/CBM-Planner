@@ -1,5 +1,5 @@
 // Supabase Config
-const supabaseUrl = 'https://gvjemehvtrzwsokmyyby.supabase.co';
+const supabaseUrl = 'https://gvjemehvtrxwsokmyyby.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2amVtZWh2dHJ4d3Nva215eWJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4NTkxOTMsImV4cCI6MjA4OTQzNTE5M30.TSVtuYnGI2j9JymCJbjKsXlbs1hG2EpaHHuEksJuAqE';
 let supabaseClient = null;
 
@@ -1525,6 +1525,15 @@ function renderFinanceView() {
         </div>
         `
     }).join('');
+}
+
+// Finance Multiple Selection Handler
+function updateFinanceSelectedMonths() {
+    const checkboxes = document.querySelectorAll('#finance-months-list input[type="checkbox"]');
+    financeFilters.selectedMonths = Array.from(checkboxes)
+        .filter(i => i.checked)
+        .map(i => i.value);
+    renderFinanceView();
 }
 
 // Validation Logic
