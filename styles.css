@@ -437,6 +437,7 @@ h1 {
     border-bottom: 2px solid #e2e8f0;
 }
 
+.calendar-table th.sticky-col,
 .calendar-table td.sticky-col {
     background: var(--bg-color);
     padding: 0.4rem 0.75rem;
@@ -444,11 +445,23 @@ h1 {
     font-weight: 600;
     position: sticky !important;
     left: 0;
-    z-index: 10;
-    width: 120px;
-    min-width: 120px;
+    z-index: 20; /* Elevado para que los pills no pasen por encima al hacer scroll */
+    width: 140px; /* Un poco más de ancho para los nombres */
+    min-width: 140px;
     white-space: nowrap;
     text-overflow: ellipsis;
+    border-right: 2px solid #e2e8f0;
+}
+
+.calendar-table th.sticky-col {
+    top: 0;
+    z-index: 100; /* Máximo z-index para la esquina superior izquierda */
+    background: #f8fafc;
+}
+
+.calendar-table th:not(.sticky-col) {
+    width: 40px; /* Ancho fijo para los días */
+    min-width: 40px;
 }
 
 .calendar-cell {

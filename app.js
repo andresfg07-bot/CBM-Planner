@@ -325,6 +325,11 @@ function renderTasksTable(container) {
         </table>`;
 }
 
+function renderTasksView() {
+    const listContainer = document.getElementById('tasks-list-container');
+    if(listContainer) renderTasksTable(listContainer);
+}
+
 async function updateTaskStatus(taskId, newStatus) {
     const task = tasks.find(t => t.id === taskId);
     if(!task) return;
