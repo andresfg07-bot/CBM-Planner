@@ -15,6 +15,10 @@ let dbClients = [];
 let dbAnalysts = [];
 let dbEquipment = [];
 
+let tasks = [];
+let calendarRowHeight = parseInt(localStorage.getItem('cbm_row_height')) || 55;
+let calendarColWidth = parseInt(localStorage.getItem('cbm_col_width')) || 140;
+
 // Helper: assign a consistent color per analyst
 function getAnalystColor(name) {
     if (!name) return '#9CA3AF'; // neutral for unassigned
@@ -941,7 +945,7 @@ function renderCalendar() {
     const headerRow = document.getElementById('calendar-header-row');
     if(headerRow) {
         // Añadimos un div vacío arriba para que "Analista" se alinee con el número del día abajo
-        headerRow.innerHTML = '<th class="sticky-col"><div style="font-size:0.65rem; color:transparent">.</div>Analista</th>';
+        headerRow.innerHTML = '<th class="sticky-col"><div style="font-size:0.65rem; color:transparent">.</div>Analista<div class="calendar-col-resizer"></div></th>';
         daysToRender.forEach(d => {
             const th = document.createElement('th');
             if(d.isWeekend) th.classList.add('weekend-cell'); // Using our new class
@@ -1020,7 +1024,9 @@ function renderCalendar() {
 
     setupCalendarListeners();
     setupRowResizer();
+    setupColResizer();
     if (calendarRowHeight) applyRowHeight(calendarRowHeight);
+    if (calendarColWidth) applyColWidth(calendarColWidth);
 }
 
 // ── Global row height (persisted in localStorage) ──────────────
@@ -1030,6 +1036,39 @@ function applyRowHeight(h) {
     document.querySelectorAll('#calendar-body tr').forEach(r => {
         r.style.height = h + 'px';
         r.querySelectorAll('td').forEach(td => { td.style.height = h + 'px'; });
+    });
+}
+
+function applyColWidth(w) {
+    document.querySelectorAll('.sticky-col').forEach(el => {
+        el.style.width = w + 'px';
+        el.style.minWidth = w + 'px';
+    });
+}
+
+function setupColResizer() {
+    document.querySelectorAll('.calendar-col-resizer').forEach(handle => {
+        handle.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            const startX = e.clientX;
+            const startWidth = calendarColWidth;
+
+            function onMouseMove(ev) {
+                const delta = ev.clientX - startX;
+                const newWidth = Math.max(100, startWidth + delta);
+                calendarColWidth = newWidth;
+                applyColWidth(newWidth);
+            }
+
+            function onMouseUp() {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                localStorage.setItem('cbm_col_width', calendarColWidth);
+            }
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
     });
 }
 

@@ -460,8 +460,32 @@ h1 {
 }
 
 .calendar-table th:not(.sticky-col) {
-    width: 40px; /* Ancho fijo para los días */
-    min-width: 40px;
+    width: 48px; /* Un poco más de espacio para los días */
+    min-width: 48px;
+}
+
+.calendar-col-resizer {
+    display: block;
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 6px;
+    cursor: col-resize;
+    background: transparent;
+    z-index: 110;
+}
+
+.calendar-col-resizer:hover {
+    background: rgba(59, 130, 246, 0.4);
+}
+
+.calendar-table td.sticky-col {
+    position: sticky !important;
+    left: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .calendar-cell {
