@@ -14,8 +14,8 @@ try {
 let dbClients = [];
 let dbAnalysts = [];
 let dbEquipment = [];
+let currentUser = null;
 
-let tasks = [];
 let calendarRowHeight = parseInt(localStorage.getItem('cbm_row_height')) || 55;
 let calendarColWidth = parseInt(localStorage.getItem('cbm_col_width')) || 140;
 
