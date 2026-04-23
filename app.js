@@ -1029,8 +1029,7 @@ function renderCalendar() {
     if (calendarColWidth) applyColWidth(calendarColWidth);
 }
 
-// ── Global row height (persisted in localStorage) ──────────────
-let calendarRowHeight = parseInt(localStorage.getItem('cbm_row_height')) || 0;
+// ── Global row height functions ──────────────
 
 function applyRowHeight(h) {
     document.querySelectorAll('#calendar-body tr').forEach(r => {
