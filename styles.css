@@ -176,6 +176,25 @@ body {
     cursor: not-allowed;
 }
 
+/* Weekends AND holidays share the same dark-blue treatment */
+.weekend-cell {
+    background-color: #1e3a8a !important;
+    color: white !important;
+}
+
+.weekend-cell div {
+    color: #cbd5e1 !important;
+}
+
+.holiday-cell {
+    background-color: #1e3a8a !important;
+    color: white !important;
+}
+
+.holiday-cell div {
+    color: #cbd5e1 !important;
+}
+
 .sidebar-footer {
     margin-top: auto;
     padding: 2rem 1rem 0;
@@ -421,9 +440,50 @@ h1 {
 .calendar-cell {
     border-bottom: 1px solid #e2e8f0;
     border-right: 1px solid #e2e8f0;
-    min-height: 45px;
     padding: 0.15rem;
     transition: background 0.2s;
+    overflow: hidden;
+}
+
+/* Status classes provide fallback colors only — analyst inline style takes priority */
+.calendar-task-pill.proyectada {
+    background-color: var(--clr-purple);
+}
+
+.calendar-task-pill.programada {
+    background-color: var(--clr-blue);
+}
+
+.calendar-task-pill.ejecutada {
+    background-color: #1e293b;
+    font-weight: 800 !important;
+    border: 1.5px solid rgba(255,255,255,0.4);
+}
+
+.calendar-task-pill.facturada {
+    background-color: var(--clr-green);
+}
+
+/* ── Calendar row resize ─────────────────────────────────── */
+.calendar-row-resizer {
+    display: block;
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 5px;
+    cursor: row-resize;
+    background: transparent;
+    z-index: 5;
+}
+.calendar-row-resizer:hover {
+    background: rgba(59, 130, 246, 0.35);
+    border-radius: 0 0 4px 4px;
+}
+/* Make sticky-col cells position:relative so the resizer can anchor */
+.calendar-table td.sticky-col {
+    position: sticky !important;
+    overflow: visible;
 }
 
 .calendar-cell.drag-over {
@@ -449,12 +509,6 @@ h1 {
 }
 .calendar-task-pill.dragging {
     opacity: 0.5;
-}
-
-.weekend-holiday-cell {
-    background-color: #1e3a8a !important; /* Azul oscuro */
-    color: white !important;
-    opacity: 0.85;
 }
 
 /* Data Tables */
@@ -951,6 +1005,16 @@ h1 {
     padding: 0.25rem;
     border-radius: var(--radius-md);
     border: 1px solid #e2e8f0;
+}
+
+.calendar-table th, .calendar-table td {
+    border: 1px solid #e2e8f0;
+    min-width: 85px;
+    /* height is controlled dynamically by JS resize */
+    padding: 0.35rem;
+    vertical-align: top;
+    font-size: 0.8rem;
+    overflow: hidden; /* prevent content from forcing row taller */
 }
 
 .view-btn {

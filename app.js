@@ -15,6 +15,31 @@ let dbClients = [];
 let dbAnalysts = [];
 let dbEquipment = [];
 
+// Helper: assign a consistent color per analyst
+function getAnalystColor(name) {
+    if (!name) return '#9CA3AF'; // neutral for unassigned
+    
+    const lowerName = name.toLowerCase();
+    // Asignaciones específicas solicitadas por el usuario
+    if (lowerName.includes('nelson')) return '#EAB308'; // Amarillo
+    if (lowerName.includes('sebastián') || lowerName.includes('sebastian')) return '#84CC16'; // Verde Lima
+
+    const colorPalette = [
+        '#1E40AF', // indigo-800
+        '#7C3AED', // violet-600
+        '#10B981', // emerald-600
+        '#EF4444', // red-500
+        '#F59E0B', // amber-500
+        '#14B8A6', // teal-500
+        '#6B7280', // gray-500
+        '#D946EF', // fuchsia-500
+        '#F97316', // orange-500
+        '#0EA5E9'  // sky-500
+    ];
+    const idx = dbAnalysts.findIndex(a => a.name === name);
+    return colorPalette[idx === -1 ? 0 : idx % colorPalette.length];
+}
+
 function getClientDisplayName(c) {
     if (!c) return '';
     const company = c.company_name || '';
@@ -913,7 +938,7 @@ function renderCalendar() {
         headerRow.innerHTML = '<th class="sticky-col">Analista</th>';
         daysToRender.forEach(d => {
             const th = document.createElement('th');
-            if(d.isWeekend) th.classList.add('weekend');
+            if(d.isWeekend) th.classList.add('weekend-cell'); // Using our new class
             const dayName = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][new Date(d.dateStr + 'T00:00:00').getDay()];
             th.innerHTML = `<div style="font-size:0.65rem; color:var(--text-secondary)">${dayName}</div>${d.day}`;
             headerRow.appendChild(th);
@@ -922,12 +947,25 @@ function renderCalendar() {
 
     analystsToRender.forEach(analyst => {
         const row = document.createElement('tr');
-        row.innerHTML = `<td class="sticky-col analyst-name-cell">${analyst.name}</td>`;
+        
+        // Sticky name cell with analyst color + resize handle
+        const nameCell = document.createElement('td');
+        nameCell.className = 'sticky-col analyst-name-cell';
+        nameCell.style.position = 'relative'; // anchor for resizer
+        const analystColor = getAnalystColor(analyst.name);
+        nameCell.style.color = analystColor;
+        nameCell.textContent = analyst.name;
+
+        // Resize handle inside the name cell
+        const resizer = document.createElement('div');
+        resizer.className = 'calendar-row-resizer';
+        nameCell.appendChild(resizer);
+        row.appendChild(nameCell);
         
         daysToRender.forEach(day => {
             const cell = document.createElement('td');
             cell.className = 'calendar-cell';
-            if(day.isWeekend) cell.classList.add('weekend');
+            if(day.isWeekend) cell.classList.add('weekend-cell');
             cell.setAttribute('data-analyst', analyst.name);
             cell.setAttribute('data-day', day.day);
             cell.setAttribute('data-date', day.dateStr);
@@ -947,6 +985,12 @@ function renderCalendar() {
                 const dayIdx = t.scheduledDays.findIndex(sd => sd.date === day.dateStr);
                 
                 pill.className = `calendar-task-pill ${t.status} ${dayInfo.type}`;
+                // Analyst color overrides CSS status colors
+                if (analystColor) {
+                    pill.style.backgroundColor = analystColor;
+                    pill.style.borderColor = analystColor;
+                    pill.style.color = '#fff';
+                }
                 if(t.isAbsence) pill.classList.add('absence');
                 
                 pill.id = `pill-${t.id}-${dayIdx}`;
@@ -969,7 +1013,49 @@ function renderCalendar() {
     });
 
     setupCalendarListeners();
+    setupRowResizer();
+    if (calendarRowHeight) applyRowHeight(calendarRowHeight);
 }
+
+// ── Global row height (persisted in localStorage) ──────────────
+let calendarRowHeight = parseInt(localStorage.getItem('cbm_row_height')) || 0;
+
+function applyRowHeight(h) {
+    document.querySelectorAll('#calendar-body tr').forEach(r => {
+        r.style.height = h + 'px';
+        r.querySelectorAll('td').forEach(td => { td.style.height = h + 'px'; });
+    });
+}
+
+function setupRowResizer() {
+    document.querySelectorAll('.calendar-row-resizer').forEach(handle => {
+        handle.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            const startY = e.clientY;
+
+            const allRows = document.querySelectorAll('#calendar-body tr');
+            const firstRow = allRows[0];
+            const startHeight = firstRow ? firstRow.getBoundingClientRect().height : 85;
+
+            function onMouseMove(ev) {
+                const delta = ev.clientY - startY;
+                const newHeight = Math.max(40, startHeight + delta);
+                calendarRowHeight = newHeight;
+                applyRowHeight(newHeight);
+            }
+
+            function onMouseUp() {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                localStorage.setItem('cbm_row_height', calendarRowHeight);
+            }
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
+    });
+}
+
 
 function setupCalendarListeners() {
     document.querySelectorAll('.calendar-cell').forEach(cell => {
