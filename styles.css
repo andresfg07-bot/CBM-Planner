@@ -403,46 +403,56 @@ h1 {
     position: relative;
 }
 
-.calendar-grid {
-    display: grid;
-    /* First column is for Analyst info, then 31 columns for days */
-    grid-template-columns: 120px repeat(31, minmax(60px, 1fr));
+.calendar-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    table-layout: fixed;
+    border: none;
 }
 
-.calendar-header-cell {
-    background: #f8fafc; /* Color sólido para que no sea transparente al stickear */
-    padding: 0.6rem 0.25rem;
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: var(--text-primary);
-    text-align: center;
-    border-bottom: 2px solid #e2e8f0;
-    border-right: 1px solid #e2e8f0;
-    position: sticky;
-    top: 0;
-    z-index: 50; /* Mayor que las celdas y pills */
-}
-
-.calendar-row-header {
-    background: var(--bg-color);
-    padding: 0.4rem 0.75rem;
-    font-size: 0.8rem;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    border-bottom: 1px solid #e2e8f0;
-    border-right: 1px solid #e2e8f0;
-    position: sticky;
-    left: 0;
-    z-index: 10;
-}
-
-.calendar-cell {
+.calendar-table th, .calendar-table td {
     border-bottom: 1px solid #e2e8f0;
     border-right: 1px solid #e2e8f0;
     padding: 0.15rem;
     transition: background 0.2s;
     overflow: hidden;
+    min-height: 25px;
+}
+
+.calendar-table tr {
+    height: auto;
+}
+
+.calendar-table th {
+    background: #f8fafc;
+    padding: 0.6rem 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    text-align: center;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.calendar-table td.sticky-col {
+    background: var(--bg-color);
+    padding: 0.4rem 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    position: sticky !important;
+    left: 0;
+    z-index: 10;
+    width: 120px;
+    min-width: 120px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.calendar-cell {
+    padding: 0.15rem !important;
 }
 
 /* Status classes provide fallback colors only — analyst inline style takes priority */

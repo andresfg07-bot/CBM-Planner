@@ -1699,18 +1699,26 @@ async function saveTaskToSupabase(task) {
 }
 
 async function loadTasksFromSupabase() {
-    if(!supabaseClient) return;
+    if(!supabaseClient) {
+        console.warn("Supabase client not initialized.");
+        return;
+    }
     try {
+        console.log("Cargando gestiones desde Supabase...");
+        
+        // Cargamos todas las gestiones para asegurar que el backlog y otros periodos se vean
         const { data, error } = await supabaseClient
             .from('tasks')
-            .select('*')
-            .eq('period', formatPeriod());
+            .select('*');
             
         if(error) {
-            console.error("Error loading from Supabase:", error);
+            console.error("Error cargando desde Supabase:", error);
             return;
         }
         
+        console.log(`Se cargaron ${data ? data.length : 0} gestiones.`);
+
+        // Limpiar dummies t1, t2, t3
         tasks = tasks.filter(t => !['t1', 't2', 't3'].includes(t.id));
 
         if(data && data.length > 0) {
@@ -1723,7 +1731,7 @@ async function loadTasksFromSupabase() {
                     budget: parseFloat(dbTask.budget),
                     daysField: dbTask.days_field,
                     daysReport: dbTask.days_report,
-                    scheduledDays: dbTask.scheduled_days,
+                    scheduledDays: dbTask.scheduled_days || [],
                     status: dbTask.status,
                     period: dbTask.period,
                     equipmentId: dbTask.equipment_id,
@@ -1746,11 +1754,16 @@ async function loadTasksFromSupabase() {
             saveTasks();
         }
         
-        if(document.getElementById('view-finance').classList.contains('active-view')) {
+        // Refrescar UI tras la carga
+        renderBoard();
+        renderCalendar();
+        if(typeof renderPlanningSidebar === 'function') renderPlanningSidebar();
+
+        if(document.getElementById('view-finance')?.classList.contains('active-view')) {
             populateFinanceMonths();
         }
-    } catch(err) {
-        console.error("Load error:", err);
+    } catch (err) {
+        console.error("Error crítico en loadTasksFromSupabase:", err);
     }
 }
 
