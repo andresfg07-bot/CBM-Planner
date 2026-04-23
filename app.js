@@ -940,7 +940,8 @@ function renderCalendar() {
     // Actualizar Header
     const headerRow = document.getElementById('calendar-header-row');
     if(headerRow) {
-        headerRow.innerHTML = '<th class="sticky-col">Analista</th>';
+        // Añadimos un div vacío arriba para que "Analista" se alinee con el número del día abajo
+        headerRow.innerHTML = '<th class="sticky-col"><div style="font-size:0.65rem; color:transparent">.</div>Analista</th>';
         daysToRender.forEach(d => {
             const th = document.createElement('th');
             if(d.isWeekend) th.classList.add('weekend-cell'); // Using our new class
