@@ -6,6 +6,8 @@
     <title>Planeador Maestro CBM</title>
     <link rel="icon" href="logo.png">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
@@ -116,6 +118,10 @@
                 <a href="#" class="nav-item" id="nav-admin" onclick="switchView('admin')">
                     <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v4c0 1.66 3.58 3 8 3s8-1.34 8-3V6"/><path d="M4 10v4c0 1.66 3.58 3 8 3s8-1.34 8-3v-4"/><path d="M4 14v4c0 1.66 3.58 3 8 3s8-1.34 8-3v-4"/></svg></span>
                     <span class="nav-text">Admin de Datos</span>
+                </a>
+                <a href="#" class="nav-item" id="nav-reports" onclick="switchView('reports')">
+                    <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>
+                    <span class="nav-text">Reportes</span>
                 </a>
                 <a href="#" class="nav-item nav-logout" onclick="handleLogout()" style="margin-top: auto; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem; color: var(--clr-pink);">
                     <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span>
@@ -410,6 +416,61 @@
                         <div id="admin-equipment-list" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 400px; overflow-y: auto;">
                             <!-- JS render -->
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- REPORTS VIEW -->
+            <div id="view-reports" class="view-section" style="padding-top: 2rem;">
+                <div class="kanban-header" style="margin-bottom: 1.5rem;">
+                    <div>
+                        <h2>Reportes Históricos</h2>
+                        <p class="subtitle">Busca, filtra y exporta gestiones de cualquier período.</p>
+                    </div>
+                </div>
+
+                <!-- Filtros -->
+                <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end; background:#fff; padding:1.25rem; border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); margin-bottom:1.5rem; border:1px solid #e2e8f0;">
+                    <div style="flex:1; min-width:160px;">
+                        <label style="font-size:0.65rem; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;">Analista</label>
+                        <select id="report-filter-analyst" style="width:100%; padding:0.45rem; font-size:0.82rem; border:1px solid #cbd5e1; border-radius:4px;">
+                            <option value="">Todos los Analistas</option>
+                        </select>
+                    </div>
+                    <div style="flex:1.5; min-width:200px;">
+                        <label style="font-size:0.65rem; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;">Planta / Cliente</label>
+                        <select id="report-filter-client" style="width:100%; padding:0.45rem; font-size:0.82rem; border:1px solid #cbd5e1; border-radius:4px;">
+                            <option value="">Todas las Plantas</option>
+                        </select>
+                    </div>
+                    <div style="flex:1; min-width:150px;">
+                        <label style="font-size:0.65rem; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;">Desde (mes)</label>
+                        <input type="month" id="report-filter-from" style="width:100%; padding:0.45rem; font-size:0.82rem; border:1px solid #cbd5e1; border-radius:4px;">
+                    </div>
+                    <div style="flex:1; min-width:150px;">
+                        <label style="font-size:0.65rem; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;">Hasta (mes)</label>
+                        <input type="month" id="report-filter-to" style="width:100%; padding:0.45rem; font-size:0.82rem; border:1px solid #cbd5e1; border-radius:4px;">
+                    </div>
+                    <button class="btn-primary" onclick="applyReportFilters()" style="height:38px; padding:0 1.2rem;">&#128269; Buscar</button>
+                    <button onclick="reportFilters={analyst:'',client:'',dateFrom:'',dateTo:''}; document.getElementById('report-filter-analyst').value=''; document.getElementById('report-filter-client').value=''; document.getElementById('report-filter-from').value=''; document.getElementById('report-filter-to').value=''; renderReportsTable();" style="height:38px; padding:0 0.8rem; background:none; border:1px solid #ef4444; color:#ef4444; border-radius:var(--radius-md); font-weight:600; cursor:pointer; font-size:0.8rem;">&#10005; Limpiar</button>
+                </div>
+
+                <!-- Botones de Exportación -->
+                <div style="display:flex; gap:0.75rem; margin-bottom:1rem; flex-wrap:wrap;">
+                    <button onclick="exportReportPDF()" style="display:flex; align-items:center; gap:0.5rem; padding:0.5rem 1.1rem; background:#dc2626; color:#fff; border:none; border-radius:var(--radius-md); font-weight:700; font-size:0.82rem; cursor:pointer; box-shadow:0 2px 6px rgba(220,38,38,0.3); transition:opacity .2s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 13h6M9 17h6M9 9h1"/></svg>
+                        Exportar PDF
+                    </button>
+                    <button onclick="exportReportCSV()" style="display:flex; align-items:center; gap:0.5rem; padding:0.5rem 1.1rem; background:#16a34a; color:#fff; border:none; border-radius:var(--radius-md); font-weight:700; font-size:0.82rem; cursor:pointer; box-shadow:0 2px 6px rgba(22,163,74,0.3); transition:opacity .2s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        Descargar Excel / CSV
+                    </button>
+                </div>
+
+                <!-- Tabla de Resultados -->
+                <div class="stats-card" style="overflow-x:auto; padding:0;">
+                    <div id="reports-table-container" style="min-height:200px;">
+                        <div style="text-align:center; padding:3rem; color:var(--text-secondary); font-size:0.9rem;">Usa los filtros de arriba y haz clic en <strong>Buscar</strong> para generar el reporte.</div>
                     </div>
                 </div>
             </div>

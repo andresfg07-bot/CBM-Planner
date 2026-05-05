@@ -2555,7 +2555,8 @@ function switchView(viewName) {
             message: 'Bitácora de Movimientos',
             tasks: 'Gestión de Tareas',
             finance: 'Módulo de Finanzas',
-            admin: 'Administración de Datos Maestros'
+            admin: 'Administración de Datos Maestros',
+            reports: 'Reportes Históricos'
         };
         headerTitle.textContent = titles[viewName] || 'CBM Maestro';
     }
@@ -2572,6 +2573,8 @@ function switchView(viewName) {
         renderFinanceView();
     } else if(viewName === 'admin') {
         renderAdminView();
+    } else if(viewName === 'reports') {
+        initReportsView();
     } else {
         renderBoard();
     }
@@ -2604,6 +2607,417 @@ async function loadMasterData() {
     } catch(err) {
         console.error("Critical error in loadMasterData:", err);
     }
+}
+
+async function loadTasksFromSupabase() {
+    if(!supabaseClient) return;
+    try {
+        const { data, error } = await supabaseClient
+            .from('tasks')
+            .select('*')
+            .order('created_at', { ascending: false });
+        if(error) { console.error("Error loading tasks:", error); return; }
+        if(data) {
+            tasks = data.map(t => ({
+                id: t.id,
+                client: t.client || '',
+                clientId: t.client_id || '',
+                analyst: t.analyst || '',
+                analysts_assignment: t.analysts_assignment || [],
+                equipment: t.equipment || '',
+                equipmentId: t.equipment_id || '',
+                budget: t.budget || 0,
+                daysField: t.days_field || 1,
+                daysReport: t.days_report || 0,
+                serviceType: t.service_type || '',
+                isAbsence: t.is_absence || false,
+                scheduledDays: t.scheduled_days || [],
+                status: t.status || 'proyectada',
+                period: t.period || formatPeriod(),
+                mesFacturacion: t.mes_facturacion || t.period || formatPeriod(),
+                csatScore: t.csat_score || null,
+                csatObservations: t.csat_observations || '',
+                alertvoxChecked: t.alertvox_checked || false
+            }));
+            saveTasks();
+        }
+    } catch(err) {
+        console.error("Error in loadTasksFromSupabase:", err);
+    }
+}
+
+// ══════════════════════════════════════════
+// ADMIN CRUD: Edit & Delete para Clientes, Analistas y Equipos
+// ══════════════════════════════════════════
+
+async function deleteClient(clientId) {
+    const client = dbClients.find(c => c.id === clientId);
+    const name = client ? getClientDisplayName(client) : 'este cliente';
+    if(!confirm(`¿Eliminar a "${name}"? Esta acción no se puede deshacer.`)) return;
+    if(!supabaseClient) return;
+    const { error } = await supabaseClient.from('clients').delete().eq('id', clientId);
+    if(error) { alert('Error al eliminar: ' + error.message); return; }
+    logActivity(`🗑️ Cliente <strong>${name}</strong> eliminado.`, 'delete');
+    await loadMasterData();
+    renderAdminView();
+}
+
+function editClient(clientId) {
+    const client = dbClients.find(c => c.id === clientId);
+    if(!client) return;
+    const modal = document.getElementById('adminDataModal');
+    document.getElementById('adminModalTitle').textContent = 'Editar Cliente';
+    document.getElementById('adminModalContent').innerHTML = `
+        <form onsubmit="updateClient(event, '${clientId}')">
+            <div class="form-group">
+                <label>Nombre de Planta / Cliente</label>
+                <input type="text" id="editC_plant" required value="${client.plant || client.company_name || ''}">
+            </div>
+            <div class="form-group">
+                <label>Nombre de Contacto</label>
+                <input type="text" id="editC_contact" value="${client.contact_name || ''}">
+            </div>
+            <button type="submit" class="btn-primary" style="width:100%; margin-top:1rem;">Guardar Cambios</button>
+        </form>
+    `;
+    modal.classList.add('active');
+}
+
+async function updateClient(e, clientId) {
+    e.preventDefault();
+    if(!supabaseClient) return;
+    const plant = document.getElementById('editC_plant').value;
+    const contact = document.getElementById('editC_contact').value;
+    const { error } = await supabaseClient.from('clients').update({
+        company_name: plant, plant, contact_name: contact
+    }).eq('id', clientId);
+    if(error) { alert('Error al actualizar: ' + error.message); return; }
+    logActivity(`✏️ Cliente <strong>${plant}</strong> actualizado.`, 'update');
+    closeModal('adminDataModal');
+    await loadMasterData();
+    renderAdminView();
+}
+
+async function deleteAnalyst(analystId) {
+    const analyst = dbAnalysts.find(a => a.id === analystId);
+    const name = analyst ? analyst.name : 'este analista';
+    if(!confirm(`¿Eliminar al analista "${name}"? Esta acción no se puede deshacer.`)) return;
+    if(!supabaseClient) return;
+    const { error } = await supabaseClient.from('analysts').delete().eq('id', analystId);
+    if(error) { alert('Error al eliminar: ' + error.message); return; }
+    logActivity(`🗑️ Analista <strong>${name}</strong> eliminado.`, 'delete');
+    await loadMasterData();
+    renderAdminView();
+}
+
+function editAnalyst(analystId) {
+    const analyst = dbAnalysts.find(a => a.id === analystId);
+    if(!analyst) return;
+    const modal = document.getElementById('adminDataModal');
+    document.getElementById('adminModalTitle').textContent = 'Editar Analista';
+    document.getElementById('adminModalContent').innerHTML = `
+        <form onsubmit="updateAnalyst(event, '${analystId}')">
+            <div class="form-group">
+                <label>Nombre del Analista</label>
+                <input type="text" id="editA_name" required value="${analyst.name || ''}">
+            </div>
+            <div class="form-group">
+                <label>Especialidad</label>
+                <input type="text" id="editA_spec" value="${analyst.specialty || ''}">
+            </div>
+            <div class="form-group" style="display:flex; align-items:center; gap:0.5rem;">
+                <input type="checkbox" id="editA_active" ${analyst.is_active ? 'checked' : ''}>
+                <label for="editA_active">Analista Activo</label>
+            </div>
+            <button type="submit" class="btn-primary" style="width:100%; margin-top:1rem;">Guardar Cambios</button>
+        </form>
+    `;
+    modal.classList.add('active');
+}
+
+async function updateAnalyst(e, analystId) {
+    e.preventDefault();
+    if(!supabaseClient) return;
+    const name = document.getElementById('editA_name').value;
+    const specialty = document.getElementById('editA_spec').value;
+    const is_active = document.getElementById('editA_active').checked;
+    const { error } = await supabaseClient.from('analysts').update({ name, specialty, is_active }).eq('id', analystId);
+    if(error) { alert('Error al actualizar: ' + error.message); return; }
+    logActivity(`✏️ Analista <strong>${name}</strong> actualizado.`, 'update');
+    closeModal('adminDataModal');
+    await loadMasterData();
+    renderAdminView();
+}
+
+async function deleteEquipment(equipmentId) {
+    const equip = dbEquipment.find(e => e.id === equipmentId);
+    const name = equip ? equip.name : 'este equipo';
+    if(!confirm(`¿Eliminar el equipo "${name}"? Esta acción no se puede deshacer.`)) return;
+    if(!supabaseClient) return;
+    const { error } = await supabaseClient.from('equipment').delete().eq('id', equipmentId);
+    if(error) { alert('Error al eliminar: ' + error.message); return; }
+    logActivity(`🗑️ Equipo <strong>${name}</strong> eliminado.`, 'delete');
+    await loadMasterData();
+    renderAdminView();
+}
+
+function editEquipment(equipmentId) {
+    const equip = dbEquipment.find(e => e.id === equipmentId);
+    if(!equip) return;
+    const modal = document.getElementById('adminDataModal');
+    document.getElementById('adminModalTitle').textContent = 'Editar Equipo';
+    document.getElementById('adminModalContent').innerHTML = `
+        <form onsubmit="updateEquipment(event, '${equipmentId}')">
+            <div class="form-group">
+                <label>Nombre del Equipo</label>
+                <input type="text" id="editE_name" required value="${equip.name || ''}">
+            </div>
+            <div class="form-group">
+                <label>Número de Serie</label>
+                <input type="text" id="editE_serial" value="${equip.serial_number || ''}">
+            </div>
+            <button type="submit" class="btn-primary" style="width:100%; margin-top:1rem;">Guardar Cambios</button>
+        </form>
+    `;
+    modal.classList.add('active');
+}
+
+async function updateEquipment(e, equipmentId) {
+    e.preventDefault();
+    if(!supabaseClient) return;
+    const name = document.getElementById('editE_name').value;
+    const serial_number = document.getElementById('editE_serial').value || null;
+    const { error } = await supabaseClient.from('equipment').update({ name, serial_number }).eq('id', equipmentId);
+    if(error) { alert('Error al actualizar: ' + error.message); return; }
+    logActivity(`✏️ Equipo <strong>${name}</strong> actualizado.`, 'update');
+    closeModal('adminDataModal');
+    await loadMasterData();
+    renderAdminView();
+}
+
+// ══════════════════════════════════════════
+// MÓDULO DE REPORTES HISTÓRICOS
+// ══════════════════════════════════════════
+
+let reportFilters = { analyst: '', client: '', dateFrom: '', dateTo: '' };
+
+function initReportsView() {
+    const analystSel = document.getElementById('report-filter-analyst');
+    const clientSel = document.getElementById('report-filter-client');
+    if(analystSel) {
+        analystSel.innerHTML = '<option value="">Todos los Analistas</option>';
+        dbAnalysts.forEach(a => {
+            analystSel.innerHTML += `<option value="${a.name}">${a.name}</option>`;
+        });
+        analystSel.value = reportFilters.analyst;
+    }
+    if(clientSel) {
+        clientSel.innerHTML = '<option value="">Todas las Plantas</option>';
+        dbClients.forEach(c => {
+            const n = getClientDisplayName(c);
+            clientSel.innerHTML += `<option value="${n}">${n}</option>`;
+        });
+        clientSel.value = reportFilters.client;
+    }
+    renderReportsTable();
+}
+
+function applyReportFilters() {
+    reportFilters.analyst = document.getElementById('report-filter-analyst').value;
+    reportFilters.client  = document.getElementById('report-filter-client').value;
+    reportFilters.dateFrom = document.getElementById('report-filter-from').value;
+    reportFilters.dateTo   = document.getElementById('report-filter-to').value;
+    renderReportsTable();
+}
+
+function getReportData() {
+    let data = tasks.filter(t => !t.isAbsence);
+
+    if(reportFilters.analyst) {
+        data = data.filter(t => {
+            if(t.analysts_assignment && t.analysts_assignment.length > 0)
+                return t.analysts_assignment.some(a => a.name === reportFilters.analyst);
+            return t.analyst === reportFilters.analyst;
+        });
+    }
+    if(reportFilters.client) {
+        data = data.filter(t => t.client === reportFilters.client || t.client.includes(reportFilters.client));
+    }
+    if(reportFilters.dateFrom) {
+        data = data.filter(t => {
+            const period = t.mesFacturacion || t.period || '';
+            return period >= reportFilters.dateFrom.substring(0,7);
+        });
+    }
+    if(reportFilters.dateTo) {
+        data = data.filter(t => {
+            const period = t.mesFacturacion || t.period || '';
+            return period <= reportFilters.dateTo.substring(0,7);
+        });
+    }
+
+    // Sort by period/date
+    data.sort((a,b) => {
+        const pa = a.mesFacturacion || a.period || '';
+        const pb = b.mesFacturacion || b.period || '';
+        return pa.localeCompare(pb);
+    });
+    return data;
+}
+
+function formatReportPeriod(period) {
+    if(!period) return '-';
+    const [y, m] = period.split('-');
+    return `${monthNames[parseInt(m)-1] || m} ${y}`;
+}
+
+function formatAnalystDisplay(t) {
+    if(t.analysts_assignment && t.analysts_assignment.length > 1) {
+        return t.analysts_assignment.map(a => `${a.name} (${a.percentage}%)`).join(', ');
+    }
+    return t.analyst || '-';
+}
+
+function renderReportsTable() {
+    const container = document.getElementById('reports-table-container');
+    if(!container) return;
+    const data = getReportData();
+    const total = data.reduce((sum, t) => sum + (t.budget || 0), 0);
+
+    if(data.length === 0) {
+        container.innerHTML = `<div style="text-align:center; padding:3rem; color:var(--text-secondary); font-size:0.9rem;">No se encontraron gestiones con los filtros aplicados.</div>`;
+        return;
+    }
+
+    container.innerHTML = `
+        <table class="data-table" style="font-size:0.8rem; width:100%;">
+            <thead>
+                <tr>
+                    <th style="min-width:110px">Fecha / Período</th>
+                    <th style="min-width:160px">Cliente (Planta)</th>
+                    <th style="min-width:110px; text-align:right">Monto ($)</th>
+                    <th style="min-width:200px">Analistas</th>
+                    <th style="min-width:120px">Servicio Realizado</th>
+                    <th style="min-width:90px">Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${data.map(t => `
+                    <tr>
+                        <td>${formatReportPeriod(t.mesFacturacion || t.period)}</td>
+                        <td><strong>${t.client}</strong></td>
+                        <td style="text-align:right; color:var(--clr-green); font-weight:700;">$${(t.budget||0).toLocaleString('es-CO')}</td>
+                        <td style="font-size:0.75rem">${formatAnalystDisplay(t)}</td>
+                        <td>${t.serviceType || '-'}</td>
+                        <td><span class="status-tag ${t.status}" style="font-size:0.7rem">${t.status.toUpperCase()}</span></td>
+                    </tr>
+                `).join('')}
+            </tbody>
+            <tfoot>
+                <tr style="background: #f0f9ff; font-weight:800; border-top: 2px solid var(--clr-blue);">
+                    <td colspan="2" style="padding: 0.75rem; font-size:0.85rem; color:var(--clr-blue)">TOTAL (${data.length} gestiones)</td>
+                    <td style="text-align:right; color:var(--clr-green); font-size:1rem; padding:0.75rem;">$${total.toLocaleString('es-CO')}</td>
+                    <td colspan="3"></td>
+                </tr>
+            </tfoot>
+        </table>
+    `;
+}
+
+function exportReportCSV() {
+    const data = getReportData();
+    if(data.length === 0) { alert('No hay datos para exportar.'); return; }
+
+    const headers = ['Fecha/Período','Cliente (Planta)','Monto ($)','Analistas','Servicio Realizado','Estado'];
+    const rows = data.map(t => [
+        formatReportPeriod(t.mesFacturacion || t.period),
+        t.client,
+        t.budget || 0,
+        formatAnalystDisplay(t),
+        t.serviceType || '',
+        t.status
+    ]);
+    const total = data.reduce((s, t) => s + (t.budget || 0), 0);
+    rows.push(['TOTAL', '', total, '', '', '']);
+
+    const csvContent = [headers, ...rows]
+        .map(r => r.map(cell => `"${String(cell).replace(/"/g,'""')}"`).join(','))
+        .join('\n');
+
+    const BOM = '\uFEFF';
+    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url;
+    a.download = `Reporte_CBM_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+}
+
+function exportReportPDF() {
+    const data = getReportData();
+    if(data.length === 0) { alert('No hay datos para exportar.'); return; }
+    if(typeof window.jspdf === 'undefined' && typeof jsPDF === 'undefined') {
+        alert('La librería PDF está cargando. Intenta en unos segundos.'); return;
+    }
+
+    const { jsPDF: JSPDF } = window.jspdf || {};
+    const doc = JSPDF ? new JSPDF({ orientation:'landscape', unit:'mm', format:'letter' }) : new jsPDF({ orientation:'landscape', unit:'mm', format:'letter' });
+
+    // Header branding
+    doc.setFillColor(30, 64, 175);
+    doc.rect(0, 0, 280, 22, 'F');
+    doc.setTextColor(255,255,255);
+    doc.setFontSize(14); doc.setFont('helvetica','bold');
+    doc.text('A-MAQ S.A. — Reporte Histórico de Gestiones CBM', 14, 10);
+    doc.setFontSize(9); doc.setFont('helvetica','normal');
+    doc.text(`Generado: ${new Date().toLocaleDateString('es-CO')}`, 14, 17);
+
+    // Filters summary
+    const filterParts = [];
+    if(reportFilters.analyst) filterParts.push(`Analista: ${reportFilters.analyst}`);
+    if(reportFilters.client) filterParts.push(`Cliente: ${reportFilters.client}`);
+    if(reportFilters.dateFrom) filterParts.push(`Desde: ${reportFilters.dateFrom}`);
+    if(reportFilters.dateTo) filterParts.push(`Hasta: ${reportFilters.dateTo}`);
+    if(filterParts.length > 0) {
+        doc.setTextColor(100); doc.setFontSize(8);
+        doc.text('Filtros: ' + filterParts.join(' | '), 14, 28);
+    }
+
+    const total = data.reduce((s,t) => s + (t.budget||0), 0);
+
+    const tableData = data.map(t => [
+        formatReportPeriod(t.mesFacturacion || t.period),
+        t.client,
+        '$' + (t.budget||0).toLocaleString('es-CO'),
+        formatAnalystDisplay(t),
+        t.serviceType || '-',
+        t.status.toUpperCase()
+    ]);
+    tableData.push(['TOTAL (' + data.length + ' gestiones)', '', '$' + total.toLocaleString('es-CO'), '', '', '']);
+
+    doc.autoTable({
+        startY: filterParts.length > 0 ? 32 : 26,
+        head: [['Fecha/Período','Cliente (Planta)','Monto ($)','Analistas','Servicio','Estado']],
+        body: tableData,
+        styles: { fontSize: 8, cellPadding: 2.5 },
+        headStyles: { fillColor: [30,64,175], textColor: 255, fontStyle:'bold' },
+        columnStyles: {
+            0: { cellWidth: 28 },
+            1: { cellWidth: 55 },
+            2: { cellWidth: 30, halign:'right' },
+            3: { cellWidth: 70 },
+            4: { cellWidth: 35 },
+            5: { cellWidth: 22 }
+        },
+        didParseCell: function(d) {
+            if(d.row.index === tableData.length - 1) {
+                d.cell.styles.fillColor = [240,249,255];
+                d.cell.styles.fontStyle = 'bold';
+                d.cell.styles.textColor = [30,64,175];
+            }
+        }
+    });
+
+    doc.save(`Reporte_CBM_${new Date().toISOString().slice(0,10)}.pdf`);
 }
 
 async function renderAdminView() {
