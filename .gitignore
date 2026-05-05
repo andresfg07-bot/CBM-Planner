@@ -9,3 +9,5 @@ cbm_tasks.json
 # Otros
 .DS_Store
 Thumbs.db
+
+.vercel
