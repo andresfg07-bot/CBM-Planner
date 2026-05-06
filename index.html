@@ -105,10 +105,7 @@
                 </a>
 
                 <div class="nav-section">DATOS</div>
-                <a href="#" class="nav-item" id="nav-message" onclick="switchView('message')">
-                    <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="12" y2="14"/><path d="M16 18l2.5-2.5"/><circle cx="15" cy="19" r="1.5"/></svg></span>
-                    <span class="nav-text">Bitácora</span>
-                </a>
+
                 <a href="#" class="nav-item" id="nav-finance" onclick="switchView('finance')">
                     <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10l4-2v12"/><path d="M10 20V8l4-3v15"/><path d="M16 20V6l4-4v18"/><path d="M2 20h20"/><path d="M15 4l5-2"/><path d="M18 3l2-1-1 2"/></svg></span>
                     <span class="nav-text">Finanzas</span>
@@ -338,38 +335,7 @@
                 </div>
             </div>
 
-            <!-- MESSAGES / ACTIVITY LOG VIEW -->
-            <div id="view-message" class="view-section" style="max-width: 800px; margin: 0 auto; width: 100%; padding-top: 2rem;">
-                <div class="kanban-header" style="margin-bottom: 2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem;">
-                    <div>
-                        <h2>Bitácora de Movimientos</h2>
-                        <p class="subtitle" style="font-size: 1rem; color: var(--text-secondary);">Registro de todas las gestiones y asignaciones.</p>
-                    </div>
-                </div>
 
-                <!-- Filtros de Bitácora -->
-                <div class="log-filters" style="display: flex; gap: 1rem; margin-bottom: 2rem; background: var(--card-bg); padding: 1.25rem; border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); align-items: flex-end; flex-wrap: wrap;">
-                    <div class="form-group" style="margin: 0; flex: 1; min-width: 150px;">
-                        <label style="font-size: 0.75rem; text-transform: uppercase; font-weight: 700; color: var(--text-secondary); margin-bottom: 0.5rem; display: block;">Filtrar por Fecha</label>
-                        <input type="date" id="log-filter-date" style="width: 100%; padding: 0.6rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); font-family: inherit;">
-                    </div>
-                    <div class="form-group" style="margin: 0; flex: 1; min-width: 150px;">
-                        <label style="font-size: 0.75rem; text-transform: uppercase; font-weight: 700; color: var(--text-secondary); margin-bottom: 0.5rem; display: block;">Tipo de Actividad</label>
-                        <select id="log-filter-type" style="width: 100%; padding: 0.6rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); font-family: inherit; cursor: pointer;">
-                            <option value="all">Todos los registros</option>
-                            <option value="create">🆕 Creaciones</option>
-                            <option value="assign">📅 Asignaciones</option>
-                            <option value="status">🔄 Cambios de Estado</option>
-                            <option value="csat">✅ Cierres / CSAT</option>
-                        </select>
-                    </div>
-                    <button class="btn-secondary" onclick="resetLogFilters()" style="padding: 0.6rem 1.2rem; height: 38px; border: 1px solid var(--border-color); background: white; color: var(--text-secondary); border-radius: var(--radius-md); font-weight: 600; cursor: pointer;">Limpiar</button>
-                </div>
-                <div id="activity-feed" style="display: flex; flex-direction: column; gap: 1.5rem; padding-bottom: 4rem;">
-                    <!-- Renderizado por JS -->
-                    <div style="text-align: center; color: var(--text-secondary); margin-top: 2rem;">Sin actividad reciente.</div>
-                </div>
-            </div>
 
             <!-- ADMIN DATA VIEW -->
             <div id="view-admin" class="view-section admin-full-width" style="padding-top: 2rem;">

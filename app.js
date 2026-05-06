@@ -83,6 +83,11 @@ function getStartOfWeek(date) {
     return new Date(d.setDate(diff));
 }
 
+// Utility to avoid crashes after Bitácora removal
+function logActivity(message, type) {
+    console.log(`[Activity Log - ${type}]: ${message.replace(/<[^>]*>/g, '')}`);
+}
+
 function getEndOfWeek(startDate) {
     const d = new Date(startDate);
     return new Date(d.setDate(d.getDate() + 6));
@@ -221,25 +226,13 @@ tasks.forEach(t => {
 });
 if(tasksModified) localStorage.setItem('cbm_tasks', JSON.stringify(tasks));
 
-let activityLog = JSON.parse(localStorage.getItem('cbm_activity_log')) || [];
+
 
 function saveTasks() {
     localStorage.setItem('cbm_tasks', JSON.stringify(tasks));
 }
 
-function saveLog() {
-    localStorage.setItem('cbm_activity_log', JSON.stringify(activityLog));
-}
 
-function logActivity(message, type = 'info') {
-    const entry = {
-        message: message,
-        type: type, // 'create', 'assign', 'status', 'csat'
-        timestamp: new Date().toISOString()
-    };
-    activityLog.unshift(entry); // Add to beginning (blog style)
-    saveLog();
-}
 
 // Generate unique ID
 function generateId() {
@@ -357,8 +350,8 @@ async function updateTaskStatus(taskId, newStatus) {
     // Si se pasa a proyectada, se quita la programación
     if(newStatus === 'proyectada') {
         task.scheduledDays = [];
-        // Mantener el analista para que no se pierda la asignación preferida
     }
+    if(!Array.isArray(task.scheduledDays)) task.scheduledDays = [];
 
     if(supabaseClient) {
         await supabaseClient.from('tasks').update({ 
@@ -369,12 +362,15 @@ async function updateTaskStatus(taskId, newStatus) {
     }
     
     saveTasks();
-    renderBoard();
-    renderCalendar();
-    if(typeof renderPlanningSidebar === 'function') renderPlanningSidebar();
-    renderTasksView();
-    renderDashboardStats();
-    logActivity(`Estado actualizado: Gestión de ${task.client} cambió de ${oldStatus} a ${newStatus}`, 'status');
+    if(typeof postDropSync === 'function') {
+        postDropSync();
+    } else {
+        renderBoard();
+        renderCalendar();
+        if(typeof renderPlanningSidebar === 'function') renderPlanningSidebar();
+        renderTasksView();
+        renderDashboardStats();
+    }
 }
 
 async function deleteTask(taskId) {
@@ -398,7 +394,7 @@ async function deleteTask(taskId) {
     if(typeof renderPlanningSidebar === 'function') renderPlanningSidebar();
     renderTasksView();
     renderDashboardStats();
-    logActivity(`Gestión borrada: Se eliminó la gestión de ${clientName}`, 'delete');
+
 }
 
 async function revertToProjected(taskId) {
@@ -417,7 +413,7 @@ function renderDashboardStats() {
     if (dashboardScope === 'month') {
         const periodKey = formatPeriod();
         gestionesFiltradas = gestionesFiltradas.filter(t => {
-            if (t.status === 'proyectada') return true; 
+            if (t.status === 'proyectada') return t.period === periodKey; 
             if (!t.scheduledDays || t.scheduledDays.length === 0) return t.period === periodKey;
             return t.scheduledDays.some(sd => (sd.date ? sd.date.substring(0, 7) : t.period) === periodKey);
         });
@@ -872,7 +868,13 @@ function renderPlanningSidebar() {
     if(!sidebarContainer) return;
     sidebarContainer.innerHTML = '';
     
-    let filteredTasks = tasks.filter(t => t.status === 'proyectada' && isTaskInCurrentPeriod(t));
+    // Filtrado estricto: Una gestión en 'Por programar' NO DEBE tener días programados.
+    let filteredTasks = tasks.filter(t => 
+        t.status && 
+        t.status.toLowerCase() === 'proyectada' && 
+        (!t.scheduledDays || t.scheduledDays.length === 0) &&
+        isTaskInCurrentPeriod(t)
+    );
 
     if(dashboardFilters.analyst) filteredTasks = filteredTasks.filter(t => t.analyst === dashboardFilters.analyst);
     if(dashboardFilters.client) filteredTasks = filteredTasks.filter(t => t.client === dashboardFilters.client);
@@ -904,49 +906,7 @@ function renderPlanningSidebar() {
     });
 }
 
-function renderActivityLog() {
-    const logContainer = document.getElementById('activity-log-items');
-    if(!logContainer) return;
-    logContainer.innerHTML = '';
 
-    const dateFilter = document.getElementById('log-filter-date').value;
-    const typeFilter = document.getElementById('log-filter-type').value;
-
-    let filteredLog = activityLog;
-
-    if(dateFilter) {
-        filteredLog = filteredLog.filter(entry => entry.timestamp.startsWith(dateFilter));
-    }
-    if(typeFilter) {
-        filteredLog = filteredLog.filter(entry => entry.type === typeFilter);
-    }
-
-    if(filteredLog.length === 0) {
-        logContainer.innerHTML = '<div style="text-align:center; padding:2rem; color:var(--text-secondary)">No hay actividades registradas con estos filtros.</div>';
-        return;
-    }
-
-    filteredLog.forEach(entry => {
-        const item = document.createElement('div');
-        item.className = `log-entry ${entry.type}`;
-        
-        const date = new Date(entry.timestamp);
-        const dateStr = date.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        const timeStr = date.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
-
-        item.innerHTML = `
-            <div class="log-entry-icon"></div>
-            <div class="log-entry-content">
-                <div class="log-entry-header">
-                    <span class="log-entry-type">${entry.type.toUpperCase()}</span>
-                    <span class="log-entry-time">${dateStr} ${timeStr}</span>
-                </div>
-                <div class="log-entry-message">${entry.message}</div>
-            </div>
-        `;
-        logContainer.appendChild(item);
-    });
-}
 
 function renderCalendar() {
     const container = document.querySelector('.calendar-container');
@@ -1474,14 +1434,18 @@ async function handleCalendarDrop(cell, dragInfo) {
         task.scheduledDays[dayIdx].day = targetDay;
         task.scheduledDays[dayIdx].date = targetDateStr;
         task.analyst = targetAnalyst;
+        // Sync analysts_assignment for calendar row matching
+        task.analysts_assignment = [{ name: targetAnalyst, isTitular: true, makesReport: true, percentage: 100 }];
         logActivity(`🚚 Se movió un día de la gestión <strong>${task.client}</strong> al día <strong>${targetDay}</strong>.`, 'assign');
     } else {
         task.analyst = targetAnalyst;
-        if (task.scheduledDays.length === 0) {
+        // Sync analysts_assignment for calendar row matching
+        task.analysts_assignment = [{ name: targetAnalyst, isTitular: true, makesReport: true, percentage: 100 }];
+        if (!task.scheduledDays || task.scheduledDays.length === 0) {
             const [yStr, mStr, dStr] = targetDateStr.split('-');
             let loopDate = new Date(parseInt(yStr), parseInt(mStr) - 1, parseInt(dStr));
             let fieldAsigned = 0;
-            const totalFieldNeeded = task.daysField || 1;
+            const totalFieldNeeded = parseInt(task.daysField) || 1;
             while(fieldAsigned < totalFieldNeeded) {
                 const y = loopDate.getFullYear();
                 const m = loopDate.getMonth() + 1;
@@ -1493,7 +1457,7 @@ async function handleCalendarDrop(cell, dragInfo) {
                 loopDate.setDate(loopDate.getDate() + 1);
             }
             let reportAsigned = 0;
-            const totalReportNeeded = task.daysReport || 0;
+            const totalReportNeeded = parseInt(task.daysReport) || 0;
             while(reportAsigned < totalReportNeeded) {
                 const y = loopDate.getFullYear();
                 const m = loopDate.getMonth() + 1;
@@ -1509,10 +1473,23 @@ async function handleCalendarDrop(cell, dragInfo) {
         } else {
             logActivity(`📌 Se reasignó la gestión <strong>${task.client}</strong> al <strong>Analista ${targetAnalyst}</strong>.`, 'assign');
         }
-        if(task.status === 'proyectada') task.status = 'programada';
     }
-    await saveTaskToSupabase(task);
+
+    // Unconditional status update - if it's on the calendar, it's programmed
+    task.status = 'programada';
+    console.log(`Task ${task.id} updated to status: programada`);
+
     postDropSync();
+    
+    // Final Database Persistence with ID sync
+    try {
+        await saveTaskToSupabase(task);
+        // After save, the ID might have changed from t_... to UUID
+        // Refresh again to ensure all DOM elements use the new ID
+        setTimeout(() => postDropSync(), 100);
+    } catch(err) {
+        console.error("Critical error saving task after drop:", err);
+    }
 }
 
 async function handleKanbanDrop(column, taskId) {
@@ -1531,20 +1508,43 @@ async function handleKanbanDrop(column, taskId) {
     const task = tasks.find(t => t.id === taskId);
     if (task && task.status !== newStatus) {
         await updateTaskStatus(taskId, newStatus);
+        if(typeof postDropSync === 'function') postDropSync();
     }
 }
 
-async function handleSidebarDrop(dragInfo) {
-    let taskId = dragInfo;
-    if (dragInfo && dragInfo.startsWith('pill-')) {
-        const dragEl = document.getElementById(dragInfo);
-        taskId = dragEl ? dragEl.getAttribute('data-task-id') : dragInfo.split('-')[1];
+async function handleSidebarDrop(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    
+    // We try to get ID from multiple sources for maximum compatibility
+    const rawId = (e && e.dataTransfer) ? e.dataTransfer.getData('text/plain') : draggedTaskId;
+    console.log("Sidebar drop rawId:", rawId);
+    
+    if (!rawId) return;
+    
+    let taskId = rawId;
+    if (rawId.startsWith('pill-')) {
+        const parts = rawId.split('-');
+        if (parts.length >= 2) taskId = parts[1];
     }
-
-    const task = tasks.find(t => t.id === taskId);
+    
+    const task = tasks.find(t => t.id === taskId || t.supabaseId === taskId);
     if (task && task.status !== 'proyectada') {
+        console.log("Found task for sidebar drop:", task.client);
         logActivity(`🔄 La gestión <strong>${task.client}</strong> se ha devuelto al estado <strong>PROYECTADA</strong>.`, 'status');
-        await updateTaskStatus(task.id, 'proyectada');
+        
+        task.status = 'proyectada';
+        task.scheduledDays = []; // Limpiar programación al volver al backlog
+        
+        postDropSync();
+        
+        try {
+            await saveTaskToSupabase(task);
+            console.log("Task saved to Supabase as proyectada");
+        } catch (err) {
+            console.error("Error saving task to sidebar:", err);
+        }
+    } else if (!task) {
+        console.warn("Task not found for sidebar drop:", taskId);
     }
 }
 
@@ -1553,7 +1553,6 @@ function isHolidayOrWeekend(year, month, day) {
     const dayOfWeek = d.getDay();
     if (dayOfWeek === 0 || dayOfWeek === 6) return true;
     
-    // Festivos Colombia 2026 (Manual)
     const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
     const holidays = [
         "2026-01-01", "2026-01-12", "2026-03-23", "2026-04-02", "2026-04-03",
@@ -1921,36 +1920,44 @@ function updateFinanceSelectedMonths() {
 async function validateEquipmentAvailability(equipmentId, taskId, scheduledDays) {
     if(!equipmentId || !scheduledDays || scheduledDays.length === 0) return true;
     
+    // Check locally first
     const conflictLocal = tasks.find(t => 
         t.id !== taskId && 
         t.equipmentId === equipmentId && 
-        t.period === formatPeriod() &&
         t.scheduledDays.some(sd => scheduledDays.some(nsd => nsd.day === sd.day))
     );
-    
     if(conflictLocal) return false;
+
     if(!supabaseClient) return true;
     
     try {
-        const { data, error } = await supabaseClient
+        // Only query if taskId is a valid UUID to avoid Cast Errors
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(taskId);
+        
+        let query = supabaseClient
             .from('tasks')
             .select('id, client, scheduled_days')
             .eq('equipment_id', equipmentId)
-            .eq('period', formatPeriod())
-            .neq('id', taskId);
+            .eq('period', formatPeriod());
+            
+        if (isUuid) {
+            query = query.neq('id', taskId);
+        }
+
+        const { data, error } = await query;
             
         if(error) {
             console.error("Error validating availability:", error);
-            return true;
+            return true; 
         }
         
         const conflictDb = data.find(t => 
-            t.scheduled_days.some(sd => scheduledDays.some(nsd => nsd.day === sd.day))
+            t.scheduled_days && t.scheduled_days.some(sd => scheduledDays.some(nsd => nsd.day === sd.day))
         );
         
         return !conflictDb;
-    } catch(err) {
-        console.error("Critical error validating availability:", err);
+    } catch(e) {
+        console.error("Exception in validateEquipmentAvailability:", e);
         return true;
     }
 }
@@ -1959,14 +1966,15 @@ async function validateEquipmentAvailability(equipmentId, taskId, scheduledDays)
 async function saveTaskToSupabase(task) {
     if(!supabaseClient) return;
     try {
+        const isTemporaryId = task.id && (typeof task.id === 'string' && (task.id.startsWith('t') || task.id.startsWith('id_')));
+        
         const taskData = {
-            id: (task.id && (typeof task.id === 'string' && task.id.startsWith('t'))) ? undefined : task.id, 
             client: task.client,
             analyst: task.analyst,
-            budget: task.budget,
-            days_field: task.daysField,
-            days_report: task.daysReport,
-            scheduled_days: task.scheduledDays,
+            budget: parseFloat(task.budget) || 0,
+            days_field: parseInt(task.daysField) || 1,
+            days_report: parseInt(task.daysReport) || 0,
+            scheduled_days: task.scheduledDays || [],
             status: task.status,
             period: task.period,
             equipment_id: task.equipmentId || null,
@@ -1978,13 +1986,26 @@ async function saveTaskToSupabase(task) {
             mes_facturacion: task.mesFacturacion || task.period,
             analysts_assignment: task.analysts_assignment || [] 
         };
+
+        if (!isTemporaryId) {
+            taskData.id = task.id;
+        }
         
         let result;
-        if(task.supabaseId || (task.id && !task.id.startsWith('t'))) {
-            result = await supabaseClient.from('tasks').upsert({ ...taskData, id: task.supabaseId || task.id });
+        if(task.supabaseId || !isTemporaryId) {
+            result = await supabaseClient.from('tasks').upsert({ 
+                ...taskData, 
+                id: task.supabaseId || task.id 
+            });
         } else {
             result = await supabaseClient.from('tasks').insert(taskData).select();
-            if(result.data) task.supabaseId = result.data[0].id;
+            if(result.data && result.data.length > 0) {
+                const newRealId = result.data[0].id;
+                // Update BOTH to ensure total synchronization
+                task.id = newRealId; 
+                task.supabaseId = newRealId;
+                console.log("Task inserted and local ID updated to:", newRealId);
+            }
         }
         
         if(result.error) console.error("Error saving to Supabase:", result.error);
@@ -1994,71 +2015,75 @@ async function saveTaskToSupabase(task) {
 }
 
 async function loadTasksFromSupabase() {
-    if(!supabaseClient) {
-        console.warn("Supabase client not initialized.");
-        return;
-    }
+    if(!supabaseClient) return;
     try {
-        console.log("Cargando gestiones desde Supabase...");
-        
-        // Cargamos todas las gestiones para asegurar que el backlog y otros periodos se vean
         const { data, error } = await supabaseClient
             .from('tasks')
-            .select('*');
-            
-        if(error) {
-            console.error("Error cargando desde Supabase:", error);
-            return;
-        }
-        
-        console.log(`Se cargaron ${data ? data.length : 0} gestiones.`);
+            .select('*')
+            .order('created_at', { ascending: false });
+        if(error) { console.error("Error loading tasks:", error); return; }
+        if(data) {
+            const remoteTasks = data.map(t => ({
+                id: t.id,
+                supabaseId: t.id,
+                client: t.client || '',
+                analyst: t.analyst || '',
+                analysts_assignment: t.analysts_assignment || [],
+                equipmentId: t.equipment_id || '',
+                budget: parseFloat(t.budget) || 0,
+                daysField: parseInt(t.days_field) || 1,
+                daysReport: parseInt(t.days_report) || 0,
+                serviceType: t.service_type || '',
+                isAbsence: t.is_absence || false,
+                scheduledDays: t.scheduled_days || [],
+                status: t.status || 'proyectada',
+                period: t.period || formatPeriod(),
+                mesFacturacion: t.mes_facturacion || t.period || formatPeriod(),
+                csatScore: t.csat_score || null,
+                csatObservations: t.csat_observations || '',
+                alertvoxChecked: t.alertvox_checked || false
+            }));
 
-        // Limpiar dummies t1, t2, t3
-        tasks = tasks.filter(t => !['t1', 't2', 't3'].includes(t.id));
-
-        if(data && data.length > 0) {
-            data.forEach(dbTask => {
-                const mapped = {
-                    id: dbTask.id,
-                    supabaseId: dbTask.id,
-                    client: dbTask.client,
-                    analyst: dbTask.analyst,
-                    budget: parseFloat(dbTask.budget),
-                    daysField: dbTask.days_field,
-                    daysReport: dbTask.days_report,
-                    scheduledDays: dbTask.scheduled_days || [],
-                    status: dbTask.status,
-                    period: dbTask.period,
-                    equipmentId: dbTask.equipment_id,
-                    serviceType: dbTask.service_type,
-                    isAbsence: dbTask.is_absence,
-                    csatScore: dbTask.csat_score,
-                    csatObservations: dbTask.csat_observations,
-                    alertvoxChecked: dbTask.alertvox_checked,
-                    mesFacturacion: dbTask.mes_facturacion || dbTask.period,
-                    analysts_assignment: dbTask.analysts_assignment || []
-                };
-                
-                const idx = tasks.findIndex(t => t.id === mapped.id || (t.supabaseId && t.supabaseId === mapped.id));
-                if(idx !== -1) {
-                    tasks[idx] = mapped;
+            // 1. Merge remote into local
+            remoteTasks.forEach(remote => {
+                const localIdx = tasks.findIndex(l => l.id === remote.id || l.supabaseId === remote.id);
+                if (localIdx === -1) {
+                    tasks.push(remote);
                 } else {
-                    tasks.push(mapped);
+                    const localTask = tasks[localIdx];
+                    // HEURISTIC: If local task is 'programada' but remote is 'proyectada', 
+                    // it's likely a pending sync. Keep local status.
+                    const finalStatus = (localTask.status === 'programada' && remote.status === 'proyectada') 
+                                        ? 'programada' : remote.status;
+                    const finalDays = (localTask.status === 'programada' && remote.status === 'proyectada')
+                                        ? (localTask.scheduledDays.length > 0 ? localTask.scheduledDays : remote.scheduledDays)
+                                        : remote.scheduledDays;
+
+                    tasks[localIdx] = { 
+                        ...localTask, 
+                        ...remote, 
+                        status: finalStatus,
+                        scheduledDays: finalDays,
+                        id: remote.id // Always prefer the real UUID as primary ID
+                    };
                 }
             });
-            saveTasks();
-        }
-        
-        // Refrescar UI tras la carga
-        renderBoard();
-        renderCalendar();
-        if(typeof renderPlanningSidebar === 'function') renderPlanningSidebar();
 
-        if(document.getElementById('view-finance')?.classList.contains('active-view')) {
-            populateFinanceMonths();
+            // 2. DEDUPLICATION: Remove any t_... tasks that now have a UUID counterpart
+            const uuidSet = new Set(tasks.filter(t => !t.id.startsWith('t_')).map(t => t.supabaseId || t.id));
+            tasks = tasks.filter(t => {
+                if (t.id.startsWith('t_')) {
+                    // If this temp task has a supabaseId that is already in the UUID set, remove it
+                    return !uuidSet.has(t.supabaseId);
+                }
+                return true;
+            });
+            
+            saveTasks();
+            if(typeof postDropSync === 'function') postDropSync();
         }
-    } catch (err) {
-        console.error("Error crítico en loadTasksFromSupabase:", err);
+    } catch(err) {
+        console.error("Error in loadTasksFromSupabase:", err);
     }
 }
 
@@ -2261,19 +2286,6 @@ function closeModal(modalId) {
     if (modal) modal.classList.remove('active');
 }
 
-function onTaskClientChange() {
-    const clientSel = document.getElementById('taskClient');
-    const clientId = clientSel.value;
-    const client = dbClients.find(c => c.id === clientId);
-    const container = document.getElementById('taskAnalystsContainer');
-    
-    // Si no hay analistas todavía, agregar uno por defecto
-    if (container && container.innerHTML.includes('Seleccione primero un cliente')) {
-        container.innerHTML = '';
-        addAnalystToTask();
-    }
-}
-
 function addAnalystToTask(analystData = null) {
     const container = document.getElementById('taskAnalystsContainer');
     if (!container) return;
@@ -2445,7 +2457,7 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
                 tasks[idx].serviceType = serviceType;
                 tasks[idx].isAbsence = isAbsence;
                 tasks[idx].mesFacturacion = document.getElementById('taskBillingMonth').value;
-                logActivity(`✏️ Se actualizó la gestión de <strong>${finalClientName}</strong>.`, 'update');
+
                 
                 await saveTaskToSupabase(tasks[idx]);
             }
@@ -2469,7 +2481,7 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
                 mesFacturacion: document.getElementById('taskBillingMonth').value
             };
             tasks.push(newTask);
-            logActivity(`✨ Se proyectó la gestión de <strong>${finalClientName}</strong>.`, 'create');
+
             
             await saveTaskToSupabase(newTask);
         }
@@ -2521,7 +2533,7 @@ document.getElementById('csatForm').addEventListener('submit', async e => {
             logMsg += ` Estado cambió a <strong>${targetStatus.toUpperCase()}</strong>.`;
         }
         
-        logActivity(logMsg, 'csat');
+
         
         saveTasks();
         await saveTaskToSupabase(tasks[taskIndex]);
@@ -2552,7 +2564,7 @@ function switchView(viewName) {
         const titles = {
             dashboard: 'Dashboard',
             planning: 'Cronograma Semanal/Mensual',
-            message: 'Bitácora de Movimientos',
+
             tasks: 'Gestión de Tareas',
             finance: 'Módulo de Finanzas',
             admin: 'Administración de Datos Maestros',
@@ -2564,8 +2576,7 @@ function switchView(viewName) {
     if(viewName === 'planning') {
         renderCalendar();
         renderPlanningSidebar();
-    } else if(viewName === 'message') {
-        renderActivityLog();
+
     } else if(viewName === 'tasks') {
         renderTasksView();
     } else if(viewName === 'finance') {
@@ -2609,42 +2620,7 @@ async function loadMasterData() {
     }
 }
 
-async function loadTasksFromSupabase() {
-    if(!supabaseClient) return;
-    try {
-        const { data, error } = await supabaseClient
-            .from('tasks')
-            .select('*')
-            .order('created_at', { ascending: false });
-        if(error) { console.error("Error loading tasks:", error); return; }
-        if(data) {
-            tasks = data.map(t => ({
-                id: t.id,
-                client: t.client || '',
-                clientId: t.client_id || '',
-                analyst: t.analyst || '',
-                analysts_assignment: t.analysts_assignment || [],
-                equipment: t.equipment || '',
-                equipmentId: t.equipment_id || '',
-                budget: t.budget || 0,
-                daysField: t.days_field || 1,
-                daysReport: t.days_report || 0,
-                serviceType: t.service_type || '',
-                isAbsence: t.is_absence || false,
-                scheduledDays: t.scheduled_days || [],
-                status: t.status || 'proyectada',
-                period: t.period || formatPeriod(),
-                mesFacturacion: t.mes_facturacion || t.period || formatPeriod(),
-                csatScore: t.csat_score || null,
-                csatObservations: t.csat_observations || '',
-                alertvoxChecked: t.alertvox_checked || false
-            }));
-            saveTasks();
-        }
-    } catch(err) {
-        console.error("Error in loadTasksFromSupabase:", err);
-    }
-}
+
 
 // ══════════════════════════════════════════
 // ADMIN CRUD: Edit & Delete para Clientes, Analistas y Equipos
@@ -2657,7 +2633,7 @@ async function deleteClient(clientId) {
     if(!supabaseClient) return;
     const { error } = await supabaseClient.from('clients').delete().eq('id', clientId);
     if(error) { alert('Error al eliminar: ' + error.message); return; }
-    logActivity(`🗑️ Cliente <strong>${name}</strong> eliminado.`, 'delete');
+
     await loadMasterData();
     renderAdminView();
 }
@@ -2692,7 +2668,7 @@ async function updateClient(e, clientId) {
         company_name: plant, plant, contact_name: contact
     }).eq('id', clientId);
     if(error) { alert('Error al actualizar: ' + error.message); return; }
-    logActivity(`✏️ Cliente <strong>${plant}</strong> actualizado.`, 'update');
+
     closeModal('adminDataModal');
     await loadMasterData();
     renderAdminView();
@@ -2705,7 +2681,7 @@ async function deleteAnalyst(analystId) {
     if(!supabaseClient) return;
     const { error } = await supabaseClient.from('analysts').delete().eq('id', analystId);
     if(error) { alert('Error al eliminar: ' + error.message); return; }
-    logActivity(`🗑️ Analista <strong>${name}</strong> eliminado.`, 'delete');
+
     await loadMasterData();
     renderAdminView();
 }
@@ -2743,7 +2719,7 @@ async function updateAnalyst(e, analystId) {
     const is_active = document.getElementById('editA_active').checked;
     const { error } = await supabaseClient.from('analysts').update({ name, specialty, is_active }).eq('id', analystId);
     if(error) { alert('Error al actualizar: ' + error.message); return; }
-    logActivity(`✏️ Analista <strong>${name}</strong> actualizado.`, 'update');
+
     closeModal('adminDataModal');
     await loadMasterData();
     renderAdminView();
@@ -2756,7 +2732,7 @@ async function deleteEquipment(equipmentId) {
     if(!supabaseClient) return;
     const { error } = await supabaseClient.from('equipment').delete().eq('id', equipmentId);
     if(error) { alert('Error al eliminar: ' + error.message); return; }
-    logActivity(`🗑️ Equipo <strong>${name}</strong> eliminado.`, 'delete');
+
     await loadMasterData();
     renderAdminView();
 }
@@ -2789,7 +2765,7 @@ async function updateEquipment(e, equipmentId) {
     const serial_number = document.getElementById('editE_serial').value || null;
     const { error } = await supabaseClient.from('equipment').update({ name, serial_number }).eq('id', equipmentId);
     if(error) { alert('Error al actualizar: ' + error.message); return; }
-    logActivity(`✏️ Equipo <strong>${name}</strong> actualizado.`, 'update');
+
     closeModal('adminDataModal');
     await loadMasterData();
     renderAdminView();
@@ -3241,7 +3217,7 @@ async function submitAdminForm(e, type) {
             await supabaseClient.from('equipment').insert(payload);
         }
         
-        logActivity(`➕ Nuevo ${type} creado exitosamente.`, 'create');
+
     } catch(err) {
         console.error("Error inserting data:", err);
         alert("Error al guardar: " + err.message);
@@ -3318,7 +3294,7 @@ async function quickAddAnalyst() {
         await supabaseClient.from('analysts').insert({ name, specialty: spec, is_active: true });
         await loadMasterData();
         renderAdminView();
-        logActivity(`✨ Analista <strong>${name}</strong> agregado rápidamente.`, 'create');
+
     } catch(e) { console.error(e); }
 }
 
@@ -3330,7 +3306,7 @@ async function quickAddClient() {
         await supabaseClient.from('clients').insert({ company_name: plant, plant, contact_name: contact });
         await loadMasterData();
         renderAdminView();
-        logActivity(`✨ Cliente <strong>${plant}</strong> agregado rápidamente.`, 'create');
+
     } catch(e) { console.error(e); }
 }
 
@@ -3342,7 +3318,7 @@ async function quickAddEquipment() {
         await supabaseClient.from('equipment').insert({ name, serial_number: serial, is_active: true });
         await loadMasterData();
         renderAdminView();
-        logActivity(`✨ Equipo <strong>${name}</strong> agregado rápidamente.`, 'create');
+
     } catch(e) { console.error(e); }
 }
 
@@ -3478,7 +3454,7 @@ async function initializeApp() {
 
             const task = tasks.find(t => t.id === taskId);
             if (task && task.status !== 'proyectada') {
-                logActivity(`🔄 La gestión <strong>${task.client}</strong> se ha devuelto al estado <strong>PROYECTADA</strong>.`, 'status');
+
                 await updateTaskStatus(task.id, 'proyectada');
             }
         });
@@ -3508,16 +3484,7 @@ async function initializeApp() {
         });
     }
 
-    const logDateFilter = document.getElementById('log-filter-date');
-    const logTypeFilter = document.getElementById('log-filter-type');
-    if(logDateFilter && !window._logDateListenerAttached) {
-        window._logDateListenerAttached = true;
-        logDateFilter.addEventListener('input', renderActivityLog);
-    }
-    if(logTypeFilter && !window._logTypeListenerAttached) {
-        window._logTypeListenerAttached = true;
-        logTypeFilter.addEventListener('change', renderActivityLog);
-    }
+
 }
 
 function populateBillingMonthSelect() {
@@ -3540,6 +3507,4 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // Helper Function
-function generateId() {
-    return 'id_' + Math.random().toString(36).substr(2, 9);
-}
+
