@@ -299,7 +299,7 @@ function renderTasksTable(container) {
                         <td><strong>${t.client}</strong></td>
                         <td><span class="card-analyst" style="font-size:0.75rem">${t.serviceType || '-'}</span></td>
                         <td style="color:var(--clr-green); font-weight:600">$${(t.budget || 0).toLocaleString('es-CO')}</td>
-                        <td>${t.analyst || '<span style="color:var(--text-secondary)">Sin Asignar</span>'}</td>
+                        <td>${formatAnalystDisplay(t)}</td>
                         <td>
                             <select onchange="updateTaskStatus('${t.id}', this.value)" style="padding: 0.4rem; font-size: 0.85rem; border-radius: 6px; border: 1px solid #cbd5e1; width: 100%; font-weight: 500;" ${isFacturada ? 'disabled' : ''}>
                                 ${statusOptions.map(opt => {
@@ -357,7 +357,8 @@ async function updateTaskStatus(taskId, newStatus) {
         await supabaseClient.from('tasks').update({ 
             status: newStatus, 
             scheduled_days: task.scheduledDays || [], 
-            analyst: task.analyst 
+            analyst: task.analyst,
+            analysts_assignment: task.analysts_assignment || [] 
         }).eq('id', taskId);
     }
     
@@ -892,7 +893,7 @@ function renderPlanningSidebar() {
         item.setAttribute('data-task-id', t.id);
         item.innerHTML = `
             <div style="font-weight:700; margin-bottom:0.25rem; pointer-events:none;">${t.client}</div>
-            <div style="font-size:0.7rem; color:var(--text-secondary); pointer-events:none;">${t.analyst || 'Sin Asignar'}</div>
+            <div style="font-size:0.7rem; color:var(--text-secondary); pointer-events:none;">${formatAnalystDisplay(t)}</div>
         `;
         
         item.addEventListener('dragstart', handleDragStart);
@@ -1434,13 +1435,37 @@ async function handleCalendarDrop(cell, dragInfo) {
         task.scheduledDays[dayIdx].day = targetDay;
         task.scheduledDays[dayIdx].date = targetDateStr;
         task.analyst = targetAnalyst;
-        // Sync analysts_assignment for calendar row matching
-        task.analysts_assignment = [{ name: targetAnalyst, isTitular: true, makesReport: true, percentage: 100 }];
+        // Preservar la asignación múltiple si existe
+        if (!task.analysts_assignment || task.analysts_assignment.length === 0) {
+            task.analysts_assignment = [{ name: targetAnalyst, isTitular: true, makesReport: true, percentage: 100 }];
+        } else {
+            // Asegurar que el targetAnalyst esté en la lista y sea titular (ya debería estarlo por la validación de arriba en isPillMove)
+            task.analysts_assignment.forEach(a => {
+                a.isTitular = (a.name === targetAnalyst);
+            });
+        }
         logActivity(`🚚 Se movió un día de la gestión <strong>${task.client}</strong> al día <strong>${targetDay}</strong>.`, 'assign');
     } else {
         task.analyst = targetAnalyst;
-        // Sync analysts_assignment for calendar row matching
-        task.analysts_assignment = [{ name: targetAnalyst, isTitular: true, makesReport: true, percentage: 100 }];
+        // Preservar la asignación múltiple si existe
+        if (!task.analysts_assignment || task.analysts_assignment.length === 0) {
+            task.analysts_assignment = [{ name: targetAnalyst, isTitular: true, makesReport: true, percentage: 100 }];
+        } else {
+            // Si ya hay analistas, asegurar que el targetAnalyst sea el titular pero NO borrar los demás
+            let found = false;
+            task.analysts_assignment.forEach(a => {
+                if (a.name === targetAnalyst) {
+                    a.isTitular = true;
+                    found = true;
+                } else {
+                    a.isTitular = false;
+                }
+            });
+            if (!found) {
+                // Si no estaba en la lista, lo agregamos como titular con 0% para no descuadrar porcentajes existentes
+                task.analysts_assignment.push({ name: targetAnalyst, isTitular: true, makesReport: true, percentage: 0 });
+            }
+        }
         if (!task.scheduledDays || task.scheduledDays.length === 0) {
             const [yStr, mStr, dStr] = targetDateStr.split('-');
             let loopDate = new Date(parseInt(yStr), parseInt(mStr) - 1, parseInt(dStr));
