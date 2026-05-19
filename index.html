@@ -86,9 +86,6 @@
                     <span class="logo-subtitle">A-MAQ S.A.</span>
                 </div>
             </div>
-            <button class="sidebar-toggle" onclick="document.querySelector('.sidebar').classList.toggle('collapsed');" style="background: none; border: none; color: #a2a3b7; font-size: 1.3rem; cursor: pointer; width: 100%; text-align: left; padding: 0.5rem 0.75rem; border-radius: 6px; display:flex; align-items:center; gap:0.5rem; margin-bottom: 1rem;">
-                <span>☰</span><span class="nav-text" style="font-size:0.75rem; font-weight:600;">Colapsar menú</span>
-            </button>
             <nav class="nav-menu">
                 <div class="nav-section">PRINCIPAL</div>
                 <a href="#" class="nav-item active" id="nav-dashboard" onclick="switchView('dashboard')">
@@ -128,16 +125,20 @@
 
             <div class="sidebar-footer">
                 <p>© 2026 Control Presupuestario</p>
-                <span>v1.1.2-weeks</span>
+                <span>v1.1.5-nav</span>
             </div>
         </aside>
+
+        <!-- Botón toggle sidebar (externo, flotante en el borde) -->
+        <button class="sidebar-toggle-btn collapsed" id="sidebar-toggle-btn" onclick="toggleSidebar()" title="Mostrar/ocultar menú">
+            <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
 
         <!-- Main Content -->
         <main class="main-content">
             <!-- Header -->
             <header class="header">
-                <div style="display: flex; align-items: center; gap: 1.25rem;">
-                    <img src="logo.png" alt="Logo" style="height: 48px; width: auto; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));">
+                <div style="display: flex; align-items: center; gap: 1rem;">
                     <div>
                         <h1 id="header-title">Task Management</h1>
                         <p class="subtitle">Planeador Maestro CBM - A-MAQ</p>
@@ -410,6 +411,19 @@
                         </select>
                     </div>
                     <div style="flex:1; min-width:150px;">
+                        <label style="font-size:0.65rem; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;">Tipo de Servicio</label>
+                        <select id="report-filter-service" style="width:100%; padding:0.45rem; font-size:0.82rem; border:1px solid #cbd5e1; border-radius:4px;">
+                            <option value="">Todos los Servicios</option>
+                            <option value="Balanceo">Balanceo</option>
+                            <option value="Alineación">Alineación</option>
+                            <option value="Vibraciones">Vibraciones</option>
+                            <option value="Termografía">Termografía</option>
+                            <option value="Ultrasonido">Ultrasonido</option>
+                            <option value="Rotodinámico">Rotodinámico</option>
+                            <option value="Capacitación">Capacitación</option>
+                        </select>
+                    </div>
+                    <div style="flex:1; min-width:150px;">
                         <label style="font-size:0.65rem; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;">Desde (mes)</label>
                         <input type="month" id="report-filter-from" style="width:100%; padding:0.45rem; font-size:0.82rem; border:1px solid #cbd5e1; border-radius:4px;">
                     </div>
@@ -418,7 +432,7 @@
                         <input type="month" id="report-filter-to" style="width:100%; padding:0.45rem; font-size:0.82rem; border:1px solid #cbd5e1; border-radius:4px;">
                     </div>
                     <button class="btn-primary" onclick="applyReportFilters()" style="height:38px; padding:0 1.2rem;">&#128269; Buscar</button>
-                    <button onclick="reportFilters={analyst:'',client:'',dateFrom:'',dateTo:''}; document.getElementById('report-filter-analyst').value=''; document.getElementById('report-filter-client').value=''; document.getElementById('report-filter-from').value=''; document.getElementById('report-filter-to').value=''; renderReportsTable();" style="height:38px; padding:0 0.8rem; background:none; border:1px solid #ef4444; color:#ef4444; border-radius:var(--radius-md); font-weight:600; cursor:pointer; font-size:0.8rem;">&#10005; Limpiar</button>
+                    <button onclick="reportFilters={analyst:'',client:'',serviceType:'',dateFrom:'',dateTo:''}; document.getElementById('report-filter-analyst').value=''; document.getElementById('report-filter-client').value=''; document.getElementById('report-filter-service').value=''; document.getElementById('report-filter-from').value=''; document.getElementById('report-filter-to').value=''; renderReportsTable();" style="height:38px; padding:0 0.8rem; background:none; border:1px solid #ef4444; color:#ef4444; border-radius:var(--radius-md); font-weight:600; cursor:pointer; font-size:0.8rem;">&#10005; Limpiar</button>
                 </div>
 
                 <!-- Botones de Exportación -->

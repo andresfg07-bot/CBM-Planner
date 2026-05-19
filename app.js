@@ -17,10 +17,74 @@ let dbEquipment = [];
 let currentUser = null;
 let draggedTaskId = null; // Declaración global necesaria
 
+// ── Festivos Colombia 2026 (fuente única de verdad) ──────────────────────────
+const COLOMBIA_HOLIDAYS_2026 = new Set([
+    "2026-01-01", "2026-01-12", "2026-03-23", "2026-04-02", "2026-04-03",
+    "2026-05-01", "2026-05-18", "2026-06-08", "2026-06-15", "2026-06-29",
+    "2026-07-20", "2026-08-07", "2026-08-17", "2026-10-12", "2026-11-02",
+    "2026-11-16", "2026-12-08", "2026-12-25"
+]);
+
+// ── Notificación toast no intrusiva ──────────────────────────────────────────
+function showToast(message, type = 'error') {
+    const existing = document.getElementById('cbm-toast');
+    if (existing) existing.remove();
+    const toast = document.createElement('div');
+    toast.id = 'cbm-toast';
+    const bg = type === 'error' ? '#ef4444' : type === 'warning' ? '#f59e0b' : '#22c55e';
+    toast.style.cssText = `position:fixed;bottom:1.5rem;right:1.5rem;background:${bg};color:#fff;padding:0.75rem 1.25rem;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,0.18);font-size:0.85rem;font-weight:600;z-index:9999;max-width:340px;line-height:1.4;transition:opacity .3s;`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 4000);
+}
+
+// ── Overlay de carga inicial ─────────────────────────────────────────────────
+function showLoadingOverlay(show) {
+    let el = document.getElementById('cbm-loading-overlay');
+    if (show) {
+        if (el) return;
+        el = document.createElement('div');
+        el.id = 'cbm-loading-overlay';
+        el.style.cssText = 'position:fixed;inset:0;background:rgba(255,255,255,0.75);display:flex;align-items:center;justify-content:center;z-index:8888;backdrop-filter:blur(2px);';
+        el.innerHTML = '<div style="text-align:center;"><div style="width:44px;height:44px;border:4px solid #e2e8f0;border-top-color:var(--clr-blue,#2563eb);border-radius:50%;animation:cbm-spin 0.7s linear infinite;margin:0 auto 0.75rem;"></div><p style="font-size:0.85rem;font-weight:600;color:#64748b;">Cargando datos...</p></div>';
+        if (!document.getElementById('cbm-spin-style')) {
+            const st = document.createElement('style');
+            st.id = 'cbm-spin-style';
+            st.textContent = '@keyframes cbm-spin{to{transform:rotate(360deg)}}';
+            document.head.appendChild(st);
+        }
+        document.body.appendChild(el);
+    } else {
+        if (el) el.remove();
+    }
+}
+
 let calendarRowHeight = parseInt(localStorage.getItem('cbm_row_height')) || 55;
 let calendarColWidth = parseInt(localStorage.getItem('cbm_col_width')) || 140;
 
-// Helper: assign a consistent color per analyst
+// ── Toggle sidebar ───────────────────────────────────────────────────────────
+function toggleSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    const btn     = document.getElementById('sidebar-toggle-btn');
+    if (!sidebar || !btn) return;
+    sidebar.classList.toggle('collapsed');
+    const isCollapsed = sidebar.classList.contains('collapsed');
+    btn.classList.toggle('collapsed', isCollapsed);
+}
+
+// ── SVG icon helpers ────────────────────────────────────────────────────────
+const SVG_ICONS = {
+    edit:   `<svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+    delete: `<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`,
+    csat:   `<svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+    revert: `<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`,
+    pref:   `<svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>`,
+};
+function actionIcon(type, onclick, title) {
+    return `<span class="action-icon ${type}" onclick="${onclick}" title="${title}">${SVG_ICONS[type] || ''}</span>`;
+}
+
+// ── Helper: assign a consistent color per analyst
 function getAnalystColor(name) {
     if (!name) return '#9CA3AF'; // neutral for unassigned
     
@@ -135,27 +199,6 @@ function updatePeriodDisplay() {
     }
 }
 
-async function changeCalendarView(view) {
-    calendarView = view;
-    
-    // UI update
-    document.getElementById('btn-view-month').classList.toggle('active', view === 'month');
-    document.getElementById('btn-view-week').classList.toggle('active', view === 'week');
-    
-    // Si cambiamos a semana, sincronizar con el mes actual o con hoy
-    if (view === 'week') {
-        const today = new Date();
-        if (today.getMonth() + 1 === currentMonth && today.getFullYear() === currentYear) {
-            currentWeekStart = getStartOfWeek(today);
-        } else {
-            currentWeekStart = getStartOfWeek(new Date(currentYear, currentMonth - 1, 1));
-        }
-    }
-    
-    updatePeriodDisplay();
-    renderCalendar();
-}
-
 async function goToToday() {
     const today = new Date();
     currentYear = today.getFullYear();
@@ -229,7 +272,12 @@ if(tasksModified) localStorage.setItem('cbm_tasks', JSON.stringify(tasks));
 
 
 function saveTasks() {
-    localStorage.setItem('cbm_tasks', JSON.stringify(tasks));
+    try {
+        localStorage.setItem('cbm_tasks', JSON.stringify(tasks));
+    } catch (e) {
+        console.warn('localStorage lleno, no se pudo guardar localmente:', e);
+        showToast('Advertencia: no se pudo guardar en caché local (almacenamiento lleno). Los datos siguen en la nube.', 'warning');
+    }
 }
 
 
@@ -237,6 +285,21 @@ function saveTasks() {
 // Generate unique ID
 function generateId() {
     return 't_' + Math.random().toString(36).substr(2, 9);
+}
+
+// ── Skeleton loader para tablas ──────────────────────────────────────────────
+function renderSkeletonTable(container, cols = 5, rows = 5) {
+    const widths = ['60%','40%','30%','50%','25%'];
+    const headerCells = Array.from({length: cols}, () => '<th></th>').join('');
+    const bodyCells = Array.from({length: cols}, (_, i) =>
+        `<td><div class="skeleton-cell" style="width:${widths[i % widths.length]}"></div></td>`
+    ).join('');
+    const bodyRows = Array.from({length: rows}, () => `<tr class="skeleton-row">${bodyCells}</tr>`).join('');
+    container.innerHTML = `
+        <table class="data-table">
+            <thead><tr>${headerCells}</tr></thead>
+            <tbody>${bodyRows}</tbody>
+        </table>`;
 }
 
 // Render Board (UI only — data is loaded by init and changePeriod)
@@ -311,10 +374,10 @@ function renderTasksTable(container) {
                         </td>
                         <td>
                             <div class="action-icons">
-                                <span class="action-icon edit" onclick="openEditTaskModal('${t.id}')" title="Editar">📝</span>
-                                <span class="action-icon edit" onclick="openClosingMeetingModal('${t.id}')" title="Reunión de Cierre">🤝</span>
-                                ${t.status === 'programada' ? `<span class="action-icon revert" onclick="revertToProjected('${t.id}')" title="Revertir a Proyectada">🔄</span>` : ''}
-                                <span class="action-icon delete" onclick="deleteTask('${t.id}')" title="Borrar">🗑️</span>
+                                ${actionIcon('edit',   `openEditTaskModal('${t.id}')`,        'Editar')}
+                                ${actionIcon('csat',   `openClosingMeetingModal('${t.id}')`,  'Reunión de Cierre')}
+                                ${t.status === 'programada' ? actionIcon('revert', `revertToProjected('${t.id}')`, 'Revertir a Proyectada') : ''}
+                                ${actionIcon('delete', `deleteTask('${t.id}')`,               'Borrar')}
                             </div>
                         </td>
                     </tr>`;
@@ -325,7 +388,12 @@ function renderTasksTable(container) {
 
 function renderTasksView() {
     const listContainer = document.getElementById('tasks-list-container');
-    if(listContainer) renderTasksTable(listContainer);
+    if (!listContainer) return;
+    if (tasks.length === 0) {
+        renderSkeletonTable(listContainer, 6, 4);
+        return;
+    }
+    renderTasksTable(listContainer);
 }
 
 async function updateTaskStatus(taskId, newStatus) {
@@ -607,20 +675,26 @@ function changeDashboardScope(scope) {
 
 function changeCalendarView(view) {
     calendarView = view;
-    
+
     // UI Update
     document.querySelectorAll('#view-planning .view-toggle-group button').forEach(btn => {
         btn.classList.remove('active');
     });
-    
+
     const activeBtn = document.getElementById(`btn-view-${view}`);
     if(activeBtn) activeBtn.classList.add('active');
-    
-    // Si entramos en vista semana, asegurarnos que currentWeekStart esté actualizado si queremos hoy
-    if(view === 'week') {
-        // Opcional: currentWeekStart = getStartOfWeek(new Date());
+
+    // Sincronizar currentWeekStart al cambiar a vista semana
+    if (view === 'week') {
+        const today = new Date();
+        if (today.getMonth() + 1 === currentMonth && today.getFullYear() === currentYear) {
+            currentWeekStart = getStartOfWeek(today);
+        } else {
+            currentWeekStart = getStartOfWeek(new Date(currentYear, currentMonth - 1, 1));
+        }
     }
-    
+
+    updatePeriodDisplay();
     renderCalendar();
 }
 
@@ -961,15 +1035,10 @@ function renderCalendar() {
     }
 
     function checkHoliday(date) {
-        const m = date.getMonth() + 1;
-        const d = date.getDate();
         const y = date.getFullYear();
-        // Festivos Colombia 2026 (Aprox)
-        const holidays = [
-            '1-1', '1-12', '3-23', '4-2', '4-3', '5-1', '5-18', '6-8', '6-15', '6-29', 
-            '7-20', '8-7', '8-17', '10-12', '11-2', '11-16', '12-8', '12-25'
-        ];
-        return holidays.includes(`${m}-${d}`);
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        return COLOMBIA_HOLIDAYS_2026.has(`${y}-${m}-${d}`);
     }
 
     // Actualizar Header
@@ -1053,6 +1122,23 @@ function renderCalendar() {
         calendarBody.appendChild(row);
     });
 
+    // Estado vacío: mostrar hint si no hay ninguna pill en todo el calendario
+    const totalPills = calendarBody.querySelectorAll('.calendar-task-pill').length;
+    const container2 = document.querySelector('.calendar-container');
+    const existingHint = document.querySelector('.calendar-empty-hint');
+    if (existingHint) existingHint.remove();
+    if (totalPills === 0 && analystsToRender.length > 0 && container2) {
+        const hint = document.createElement('div');
+        hint.className = 'calendar-empty-hint';
+        hint.innerHTML = `
+            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+            <span>Sin gestiones programadas — arrastra desde <strong>Por Programar</strong></span>`;
+        container2.appendChild(hint);
+    }
+
     setupCalendarListeners();
     setupRowResizer();
     setupColResizer();
@@ -1083,14 +1169,18 @@ function setupColResizer() {
         const startResize = (clientX) => {
             const startX = clientX;
             const startWidth = calendarColWidth;
+            let rafId = null;
 
             const onMove = (ev) => {
                 const currentX = ev.clientX || (ev.touches && ev.touches[0].clientX);
                 if (!currentX) return;
-                const delta = currentX - startX;
-                const newWidth = Math.max(40, startWidth + delta); // Reducido el límite inferior a 40px
-                calendarColWidth = newWidth;
-                applyColWidth(newWidth);
+                if (rafId) cancelAnimationFrame(rafId);
+                rafId = requestAnimationFrame(() => {
+                    const delta = currentX - startX;
+                    const newWidth = Math.max(40, startWidth + delta);
+                    calendarColWidth = newWidth;
+                    applyColWidth(newWidth);
+                });
             };
 
             const onEnd = () => {
@@ -1128,14 +1218,18 @@ function setupRowResizer() {
             const allRows = document.querySelectorAll('#calendar-body tr');
             const firstRow = allRows[0];
             const startHeight = firstRow ? firstRow.getBoundingClientRect().height : 85;
+            let rafId = null;
 
             const onMove = (ev) => {
                 const currentY = ev.clientY || (ev.touches && ev.touches[0].clientY);
                 if (!currentY) return;
-                const delta = currentY - startY;
-                const newHeight = Math.max(40, startHeight + delta);
-                calendarRowHeight = newHeight;
-                applyRowHeight(newHeight);
+                if (rafId) cancelAnimationFrame(rafId);
+                rafId = requestAnimationFrame(() => {
+                    const delta = currentY - startY;
+                    const newHeight = Math.max(40, startHeight + delta);
+                    calendarRowHeight = newHeight;
+                    applyRowHeight(newHeight);
+                });
             };
 
             const onEnd = () => {
@@ -1221,6 +1315,53 @@ function setupCalendarListeners() {
         setupTouchDraggable(pill, (el) => el.id);
     });
 }
+
+// ── Tooltip custom para pills del calendario ─────────────────────────────────
+(function initTooltip() {
+    let tip = null;
+    function getOrCreateTip() {
+        if (!tip) {
+            tip = document.createElement('div');
+            tip.className = 'cbm-tooltip';
+            document.body.appendChild(tip);
+        }
+        return tip;
+    }
+    function showTip(e, task) {
+        const t = getOrCreateTip();
+        const statusColors = { proyectada:'#2563eb', programada:'#7c3aed', ejecutada:'#e11d48', facturada:'#16a34a' };
+        const col = statusColors[task.status] || '#64748b';
+        t.innerHTML = `
+            <strong>${task.client}</strong>
+            ${task.serviceType ? `<span style="color:#94a3b8;font-size:0.72rem;">${task.serviceType}</span>` : ''}
+            <div style="margin-top:4px;font-size:0.75rem;">👤 ${task.analyst || '—'}</div>
+            <div style="font-size:0.75rem;">💰 $${(task.budget||0).toLocaleString('es-CO')}</div>
+            <span class="tip-status" style="background:${col}22;color:${col};">${task.status}</span>`;
+        t.classList.add('visible');
+        moveTip(e);
+    }
+    function moveTip(e) {
+        if (!tip) return;
+        const x = e.clientX + 14, y = e.clientY - 10;
+        tip.style.left = Math.min(x, window.innerWidth - 260) + 'px';
+        tip.style.top  = Math.max(y, 8) + 'px';
+    }
+    function hideTip() { if (tip) tip.classList.remove('visible'); }
+
+    document.addEventListener('mouseover', e => {
+        const pill = e.target.closest('.calendar-task-pill');
+        if (!pill) { hideTip(); return; }
+        const taskId = pill.getAttribute('data-task-id');
+        const task = tasks.find(t => t.id === taskId);
+        if (task) showTip(e, task);
+    });
+    document.addEventListener('mousemove', e => {
+        if (tip && tip.classList.contains('visible')) moveTip(e);
+    });
+    document.addEventListener('mouseout', e => {
+        if (!e.target.closest('.calendar-task-pill')) hideTip();
+    });
+})();
 
 // Global touch drag helper
 function setupTouchDraggable(el, idGetter) {
@@ -1502,18 +1643,24 @@ async function handleCalendarDrop(cell, dragInfo) {
 
     // Unconditional status update - if it's on the calendar, it's programmed
     task.status = 'programada';
-    console.log(`Task ${task.id} updated to status: programada`);
 
     postDropSync();
-    
+
+    // Marcar pills de esta tarea con animación mientras guarda
+    document.querySelectorAll(`[data-task-id="${task.id}"]`).forEach(el => {
+        if (el.classList.contains('calendar-task-pill')) el.classList.add('pill-saving');
+    });
+
     // Final Database Persistence with ID sync
     try {
         await saveTaskToSupabase(task);
-        // After save, the ID might have changed from t_... to UUID
-        // Refresh again to ensure all DOM elements use the new ID
-        setTimeout(() => postDropSync(), 100);
+        postDropSync();
+        showToast('Gestión programada correctamente.', 'success');
     } catch(err) {
         console.error("Critical error saving task after drop:", err);
+        showToast('Error al guardar en la nube. Los cambios están en local.', 'error');
+    } finally {
+        document.querySelectorAll('.pill-saving').forEach(el => el.classList.remove('pill-saving'));
     }
 }
 
@@ -1577,15 +1724,8 @@ function isHolidayOrWeekend(year, month, day) {
     const d = new Date(year, month - 1, day);
     const dayOfWeek = d.getDay();
     if (dayOfWeek === 0 || dayOfWeek === 6) return true;
-    
     const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-    const holidays = [
-        "2026-01-01", "2026-01-12", "2026-03-23", "2026-04-02", "2026-04-03",
-        "2026-05-01", "2026-05-18", "2026-06-08", "2026-06-15", "2026-06-29",
-        "2026-07-20", "2026-08-07", "2026-08-17", "2026-10-12", "2026-11-02",
-        "2026-11-16", "2026-12-08", "2026-12-25"
-    ];
-    return holidays.includes(dateStr);
+    return COLOMBIA_HOLIDAYS_2026.has(dateStr);
 }
 
 function addAnalystToTask(existingData = null) {
@@ -1817,13 +1957,6 @@ function populateFinanceMonths() {
     });
 }
 
-function updateFinanceSelectedMonths() {
-    const checkboxes = document.querySelectorAll('#finance-months-list input[type="checkbox"]');
-    financeFilters.selectedMonths = Array.from(checkboxes)
-        .filter(i => i.checked)
-        .map(i => i.value);
-}
-
 function renderFinanceView() {
     const container = document.getElementById('finance-summary-container');
     if(!container) return;
@@ -2046,7 +2179,11 @@ async function loadTasksFromSupabase() {
             .from('tasks')
             .select('*')
             .order('created_at', { ascending: false });
-        if(error) { console.error("Error loading tasks:", error); return; }
+        if(error) {
+            console.error("Error loading tasks:", error);
+            showToast('No se pudieron cargar las gestiones desde la nube. Trabajando con datos locales.', 'warning');
+            return;
+        }
         if(data) {
             const remoteTasks = data.map(t => ({
                 id: t.id,
@@ -2109,6 +2246,7 @@ async function loadTasksFromSupabase() {
         }
     } catch(err) {
         console.error("Error in loadTasksFromSupabase:", err);
+        showToast('Error de conexión al cargar datos. Revisa tu red e intenta recargar.', 'error');
     }
 }
 
@@ -2515,8 +2653,9 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
         renderBoard();
         renderCalendar();
         if(typeof renderPlanningSidebar === 'function') renderPlanningSidebar();
-        renderTasksView(); 
+        renderTasksView();
         closeModal('taskModal');
+        showToast(editId ? 'Gestión actualizada correctamente.' : 'Gestión creada correctamente.', 'success');
     } catch (error) {
         console.error("Error al procesar el formulario de tarea:", error);
         alert("Hubo un error al guardar la gestión:\n\n" + error.message + "\n\n" + error.stack);
@@ -2562,12 +2701,13 @@ document.getElementById('csatForm').addEventListener('submit', async e => {
         
         saveTasks();
         await saveTaskToSupabase(tasks[taskIndex]);
-        
+
         renderBoard();
         renderCalendar();
         renderPlanningSidebar();
         renderTasksView();
         closeModal('csatModal');
+        showToast('Registro de cierre guardado correctamente.', 'success');
     }
 });
 
@@ -2800,7 +2940,7 @@ async function updateEquipment(e, equipmentId) {
 // MÓDULO DE REPORTES HISTÓRICOS
 // ══════════════════════════════════════════
 
-let reportFilters = { analyst: '', client: '', dateFrom: '', dateTo: '' };
+let reportFilters = { analyst: '', client: '', serviceType: '', dateFrom: '', dateTo: '' };
 
 function initReportsView() {
     const analystSel = document.getElementById('report-filter-analyst');
@@ -2824,10 +2964,11 @@ function initReportsView() {
 }
 
 function applyReportFilters() {
-    reportFilters.analyst = document.getElementById('report-filter-analyst').value;
-    reportFilters.client  = document.getElementById('report-filter-client').value;
-    reportFilters.dateFrom = document.getElementById('report-filter-from').value;
-    reportFilters.dateTo   = document.getElementById('report-filter-to').value;
+    reportFilters.analyst     = document.getElementById('report-filter-analyst').value;
+    reportFilters.client      = document.getElementById('report-filter-client').value;
+    reportFilters.serviceType = document.getElementById('report-filter-service').value;
+    reportFilters.dateFrom    = document.getElementById('report-filter-from').value;
+    reportFilters.dateTo      = document.getElementById('report-filter-to').value;
     renderReportsTable();
 }
 
@@ -2843,6 +2984,9 @@ function getReportData() {
     }
     if(reportFilters.client) {
         data = data.filter(t => t.client === reportFilters.client || t.client.includes(reportFilters.client));
+    }
+    if(reportFilters.serviceType) {
+        data = data.filter(t => t.serviceType === reportFilters.serviceType);
     }
     if(reportFilters.dateFrom) {
         data = data.filter(t => {
@@ -2882,6 +3026,7 @@ function formatAnalystDisplay(t) {
 function renderReportsTable() {
     const container = document.getElementById('reports-table-container');
     if(!container) return;
+    if (tasks.length === 0) { renderSkeletonTable(container, 6, 5); return; }
     const data = getReportData();
     const total = data.reduce((sum, t) => sum + (t.budget || 0), 0);
 
@@ -3066,8 +3211,8 @@ async function renderAdminView() {
                         <td><span class="status-tag ${a.is_active ? 'ejecutada' : 'proyectada'}">${a.is_active ? 'SI' : 'NO'}</span></td>
                         <td>
                             <div class="action-icons">
-                                <span class="action-icon edit" onclick="editAnalyst('${a.id}')">📝</span>
-                                <span class="action-icon delete" onclick="deleteAnalyst('${a.id}')">🗑️</span>
+                                ${actionIcon('edit',   `editAnalyst('${a.id}')`,   'Editar')}
+                                ${actionIcon('delete', `deleteAnalyst('${a.id}')`, 'Eliminar')}
                             </div>
                         </td>
                     </tr>
@@ -3104,9 +3249,9 @@ async function renderAdminView() {
                         <td>${c.contact_name || '-'}</td>
                         <td>
                             <div class="action-icons">
-                                <span class="action-icon edit" onclick="openPreferenceModal('${c.id}')" title="Asignar Analistas">👥</span>
-                                <span class="action-icon edit" onclick="editClient('${c.id}')" title="Editar">📝</span>
-                                <span class="action-icon delete" onclick="deleteClient('${c.id}')" title="Borrar">🗑️</span>
+                                ${actionIcon('pref',   `openPreferenceModal('${c.id}')`, 'Asignar Analistas')}
+                                ${actionIcon('edit',   `editClient('${c.id}')`,           'Editar')}
+                                ${actionIcon('delete', `deleteClient('${c.id}')`,          'Eliminar')}
                             </div>
                         </td>
                     </tr>
@@ -3139,8 +3284,8 @@ async function renderAdminView() {
                             <td>${e.serial_number || '-'}</td>
                             <td>
                                 <div class="action-icons">
-                                    <span class="action-icon edit" onclick="editEquipment('${e.id}')">📝</span>
-                                    <span class="action-icon delete" onclick="deleteEquipment('${e.id}')">🗑️</span>
+                                    ${actionIcon('edit',   `editEquipment('${e.id}')`,   'Editar')}
+                                    ${actionIcon('delete', `deleteEquipment('${e.id}')`, 'Eliminar')}
                                 </div>
                             </td>
                         </tr>
@@ -3439,9 +3584,20 @@ async function initializeApp() {
     if(window._appInitialized) return;
     window._appInitialized = true;
 
+    // Cerrar cualquier modal activo con Escape
+    if (!window._escapeListenerAttached) {
+        window._escapeListenerAttached = true;
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') {
+                document.querySelectorAll('.modal.active').forEach(m => m.classList.remove('active'));
+            }
+        });
+    }
+
     window.postDropSync = postDropSync;
     updatePeriodDisplay();
     
+    showLoadingOverlay(true);
     try {
         await loadMasterData();
         if(supabaseClient) {
@@ -3449,8 +3605,11 @@ async function initializeApp() {
         }
     } catch (err) {
         console.error("Error cargando datos iniciales:", err);
+        showToast('Error al cargar datos iniciales. Verifica tu conexión.', 'error');
+    } finally {
+        showLoadingOverlay(false);
     }
-    
+
     renderBoard();
     renderCalendar();
     if(typeof renderPlanningSidebar === 'function') renderPlanningSidebar();

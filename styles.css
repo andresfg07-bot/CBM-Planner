@@ -46,13 +46,16 @@ body {
 
 .sidebar {
     width: 260px;
-    background-color: #1e1e2d; /* Dark theme from image */
+    background-color: #1e1e2d;
     border-right: none;
-    padding: 2rem 1rem;
+    padding: 1.25rem 1rem 0;
     display: flex;
     flex-direction: column;
     color: #a2a3b7;
     transition: width 0.3s ease;
+    overflow: hidden;
+    height: 100vh;
+    flex-shrink: 0;
 }
 
 .sidebar.collapsed {
@@ -97,9 +100,10 @@ body {
 .logo {
     display: flex;
     align-items: center;
-    gap: 1rem;
-    margin-bottom: 3rem;
-    padding-left: 0.5rem;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    padding-left: 0.25rem;
+    flex-shrink: 0;
 }
 
 .logo-icon {
@@ -130,27 +134,33 @@ body {
 .nav-menu {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: 0.1rem;
+    flex: 1;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #27273d transparent;
+    padding-bottom: 0.5rem;
 }
 
 .nav-section {
-    font-size: 0.7rem;
+    font-size: 0.65rem;
     font-weight: 700;
     color: #49495d;
     letter-spacing: 0.1em;
-    margin: 1.5rem 0 0.75rem 0.75rem;
+    margin: 1rem 0 0.4rem 0.75rem;
     text-transform: uppercase;
 }
 
 .nav-item {
     display: flex;
     align-items: center;
-    gap: 1rem;
-    padding: 0.75rem 1rem;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
     text-decoration: none;
     color: #a2a3b7;
-    border-radius: 8px; /* More rounded as in image */
+    border-radius: 8px;
     font-weight: 500;
+    font-size: 0.875rem;
     transition: all 0.2s;
 }
 
@@ -196,10 +206,10 @@ body {
 }
 
 .sidebar-footer {
-    margin-top: auto;
-    padding: 2rem 1rem 0;
+    flex-shrink: 0;
+    padding: 0.6rem 1rem;
     text-align: center;
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     color: #4b4b5e;
     border-top: 1px solid #27273d;
 }
@@ -1553,3 +1563,159 @@ h1 {
     background-color: rgba(37, 99, 235, 0.1) !important;
     border: 2px dashed var(--clr-blue) !important;
 }
+
+/* ══════════════════════════════════════════════════════
+   MEJORAS VISUALES v1.1.3
+   ══════════════════════════════════════════════════════ */
+
+/* 1. Transición suave entre vistas */
+.view-section {
+    opacity: 0;
+    transition: opacity 0.18s ease;
+}
+.view-section.active-view {
+    opacity: 1;
+}
+
+/* 2. Animación pulse en pill mientras guarda en nube */
+@keyframes cbm-pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.45; }
+}
+.pill-saving {
+    animation: cbm-pulse 0.9s ease-in-out infinite;
+    pointer-events: none;
+}
+
+/* 3. Tooltip custom en pills del calendario */
+.cbm-tooltip {
+    position: fixed;
+    background: #1e1e2d;
+    color: #e2e8f0;
+    padding: 0.55rem 0.85rem;
+    border-radius: 8px;
+    font-size: 0.78rem;
+    line-height: 1.55;
+    pointer-events: none;
+    z-index: 9990;
+    max-width: 240px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.22);
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+.cbm-tooltip.visible { opacity: 1; }
+.cbm-tooltip strong  { color: #fff; display: block; margin-bottom: 2px; }
+.cbm-tooltip .tip-status {
+    display: inline-block;
+    margin-top: 4px;
+    padding: 1px 7px;
+    border-radius: 20px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+/* 4. Skeleton loaders */
+@keyframes cbm-shimmer {
+    0%   { background-position: -600px 0; }
+    100% { background-position:  600px 0; }
+}
+.skeleton-row td {
+    padding: 0.6rem 1rem !important;
+}
+.skeleton-cell {
+    height: 14px;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #f0f4f8 25%, #e2e8f0 50%, #f0f4f8 75%);
+    background-size: 600px 100%;
+    animation: cbm-shimmer 1.4s infinite;
+}
+
+/* 5. Badges de estado coloreados */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+.status-badge::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+.status-badge.proyectada { background: #eff6ff; color: #2563eb; }
+.status-badge.programada { background: #f5f3ff; color: #7c3aed; }
+.status-badge.ejecutada  { background: #fff1f2; color: #e11d48; }
+.status-badge.facturada  { background: #f0fdf4; color: #16a34a; }
+
+/* 6. Iconos SVG de acción — override para quitar font-size de emojis */
+.action-icon svg {
+    width: 16px;
+    height: 16px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    pointer-events: none;
+}
+.action-icon.csat        { color: var(--clr-green,#16a34a); background: #f0fdf4; }
+.action-icon.csat:hover  { background: var(--clr-green,#16a34a); color: white; }
+.action-icon.revert:hover{ background: var(--clr-blue,#2563eb); color: white; }
+
+/* 7. Estado vacío en calendario */
+.calendar-empty-hint {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    color: #94a3b8;
+    font-size: 0.82rem;
+    font-weight: 500;
+    pointer-events: none;
+    user-select: none;
+}
+.calendar-empty-hint svg {
+    width: 36px;
+    height: 36px;
+    stroke: #cbd5e1;
+    fill: none;
+    stroke-width: 1.5;
+}
+.calendar-container { position: relative; }
+
+/* ── Botón toggle sidebar externo ─────────────────────────────────────────── */
+.sidebar-toggle-btn {
+    position: fixed;
+    left: 260px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 44px;
+    background: #1e1e2d;
+    border: none;
+    border-radius: 0 8px 8px 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #a2a3b7;
+    z-index: 200;
+    transition: left 0.3s ease, background 0.2s;
+    padding: 0;
+}
+.sidebar-toggle-btn:hover { background: #27273d; color: #fff; }
+.sidebar-toggle-btn svg  { width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.3s; }
+.sidebar-toggle-btn.collapsed { left: 80px; }
+.sidebar-toggle-btn.collapsed svg { transform: rotate(180deg); }
