@@ -64,13 +64,41 @@ let calendarColWidth = parseInt(localStorage.getItem('cbm_col_width')) || 140;
 
 // ── Toggle sidebar ───────────────────────────────────────────────────────────
 function toggleSidebar() {
-    const sidebar = document.querySelector('.sidebar');
-    const btn     = document.getElementById('sidebar-toggle-btn');
+    const sidebar  = document.querySelector('.sidebar');
+    const btn      = document.getElementById('sidebar-toggle-btn');
+    const overlay  = document.getElementById('sidebar-overlay');
     if (!sidebar || !btn) return;
-    sidebar.classList.toggle('collapsed');
-    const isCollapsed = sidebar.classList.contains('collapsed');
-    btn.classList.toggle('collapsed', isCollapsed);
+
+    const isMobile = window.innerWidth <= 768;
+
+    if (isMobile) {
+        // Modo gaveta: desliza como overlay
+        const isOpen = sidebar.classList.toggle('mobile-open');
+        if (overlay) overlay.classList.toggle('active', isOpen);
+        // Ocultar botón cuando sidebar está abierto (overlay permite cerrarlo)
+        btn.style.display = isOpen ? 'none' : 'flex';
+    } else {
+        // Modo desktop: collapse/expand
+        sidebar.classList.toggle('collapsed');
+        const isCollapsed = sidebar.classList.contains('collapsed');
+        btn.classList.toggle('collapsed', isCollapsed);
+        // Resetear estado móvil por si se redimensionó
+        sidebar.classList.remove('mobile-open');
+        if (overlay) overlay.classList.remove('active');
+    }
 }
+
+// Cierra el sidebar en móvil al redimensionar a desktop
+window.addEventListener('resize', () => {
+    if (window.innerWidth > 768) {
+        const sidebar = document.querySelector('.sidebar');
+        const overlay = document.getElementById('sidebar-overlay');
+        const btn     = document.getElementById('sidebar-toggle-btn');
+        if (sidebar) sidebar.classList.remove('mobile-open');
+        if (overlay) overlay.classList.remove('active');
+        if (btn)     btn.style.display = 'flex';
+    }
+});
 
 // ── SVG icon helpers ────────────────────────────────────────────────────────
 const SVG_ICONS = {
@@ -2717,11 +2745,21 @@ function switchView(viewName) {
     if(targetView) {
         targetView.classList.add('active-view');
     }
-    
+
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
     const targetNav = document.getElementById(`nav-${viewName}`);
     if(targetNav) {
         targetNav.classList.add('active');
+    }
+
+    // En móvil: cerrar sidebar al navegar
+    if (window.innerWidth <= 768) {
+        const sidebar = document.querySelector('.sidebar');
+        const overlay = document.getElementById('sidebar-overlay');
+        const btn     = document.getElementById('sidebar-toggle-btn');
+        if (sidebar) sidebar.classList.remove('mobile-open');
+        if (overlay) overlay.classList.remove('active');
+        if (btn)     btn.style.display = 'flex';
     }
     
     const headerTitle = document.getElementById('header-title');
