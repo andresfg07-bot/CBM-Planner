@@ -117,7 +117,7 @@ function applyRoleUI() {
 
     // Vistas permitidas por rol
     const allowedViews = {
-        admin:     ['dashboard', 'tasks', 'planning', 'finance', 'admin', 'reports', 'mywork'],
+        admin:     ['dashboard', 'tasks', 'planning', 'finance', 'admin', 'reports'],
         analyst:   ['mywork', 'planning'],
         assistant: ['dashboard', 'tasks', 'planning'],
         viewer:    ['dashboard'],
@@ -140,12 +140,43 @@ function applyRoleUI() {
     if (roleEl)  roleEl.textContent  = roleLabel;
     if (avatar)  avatar.textContent  = displayName[0].toUpperCase();
 
+    // Clase en body para CSS condicional por rol
+    document.body.className = document.body.className
+        .replace(/\brole-\w+\b/g, '').trim();
+    document.body.classList.add(`role-${role}`);
+
     // Navegar a la vista por defecto del rol
     const defaultView = { admin: 'dashboard', analyst: 'mywork', assistant: 'tasks', viewer: 'dashboard' };
     switchView(defaultView[role] || 'dashboard');
 }
 
 // ── Vista del analista: Mis Gestiones ────────────────────────────────────────
+
+let myWorkTimeFilter = 'month';   // 'month' | 'week'
+let myWorkWeekStart  = getStartOfWeekSafe(new Date());
+
+function getStartOfWeekSafe(date) {
+    const d = new Date(date);
+    const day = d.getDay(); // 0=dom, 1=lun...
+    const diff = (day === 0) ? -6 : 1 - day; // lunes como inicio
+    d.setDate(d.getDate() + diff);
+    d.setHours(0, 0, 0, 0);
+    return d;
+}
+
+function changeMyWorkWeek(delta) {
+    myWorkWeekStart = new Date(myWorkWeekStart);
+    myWorkWeekStart.setDate(myWorkWeekStart.getDate() + delta * 7);
+    renderMyWorkView();
+}
+
+function setMyWorkFilter(filter) {
+    myWorkTimeFilter = filter;
+    if (filter === 'week') {
+        myWorkWeekStart = getStartOfWeekSafe(new Date());
+    }
+    renderMyWorkView();
+}
 
 function renderMyWorkView() {
     const container = document.getElementById('mywork-tasks-list');
@@ -166,12 +197,29 @@ function renderMyWorkView() {
     }
 
     const periodStr = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+
+    // Filtro por semana: calcular rango lun-dom
+    let weekEnd = null;
+    if (myWorkTimeFilter === 'week') {
+        weekEnd = new Date(myWorkWeekStart);
+        weekEnd.setDate(weekEnd.getDate() + 6);
+    }
+
     const myTasks = tasks
-        .filter(t =>
-            !t.isAbsence &&
-            t.period === periodStr &&
-            t.analysts_assignment?.some(a => a.name === analystName)
-        )
+        .filter(t => {
+            if (t.isAbsence) return false;
+            if (!t.analysts_assignment?.some(a => a.name === analystName)) return false;
+            if (myWorkTimeFilter === 'month') {
+                return t.period === periodStr;
+            } else {
+                // Semana: al menos un día de campo dentro del rango
+                const weekStartStr = myWorkWeekStart.toISOString().slice(0, 10);
+                const weekEndStr   = weekEnd.toISOString().slice(0, 10);
+                return t.scheduledDays?.some(d =>
+                    d.date >= weekStartStr && d.date <= weekEndStr
+                );
+            }
+        })
         .sort((a, b) => {
             const da = a.scheduledDays?.find(d => d.type === 'field')?.date || '9999';
             const db = b.scheduledDays?.find(d => d.type === 'field')?.date || '9999';
@@ -184,8 +232,32 @@ function renderMyWorkView() {
     const ejecutadas = myTasks.filter(t => t.status === 'ejecutada').length;
     const facturadas = myTasks.filter(t => t.status === 'facturada').length;
 
+    // Etiqueta del período actual
+    const periodLabel = myWorkTimeFilter === 'month'
+        ? `${monthNames[currentMonth - 1]} ${currentYear}`
+        : (() => {
+            const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+            return `${fmt(myWorkWeekStart)} – ${fmt(weekEnd)}`;
+          })();
+
     if (summaryEl) {
         summaryEl.innerHTML = `
+            <!-- Controles de filtro -->
+            <div class="mywork-filter-bar">
+                <div class="view-toggle-group">
+                    <button class="view-btn ${myWorkTimeFilter === 'month' ? 'active' : ''}"
+                        onclick="setMyWorkFilter('month')">Mes</button>
+                    <button class="view-btn ${myWorkTimeFilter === 'week' ? 'active' : ''}"
+                        onclick="setMyWorkFilter('week')">Semana</button>
+                </div>
+                ${myWorkTimeFilter === 'week' ? `
+                <div class="mywork-week-nav">
+                    <button onclick="changeMyWorkWeek(-1)" class="mywork-nav-btn">&#8592;</button>
+                    <span class="mywork-period-label">${periodLabel}</span>
+                    <button onclick="changeMyWorkWeek(1)"  class="mywork-nav-btn">&#8594;</button>
+                </div>` : `<span class="mywork-period-label">${periodLabel}</span>`}
+            </div>
+            <!-- Estadísticas -->
             <div class="mywork-stats-bar">
                 <div class="mywork-stat"><span class="mywork-stat-num">${total}</span><span class="mywork-stat-label">Total</span></div>
                 <div class="mywork-stat"><span class="mywork-stat-num" style="color:var(--clr-purple)">${pendientes}</span><span class="mywork-stat-label">Pendientes</span></div>
@@ -527,6 +599,10 @@ async function changePeriod(delta) {
     renderPlanningSidebar();
     renderTasksView();
     renderFinanceView();
+    // Si el analista está en Mis Gestiones, actualizar también su vista
+    if (document.getElementById('view-mywork')?.classList.contains('active-view')) {
+        renderMyWorkView();
+    }
 }
 
 // Initial State & Persistence
@@ -1219,6 +1295,11 @@ function openAbsenceDetailModal(analystName) {
 let isDragging = false;
 
 function handleDragStart(e) {
+    // Analistas no pueden arrastrar — planning es solo lectura para ellos
+    if (currentUserProfile?.role === 'analyst') {
+        e.preventDefault();
+        return;
+    }
     if(this.getAttribute('draggable') === 'false') {
         e.preventDefault();
         return;
@@ -1241,6 +1322,15 @@ function handleDragEnd(e) {
 function renderPlanningSidebar() {
     const sidebarContainer = document.getElementById('planning-sidebar-items');
     if(!sidebarContainer) return;
+
+    // Para analistas: ocultar el panel de backlog — solo pueden ver el calendario
+    const unassignedBar = sidebarContainer.closest('.unassigned-sidebar');
+    if (currentUserProfile?.role === 'analyst') {
+        if (unassignedBar) unassignedBar.style.display = 'none';
+        return;
+    }
+    if (unassignedBar) unassignedBar.style.display = '';
+
     sidebarContainer.innerHTML = '';
     
     // Filtrado estricto: Una gestión en 'Por programar' NO DEBE tener días programados.
@@ -1594,12 +1684,20 @@ function setupCalendarListeners() {
     });
 
     document.querySelectorAll('.calendar-task-pill').forEach(pill => {
+        // Para analistas: planning es solo lectura, no se puede arrastrar nada
+        if (currentUserProfile?.role === 'analyst') {
+            pill.draggable = false;
+        }
         pill.addEventListener('dragstart', function(e) {
+            if (currentUserProfile?.role === 'analyst') {
+                e.preventDefault();
+                return;
+            }
             if(this.getAttribute('draggable') === 'false') {
                 e.preventDefault();
                 return;
             }
-            draggedTaskId = this.id; 
+            draggedTaskId = this.id;
             this.classList.add('dragging');
             e.dataTransfer.effectAllowed = 'move';
         });
@@ -1803,6 +1901,7 @@ async function processDrop(target, taskId) {
 }
 
 async function handleCalendarDrop(cell, dragInfo) {
+    if (currentUserProfile?.role === 'analyst') return;
     let isPillMove = dragInfo && dragInfo.startsWith('pill-');
     let taskId = dragInfo;
     if (isPillMove) {
@@ -1985,6 +2084,7 @@ async function handleKanbanDrop(column, taskId) {
 }
 
 async function handleSidebarDrop(e) {
+    if (currentUserProfile?.role === 'analyst') return;
     if (e && e.preventDefault) e.preventDefault();
     
     // We try to get ID from multiple sources for maximum compatibility

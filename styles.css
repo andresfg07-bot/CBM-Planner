@@ -1929,9 +1929,59 @@ h1 {
     .data-table th, .data-table td { padding: 0.5rem 0.4rem; }
 }
 
+/* ── Planning: solo lectura para analistas ─────────────────────────────────── */
+body.role-analyst .calendar-task-pill {
+    cursor: default !important;
+}
+body.role-analyst .calendar-task-pill:active {
+    cursor: default !important;
+}
+
 /* ══════════════════════════════════════════════════════
    VISTA MIS GESTIONES (analista) — mobile-first
    ══════════════════════════════════════════════════════ */
+
+/* Barra de filtros */
+.mywork-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    background: white;
+    border-radius: var(--radius-md);
+    padding: 0.75rem 1.25rem;
+    margin-bottom: 0.75rem;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid #e2e8f0;
+    flex-wrap: wrap;
+}
+.mywork-period-label {
+    font-weight: 700;
+    color: var(--clr-blue);
+    font-size: 0.9rem;
+}
+.mywork-week-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.mywork-nav-btn {
+    background: var(--clr-blue-light);
+    border: none;
+    border-radius: 6px;
+    width: 30px;
+    height: 30px;
+    cursor: pointer;
+    font-size: 1rem;
+    color: var(--clr-blue);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+.mywork-nav-btn:hover {
+    background: var(--clr-blue);
+    color: white;
+}
 
 /* Barra de resumen */
 .mywork-stats-bar {
