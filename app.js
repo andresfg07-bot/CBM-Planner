@@ -15,6 +15,7 @@ let dbClients = [];
 let dbAnalysts = [];
 let dbEquipment = [];
 let currentUser = null;
+let currentUserProfile = null; // { id, email, display_name, role, analyst_name }
 let draggedTaskId = null; // Declaración global necesaria
 
 // ── Festivos Colombia 2026 (fuente única de verdad) ──────────────────────────
@@ -85,6 +86,264 @@ function toggleSidebar() {
         // Resetear estado móvil por si se redimensionó
         sidebar.classList.remove('mobile-open');
         if (overlay) overlay.classList.remove('active');
+    }
+}
+
+// ── Sistema de roles de usuario ──────────────────────────────────────────────
+
+/** Carga el perfil del usuario desde Supabase (role, analyst_name, display_name) */
+async function loadUserProfile(userId) {
+    if (!supabaseClient || !userId) return null;
+    try {
+        const { data, error } = await supabaseClient
+            .from('profiles')
+            .select('*')
+            .eq('id', userId)
+            .single();
+        if (error) {
+            console.warn('Perfil no encontrado, usando viewer por defecto:', error.message);
+            return { role: 'viewer', analyst_name: null, display_name: currentUser?.email?.split('@')[0] };
+        }
+        return data;
+    } catch (e) {
+        console.error('Error cargando perfil:', e);
+        return { role: 'viewer', analyst_name: null };
+    }
+}
+
+/** Aplica la UI según el rol: oculta/muestra nav, actualiza header, navega a vista por defecto */
+function applyRoleUI() {
+    const role = currentUserProfile?.role || 'viewer';
+
+    // Vistas permitidas por rol
+    const allowedViews = {
+        admin:     ['dashboard', 'tasks', 'planning', 'finance', 'admin', 'reports', 'mywork'],
+        analyst:   ['mywork', 'planning'],
+        assistant: ['dashboard', 'tasks', 'planning'],
+        viewer:    ['dashboard'],
+    };
+    const allowed = allowedViews[role] || allowedViews.viewer;
+
+    // Mostrar/ocultar ítems del nav
+    document.querySelectorAll('.nav-item[data-view]').forEach(nav => {
+        const view = nav.getAttribute('data-view');
+        nav.style.display = allowed.includes(view) ? 'flex' : 'none';
+    });
+
+    // Actualizar nombre y rol en el header
+    const nameEl  = document.querySelector('.profile-info .name');
+    const roleEl  = document.querySelector('.profile-info .role');
+    const avatar  = document.querySelector('.avatar');
+    const displayName = currentUserProfile?.display_name || currentUser?.email?.split('@')[0] || 'Usuario';
+    const roleLabel   = { admin: 'Administrador', analyst: 'Analista', assistant: 'Asistente', viewer: 'Visitante' }[role] || role;
+    if (nameEl)  nameEl.textContent  = displayName;
+    if (roleEl)  roleEl.textContent  = roleLabel;
+    if (avatar)  avatar.textContent  = displayName[0].toUpperCase();
+
+    // Navegar a la vista por defecto del rol
+    const defaultView = { admin: 'dashboard', analyst: 'mywork', assistant: 'tasks', viewer: 'dashboard' };
+    switchView(defaultView[role] || 'dashboard');
+}
+
+// ── Vista del analista: Mis Gestiones ────────────────────────────────────────
+
+function renderMyWorkView() {
+    const container = document.getElementById('mywork-tasks-list');
+    const summaryEl = document.getElementById('mywork-summary');
+    if (!container) return;
+
+    const analystName = currentUserProfile?.analyst_name;
+
+    if (!analystName) {
+        container.innerHTML = `
+            <div class="mywork-empty">
+                <div class="mywork-empty-icon">⚙️</div>
+                <p>Tu cuenta no tiene un analista asignado.</p>
+                <p class="mywork-empty-sub">Contacta al administrador para configurar tu perfil.</p>
+            </div>`;
+        if (summaryEl) summaryEl.innerHTML = '';
+        return;
+    }
+
+    const periodStr = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+    const myTasks = tasks
+        .filter(t =>
+            !t.isAbsence &&
+            t.period === periodStr &&
+            t.analysts_assignment?.some(a => a.name === analystName)
+        )
+        .sort((a, b) => {
+            const da = a.scheduledDays?.find(d => d.type === 'field')?.date || '9999';
+            const db = b.scheduledDays?.find(d => d.type === 'field')?.date || '9999';
+            return da.localeCompare(db);
+        });
+
+    // Barra de resumen
+    const total      = myTasks.length;
+    const pendientes = myTasks.filter(t => t.status === 'programada' || t.status === 'proyectada').length;
+    const ejecutadas = myTasks.filter(t => t.status === 'ejecutada').length;
+    const facturadas = myTasks.filter(t => t.status === 'facturada').length;
+
+    if (summaryEl) {
+        summaryEl.innerHTML = `
+            <div class="mywork-stats-bar">
+                <div class="mywork-stat"><span class="mywork-stat-num">${total}</span><span class="mywork-stat-label">Total</span></div>
+                <div class="mywork-stat"><span class="mywork-stat-num" style="color:var(--clr-purple)">${pendientes}</span><span class="mywork-stat-label">Pendientes</span></div>
+                <div class="mywork-stat"><span class="mywork-stat-num" style="color:var(--clr-blue)">${ejecutadas}</span><span class="mywork-stat-label">Ejecutadas</span></div>
+                <div class="mywork-stat"><span class="mywork-stat-num" style="color:var(--clr-green)">${facturadas}</span><span class="mywork-stat-label">Facturadas</span></div>
+            </div>`;
+    }
+
+    if (myTasks.length === 0) {
+        container.innerHTML = `
+            <div class="mywork-empty">
+                <div class="mywork-empty-icon">📅</div>
+                <p>No tienes gestiones asignadas este mes.</p>
+            </div>`;
+        return;
+    }
+
+    container.innerHTML = myTasks.map(t => renderMyWorkCard(t)).join('');
+}
+
+function renderMyWorkCard(task) {
+    const statusLabel = { proyectada: 'Proyectada', programada: 'Programada', ejecutada: 'Ejecutada', facturada: 'Facturada' };
+
+    const fmt = (days) => days.length
+        ? days.map(d => { const [,m,dd] = d.date.split('-'); return `${dd}/${m}`; }).join(', ')
+        : null;
+    const fieldStr  = fmt(task.scheduledDays?.filter(d => d.type === 'field')  || []);
+    const reportStr = fmt(task.scheduledDays?.filter(d => d.type === 'report') || []);
+
+    const assign       = task.analysts_assignment?.find(a => a.name === currentUserProfile?.analyst_name);
+    const isTitular    = assign?.isTitular;
+    const makesReport  = assign?.makesReport;
+
+    const canExecute   = task.status === 'programada';
+    const canCsat      = task.status === 'ejecutada' && !task.csatScore;
+    const csatDone     = task.status === 'ejecutada' &&  task.csatScore;
+
+    return `
+        <div class="mywork-card status-${task.status}">
+            <div class="mywork-card-top">
+                <div class="mywork-card-info">
+                    <h3 class="mywork-card-client">${task.client || task.clientName || '—'}</h3>
+                    <p class="mywork-card-service">${task.serviceType || '—'}</p>
+                    ${task.equipment || task.equipmentName
+                        ? `<p class="mywork-card-equip">${task.equipment || task.equipmentName}</p>` : ''}
+                </div>
+                <span class="status-badge ${task.status}">${statusLabel[task.status] || task.status}</span>
+            </div>
+
+            <div class="mywork-card-dates">
+                ${fieldStr  ? `<div class="mywork-date-row">🔧 Campo: <strong>${fieldStr}</strong></div>` : ''}
+                ${reportStr ? `<div class="mywork-date-row">📝 Informe: <strong>${reportStr}</strong></div>` : ''}
+                ${!fieldStr && !reportStr ? `<div class="mywork-date-row mywork-no-date">Sin días programados aún</div>` : ''}
+                <div class="mywork-badges">
+                    ${isTitular   ? '<span class="mywork-badge titular">Titular</span>'      : ''}
+                    ${makesReport ? '<span class="mywork-badge report">Hace Informe</span>'  : ''}
+                </div>
+            </div>
+
+            ${canExecute || canCsat || csatDone ? `
+            <div class="mywork-card-actions">
+                ${canExecute ? `<button class="mywork-btn btn-execute" onclick="analystMarkExecuted('${task.id}')">✓ Marcar como Ejecutada</button>` : ''}
+                ${canCsat    ? `<button class="mywork-btn btn-csat"    onclick="analystOpenCsat('${task.id}')">📋 Llenar Encuesta CSAT</button>` : ''}
+                ${csatDone   ? `<div class="mywork-csat-done">⭐ CSAT completada — ${task.csatScore}/10</div>` : ''}
+            </div>` : ''}
+        </div>`;
+}
+
+async function analystMarkExecuted(taskId) {
+    if (!confirm('¿Confirmas que esta gestión fue ejecutada en campo?')) return;
+    try {
+        await updateTaskStatus(taskId, 'ejecutada');
+        showToast('✓ Gestión marcada como Ejecutada', 'success');
+        renderMyWorkView();
+    } catch (e) {
+        showToast('Error al actualizar el estado.', 'error');
+    }
+}
+
+function analystOpenCsat(taskId) {
+    openClosingMeetingModal(taskId);
+}
+
+// ── Gestión de usuarios (admin) ───────────────────────────────────────────────
+
+let dbProfiles = []; // perfiles de todos los usuarios
+
+async function loadAllProfiles() {
+    if (!supabaseClient) return;
+    const { data, error } = await supabaseClient.from('profiles').select('*').order('email');
+    if (!error && data) dbProfiles = data;
+}
+
+async function renderUsersAdminSection() {
+    const container = document.getElementById('admin-users-list');
+    if (!container) return;
+
+    await loadAllProfiles();
+
+    if (dbProfiles.length === 0) {
+        container.innerHTML = `<p style="color:var(--text-secondary); font-size:0.85rem; padding:1rem 0;">No se encontraron perfiles. Verifica que el SQL de profiles esté aplicado en Supabase.</p>`;
+        return;
+    }
+
+    const roleOptions = ['admin','analyst','assistant','viewer'];
+
+    container.innerHTML = `
+        <table class="data-table dense-table">
+            <thead>
+                <tr>
+                    <th>Email</th>
+                    <th>Nombre</th>
+                    <th>Rol</th>
+                    <th>Analista vinculado</th>
+                    <th style="width:6rem;">Guardar</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${dbProfiles.map(p => `
+                    <tr data-profile-id="${p.id}">
+                        <td style="font-size:0.75rem; color:var(--text-secondary);">${p.email}</td>
+                        <td><input class="profile-input" type="text" value="${p.display_name || ''}" placeholder="Nombre visible" data-field="display_name" style="width:100%; padding:0.3rem 0.5rem; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem;"></td>
+                        <td>
+                            <select class="profile-input" data-field="role" style="width:100%; padding:0.3rem; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem;">
+                                ${roleOptions.map(r => `<option value="${r}" ${p.role === r ? 'selected' : ''}>${r}</option>`).join('')}
+                            </select>
+                        </td>
+                        <td>
+                            <select class="profile-input" data-field="analyst_name" style="width:100%; padding:0.3rem; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem;">
+                                <option value="">— Ninguno —</option>
+                                ${dbAnalysts.map(a => `<option value="${a.name}" ${p.analyst_name === a.name ? 'selected' : ''}>${a.name}</option>`).join('')}
+                            </select>
+                        </td>
+                        <td>
+                            <button class="mywork-btn btn-execute" style="font-size:0.72rem; padding:0.3rem 0.6rem; width:100%;"
+                                onclick="saveUserProfile('${p.id}', this.closest('tr'))">
+                                Guardar
+                            </button>
+                        </td>
+                    </tr>`).join('')}
+            </tbody>
+        </table>`;
+}
+
+async function saveUserProfile(profileId, row) {
+    const inputs = row.querySelectorAll('.profile-input');
+    const updates = {};
+    inputs.forEach(inp => { updates[inp.getAttribute('data-field')] = inp.value || null; });
+
+    if (!supabaseClient) return;
+    const { error } = await supabaseClient.from('profiles').update(updates).eq('id', profileId);
+    if (error) {
+        showToast('Error guardando perfil: ' + error.message, 'error');
+    } else {
+        showToast('✓ Perfil actualizado', 'success');
+        // Actualizar la lista local
+        const idx = dbProfiles.findIndex(p => p.id === profileId);
+        if (idx >= 0) dbProfiles[idx] = { ...dbProfiles[idx], ...updates };
     }
 }
 
@@ -360,11 +619,17 @@ function getGlobalFiltersHTML() {
 }
 
 function renderTasksTable(container) {
+    const role = currentUserProfile?.role || 'admin';
     let filteredTasks = tasks.slice().filter(t => !t.isAbsence && isTaskInCurrentPeriod(t));
 
     if(dashboardFilters.analyst) filteredTasks = filteredTasks.filter(t => t.analyst === dashboardFilters.analyst);
     if(dashboardFilters.client) filteredTasks = filteredTasks.filter(t => t.client === dashboardFilters.client);
     if(dashboardFilters.status) filteredTasks = filteredTasks.filter(t => t.status === dashboardFilters.status);
+
+    // Asistente: sólo ve gestiones ejecutadas (listas para facturar)
+    if (role === 'assistant') {
+        filteredTasks = filteredTasks.filter(t => t.status === 'ejecutada');
+    }
 
     container.innerHTML = `
         <table class="data-table">
@@ -402,10 +667,17 @@ function renderTasksTable(container) {
                         </td>
                         <td>
                             <div class="action-icons">
-                                ${actionIcon('edit',   `openEditTaskModal('${t.id}')`,        'Editar')}
-                                ${actionIcon('csat',   `openClosingMeetingModal('${t.id}')`,  'Reunión de Cierre')}
-                                ${t.status === 'programada' ? actionIcon('revert', `revertToProjected('${t.id}')`, 'Revertir a Proyectada') : ''}
-                                ${actionIcon('delete', `deleteTask('${t.id}')`,               'Borrar')}
+                                ${role === 'admin' ? `
+                                    ${actionIcon('edit',   `openEditTaskModal('${t.id}')`,       'Editar')}
+                                    ${actionIcon('csat',   `openClosingMeetingModal('${t.id}')`, 'Reunión de Cierre')}
+                                    ${t.status === 'programada' ? actionIcon('revert', `revertToProjected('${t.id}')`, 'Revertir a Proyectada') : ''}
+                                    ${actionIcon('delete', `deleteTask('${t.id}')`,              'Borrar')}
+                                ` : role === 'assistant' ? `
+                                    <button class="mywork-btn btn-execute" style="font-size:0.72rem;padding:0.3rem 0.75rem;"
+                                        onclick="updateTaskStatus('${t.id}','facturada')">
+                                        💰 Facturar
+                                    </button>
+                                ` : ''}
                             </div>
                         </td>
                     </tr>`;
@@ -2766,12 +3038,12 @@ function switchView(viewName) {
     if (headerTitle) {
         const titles = {
             dashboard: 'Dashboard',
-            planning: 'Cronograma Semanal/Mensual',
-
-            tasks: 'Gestión de Tareas',
-            finance: 'Módulo de Finanzas',
-            admin: 'Administración de Datos Maestros',
-            reports: 'Reportes Históricos'
+            mywork:    'Mis Gestiones',
+            planning:  'Cronograma Semanal/Mensual',
+            tasks:     'Gestión de Tareas',
+            finance:   'Módulo de Finanzas',
+            admin:     'Administración de Datos Maestros',
+            reports:   'Reportes Históricos'
         };
         headerTitle.textContent = titles[viewName] || 'CBM Maestro';
     }
@@ -2779,7 +3051,8 @@ function switchView(viewName) {
     if(viewName === 'planning') {
         renderCalendar();
         renderPlanningSidebar();
-
+    } else if(viewName === 'mywork') {
+        renderMyWorkView();
     } else if(viewName === 'tasks') {
         renderTasksView();
     } else if(viewName === 'finance') {
@@ -2787,6 +3060,7 @@ function switchView(viewName) {
         renderFinanceView();
     } else if(viewName === 'admin') {
         renderAdminView();
+        renderUsersAdminSection();
     } else if(viewName === 'reports') {
         initReportsView();
     } else {
@@ -3639,7 +3913,12 @@ async function initializeApp() {
     try {
         await loadMasterData();
         if(supabaseClient) {
-            await loadTasksFromSupabase();
+            // Cargar perfil y tareas en paralelo
+            const [, profileData] = await Promise.all([
+                loadTasksFromSupabase(),
+                loadUserProfile(currentUser?.id)
+            ]);
+            currentUserProfile = profileData;
         }
     } catch (err) {
         console.error("Error cargando datos iniciales:", err);
@@ -3648,10 +3927,15 @@ async function initializeApp() {
         showLoadingOverlay(false);
     }
 
+    // Aplicar UI según rol (también navega a la vista por defecto)
+    applyRoleUI();
+
+    // Renderizar vistas base
     renderBoard();
     renderCalendar();
     if(typeof renderPlanningSidebar === 'function') renderPlanningSidebar();
     if(typeof renderAdminView === 'function') renderAdminView();
+    renderMyWorkView();
 
     const sidebarContainer = document.getElementById('planning-sidebar-items');
     if (sidebarContainer && !window._sidebarListenerAttached) {

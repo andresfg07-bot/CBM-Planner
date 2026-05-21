@@ -88,32 +88,36 @@
             </div>
             <nav class="nav-menu">
                 <div class="nav-section">PRINCIPAL</div>
-                <a href="#" class="nav-item active" id="nav-dashboard" onclick="switchView('dashboard')">
+                <a href="#" class="nav-item active" id="nav-dashboard" data-view="dashboard" onclick="switchView('dashboard')">
                     <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 12l4-8"/><path d="M12 8v4"/><circle cx="12" cy="12" r="2"/></svg></span>
                     <span class="nav-text">Dashboard</span>
                 </a>
-                <a href="#" class="nav-item" id="nav-tasks" onclick="switchView('tasks')">
+                <a href="#" class="nav-item" id="nav-mywork" data-view="mywork" onclick="switchView('mywork')" style="display:none;">
+                    <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+                    <span class="nav-text">Mis Gestiones</span>
+                </a>
+                <a href="#" class="nav-item" id="nav-tasks" data-view="tasks" onclick="switchView('tasks')">
                     <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="4"/><circle cx="17" cy="8" r="2.5"/><path d="M5 12h8"/><path d="M14.5 8h5"/><path d="m7 10 2 2 0 0"/><path d="m16 6.5 1.5 1.5"/></svg></span>
                     <span class="nav-text">Gestiones</span>
                 </a>
-                <a href="#" class="nav-item" id="nav-planning" onclick="switchView('planning')">
+                <a href="#" class="nav-item" id="nav-planning" data-view="planning" onclick="switchView('planning')">
                     <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="17" cy="19" r="3"/><path d="M17 17.5v1.5l1 1"/></svg></span>
                     <span class="nav-text">Planning</span>
                 </a>
 
                 <div class="nav-section">DATOS</div>
 
-                <a href="#" class="nav-item" id="nav-finance" onclick="switchView('finance')">
+                <a href="#" class="nav-item" id="nav-finance" data-view="finance" onclick="switchView('finance')">
                     <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10l4-2v12"/><path d="M10 20V8l4-3v15"/><path d="M16 20V6l4-4v18"/><path d="M2 20h20"/><path d="M15 4l5-2"/><path d="M18 3l2-1-1 2"/></svg></span>
                     <span class="nav-text">Finanzas</span>
                 </a>
 
                 <div class="nav-section">SISTEMA</div>
-                <a href="#" class="nav-item" id="nav-admin" onclick="switchView('admin')">
+                <a href="#" class="nav-item" id="nav-admin" data-view="admin" onclick="switchView('admin')">
                     <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v4c0 1.66 3.58 3 8 3s8-1.34 8-3V6"/><path d="M4 10v4c0 1.66 3.58 3 8 3s8-1.34 8-3v-4"/><path d="M4 14v4c0 1.66 3.58 3 8 3s8-1.34 8-3v-4"/></svg></span>
                     <span class="nav-text">Admin de Datos</span>
                 </a>
-                <a href="#" class="nav-item" id="nav-reports" onclick="switchView('reports')">
+                <a href="#" class="nav-item" id="nav-reports" data-view="reports" onclick="switchView('reports')">
                     <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>
                     <span class="nav-text">Reportes</span>
                 </a>
@@ -341,6 +345,12 @@
 
 
 
+            <!-- MIS GESTIONES VIEW (analistas) -->
+            <div id="view-mywork" class="view-section" style="padding-top: 1rem;">
+                <div id="mywork-summary"></div>
+                <div id="mywork-tasks-list" class="mywork-task-list"></div>
+            </div>
+
             <!-- ADMIN DATA VIEW -->
             <div id="view-admin" class="view-section admin-full-width" style="padding-top: 2rem;">
                 <div class="kanban-header" style="margin-bottom: 2rem;">
@@ -386,6 +396,22 @@
                         <div id="admin-equipment-list" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 400px; overflow-y: auto;">
                             <!-- JS render -->
                         </div>
+                    </div>
+                </div>
+
+                <!-- Panel: Usuarios del Sistema -->
+                <div class="stats-card" style="margin-top: 1.5rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                        <div>
+                            <h3 style="margin:0;">Usuarios del Sistema</h3>
+                            <p style="font-size:0.75rem; color:var(--text-secondary); margin:0.25rem 0 0;">
+                                Asigna roles y vincula analistas. Los usuarios se crean desde el panel de Supabase → Authentication.
+                            </p>
+                        </div>
+                        <button class="btn-primary" onclick="renderUsersAdminSection()" style="white-space:nowrap;">↺ Recargar</button>
+                    </div>
+                    <div id="admin-users-list" style="overflow-x:auto;">
+                        <!-- JS render -->
                     </div>
                 </div>
             </div>
