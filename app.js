@@ -284,8 +284,14 @@ function renderMyWorkCard(task) {
     const fmt = (days) => days.length
         ? days.map(d => { const [,m,dd] = d.date.split('-'); return `${dd}/${m}`; }).join(', ')
         : null;
-    const fieldStr  = fmt(task.scheduledDays?.filter(d => d.type === 'field')  || []);
-    const reportStr = fmt(task.scheduledDays?.filter(d => d.type === 'report') || []);
+    const fieldStr = fmt(task.scheduledDays?.filter(d => d.type === 'field') || []);
+
+    // Días de informe: solo los que le corresponden a ESTE analista
+    const reportAssignments = getReportDayAssignments(task);
+    const myReportDates = reportAssignments.get(currentUserProfile?.analyst_name) || [];
+    const reportStr = myReportDates.length
+        ? myReportDates.map(date => { const [,m,dd] = date.split('-'); return `${dd}/${m}`; }).join(', ')
+        : null;
 
     const assign       = task.analysts_assignment?.find(a => a.name === currentUserProfile?.analyst_name);
     const isTitular    = assign?.isTitular;
@@ -1472,11 +1478,24 @@ function renderCalendar() {
             
             // Find tasks for this analyst and day
             const dayTasks = tasks.filter(t => {
+                // ¿El analista está asignado a esta tarea?
                 let isAssigned = (t.analyst === analyst.name);
-                if (!isAssigned && t.analysts_assignment && t.analysts_assignment.length > 0) {
+                if (!isAssigned && t.analysts_assignment?.length > 0) {
                     isAssigned = t.analysts_assignment.some(a => a.name === analyst.name);
                 }
-                return isAssigned && t.scheduledDays && t.scheduledDays.some(sd => sd.date === day.dateStr);
+                if (!isAssigned) return false;
+
+                // ¿La tarea tiene un día programado en esta fecha?
+                const dayEntry = t.scheduledDays?.find(sd => sd.date === day.dateStr);
+                if (!dayEntry) return false;
+
+                // Días de campo → siempre visibles para todos los analistas asignados
+                if (dayEntry.type === 'field') return true;
+
+                // Días de informe → solo para el analista responsable de ese día
+                const reportAssignments = getReportDayAssignments(t);
+                const myReportDays = reportAssignments.get(analyst.name) || [];
+                return myReportDays.includes(day.dateStr);
             });
             
             dayTasks.forEach(t => {
@@ -2126,6 +2145,70 @@ function isHolidayOrWeekend(year, month, day) {
     if (dayOfWeek === 0 || dayOfWeek === 6) return true;
     const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
     return COLOMBIA_HOLIDAYS_2026.has(dateStr);
+}
+
+/**
+ * Calcula qué días de informe le corresponden a cada analista.
+ * Regla: titular primero, reparto por igual, días extra al titular.
+ * Retorna: Map { analystName → [dateStr, ...] }
+ */
+function getReportDayAssignments(task) {
+    const reportDays = (task.scheduledDays || [])
+        .filter(d => d.type === 'report')
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+    // Analistas que hacen informe, titular al frente
+    const reportAnalysts = (task.analysts_assignment || [])
+        .filter(a => a.makesReport)
+        .sort((a, b) => (b.isTitular ? 1 : 0) - (a.isTitular ? 1 : 0));
+
+    const map = new Map();
+
+    if (reportAnalysts.length === 0) {
+        // Sin asignación múltiple: todos los días al analista principal
+        if (task.analyst) map.set(task.analyst, reportDays.map(d => d.date));
+        return map;
+    }
+
+    reportAnalysts.forEach(a => map.set(a.name, []));
+    if (reportDays.length === 0) return map;
+
+    const n = reportDays.length;
+    const k = reportAnalysts.length;
+    const base  = Math.floor(n / k);
+    const extra = n % k;
+
+    let idx = 0;
+    reportAnalysts.forEach((analyst, i) => {
+        const quota = base + (i === 0 ? extra : 0); // titular (i=0) absorbe el resto
+        for (let j = 0; j < quota && idx < reportDays.length; j++, idx++) {
+            map.get(analyst.name).push(reportDays[idx].date);
+        }
+    });
+
+    return map;
+}
+
+/**
+ * Redistribuye porcentajes equitativamente entre los demás analistas
+ * cuando el usuario cambia el % de uno.
+ */
+function autoDistributePercentages(changedInput) {
+    const container = document.getElementById('taskAnalystsContainer');
+    if (!container) return;
+    const allInputs = Array.from(container.querySelectorAll('.analyst-pct'));
+    const others = allInputs.filter(inp => inp !== changedInput);
+    if (others.length === 0) return;
+
+    const changed  = Math.min(100, Math.max(0, parseFloat(changedInput.value) || 0));
+    changedInput.value = changed;
+    const remaining = Math.max(0, 100 - changed);
+    const base  = Math.floor(remaining / others.length);
+    const extra = remaining - base * others.length;
+
+    others.forEach((inp, i) => {
+        inp.value = base + (i === 0 ? extra : 0); // el primero absorbe el sobrante del redondeo
+    });
 }
 
 function addAnalystToTask(existingData = null) {
@@ -4002,6 +4085,13 @@ async function initializeApp() {
         document.addEventListener('keydown', e => {
             if (e.key === 'Escape') {
                 document.querySelectorAll('.modal.active').forEach(m => m.classList.remove('active'));
+            }
+        });
+
+        // Delegación de eventos: auto-distribuir porcentajes de analistas
+        document.addEventListener('input', e => {
+            if (e.target.classList.contains('analyst-pct')) {
+                autoDistributePercentages(e.target);
             }
         });
     }
