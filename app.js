@@ -119,7 +119,7 @@ function applyRoleUI() {
     const allowedViews = {
         admin:     ['dashboard', 'tasks', 'planning', 'finance', 'admin', 'reports'],
         analyst:   ['mywork', 'planning'],
-        assistant: ['dashboard', 'tasks', 'planning'],
+        assistant: ['dashboard', 'tasks', 'planning', 'finance', 'reports'],
         viewer:    ['dashboard'],
     };
     const allowed = allowedViews[role] || allowedViews.viewer;
@@ -472,6 +472,20 @@ function getAnalystColor(name) {
     ];
     const idx = dbAnalysts.findIndex(a => a.name === name);
     return colorPalette[idx === -1 ? 0 : idx % colorPalette.length];
+}
+
+/** Convierte un color hex a su versión clara mezclándolo con blanco */
+function getAnalystColorLight(name) {
+    const hex = getAnalystColor(name);
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    // Mezcla 55% blanco → versión pastel reconocible
+    const factor = 0.55;
+    const tr = Math.round(r + (255 - r) * factor);
+    const tg = Math.round(g + (255 - g) * factor);
+    const tb = Math.round(b + (255 - b) * factor);
+    return `rgb(${tr}, ${tg}, ${tb})`;
 }
 
 function getClientDisplayName(c) {
@@ -1504,11 +1518,20 @@ function renderCalendar() {
                 const dayIdx = t.scheduledDays.findIndex(sd => sd.date === day.dateStr);
                 
                 pill.className = `calendar-task-pill ${t.status} ${dayInfo.type}`;
-                // Analyst color overrides CSS status colors
+                // Medición → color sólido con texto blanco
+                // Informe   → versión clara del mismo color con texto en el color original
                 if (analystColor) {
-                    pill.style.backgroundColor = analystColor;
-                    pill.style.borderColor = analystColor;
-                    pill.style.color = '#fff';
+                    if (dayInfo.type === 'field') {
+                        pill.style.backgroundColor = analystColor;
+                        pill.style.borderColor     = analystColor;
+                        pill.style.color           = '#fff';
+                    } else {
+                        const lightColor = getAnalystColorLight(analyst.name);
+                        pill.style.backgroundColor = lightColor;
+                        pill.style.border          = `1.5px solid ${analystColor}`;
+                        pill.style.color           = analystColor;
+                        pill.style.fontWeight      = '700';
+                    }
                 }
                 if(t.isAbsence) pill.classList.add('absence');
                 
