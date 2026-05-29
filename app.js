@@ -16,6 +16,7 @@ let dbAnalysts = [];
 let dbEquipment = [];
 let currentUser = null;
 let currentUserProfile = null; // { id, email, display_name, role, analyst_name }
+let clientAnalystPreferences = []; // preferencias del cliente activo en el form [ {name, priority} ]
 let draggedTaskId = null; // Declaración global necesaria
 
 // ── Festivos Colombia 2026 (fuente única de verdad) ──────────────────────────
@@ -333,7 +334,6 @@ function renderMyWorkCard(task) {
 }
 
 async function analystMarkExecuted(taskId) {
-    if (!confirm('¿Confirmas que esta gestión fue ejecutada en campo?')) return;
     try {
         await updateTaskStatus(taskId, 'ejecutada');
         showToast('✓ Gestión marcada como Ejecutada', 'success');
@@ -807,6 +807,19 @@ async function updateTaskStatus(taskId, newStatus) {
         renderBoard();
         return;
     }
+    // Confirmación irreversible: programada → ejecutada
+    if(task.status === 'programada' && newStatus === 'ejecutada') {
+        const confirmed = confirm(
+            '⚠️ ACCIÓN IRREVERSIBLE\n\n' +
+            'Estás a punto de marcar esta gestión como EJECUTADA.\n\n' +
+            'Una vez ejecutada, no podrá volver a estado Programada o Proyectada.\n\n' +
+            '¿Confirmas que el trabajo de campo fue realizado?'
+        );
+        if(!confirmed) {
+            renderBoard();
+            return;
+        }
+    }
 
     const oldStatus = task.status;
     task.status = newStatus;
@@ -1098,7 +1111,7 @@ function changeCalendarView(view) {
 function renderDashboardCharts() {
     // 1. Preparar datos segun el scope actual
     let chartData = tasks.filter(t => !t.isAbsence);
-    
+
     if (dashboardScope === 'month') {
         const periodKey = formatPeriod();
         chartData = chartData.filter(t => {
@@ -1115,19 +1128,42 @@ function renderDashboardCharts() {
         });
     }
 
+    // 2. Aplicar filtros globales del dashboard a los gráficos
+    if (dashboardFilters.analyst) {
+        chartData = chartData.filter(t => {
+            if (t.analysts_assignment && t.analysts_assignment.length > 0)
+                return t.analysts_assignment.some(a => a.name === dashboardFilters.analyst);
+            return t.analyst === dashboardFilters.analyst;
+        });
+    }
+    if (dashboardFilters.client) {
+        chartData = chartData.filter(t => t.client === dashboardFilters.client);
+    }
+    if (dashboardFilters.status) {
+        chartData = chartData.filter(t => t.status === dashboardFilters.status);
+    }
+
     const workloadMap = {};
     const billingMap = {};
 
+    // 3. Distribuir gestiones compartidas por porcentaje de participación
     chartData.forEach(t => {
-        if (!t.analyst) return;
-        if (!workloadMap[t.analyst]) workloadMap[t.analyst] = 0;
-        workloadMap[t.analyst]++;
+        const budget = parseFloat(t.budget) || 0;
+        const assignments = t.analysts_assignment && t.analysts_assignment.length > 0
+            ? t.analysts_assignment
+            : (t.analyst ? [{ name: t.analyst, percentage: 100 }] : []);
 
-        if (t.status === 'facturada') {
-            if (!billingMap[t.analyst]) billingMap[t.analyst] = 0;
-            const budget = parseFloat(t.budget) || 0;
-            billingMap[t.analyst] += budget;
-        }
+        assignments.forEach(a => {
+            if (!a.name) return;
+            const pct = (parseFloat(a.percentage) || 0) / 100;
+            if (!workloadMap[a.name]) workloadMap[a.name] = 0;
+            workloadMap[a.name] += pct; // fracción de la gestión
+
+            if (t.status === 'facturada') {
+                if (!billingMap[a.name]) billingMap[a.name] = 0;
+                billingMap[a.name] += budget * pct;
+            }
+        });
     });
 
     const analysts = Object.keys(workloadMap);
@@ -1172,7 +1208,8 @@ function renderDashboardCharts() {
                                 label: (context) => {
                                     const total = context.dataset.data.reduce((a, b) => a + b, 0);
                                     const percentage = Math.round((context.parsed / total) * 100);
-                                    return `${context.label}: ${context.parsed} gestiones (${percentage}%)`;
+                                    const val = Number.isInteger(context.parsed) ? context.parsed : context.parsed.toFixed(1);
+                                    return `${context.label}: ${val} gestiones (${percentage}%)`;
                                 }
                             }
                         }
@@ -2236,16 +2273,36 @@ function autoDistributePercentages(changedInput) {
 
 function addAnalystToTask(existingData = null) {
     const container = document.getElementById('taskAnalystsContainer');
+
+    // Si no hay datos y hay preferencias guardadas en el container,
+    // auto-sugerir el siguiente analista según el orden de preferencias:
+    // fila 0 = Primary (ya añadido), fila 1 = Secondary, fila 2 = Backup, etc.
+    if (!existingData) {
+        const storedPrefs = JSON.parse(container.dataset.clientPreferences || '[]');
+        if (storedPrefs.length > 0) {
+            const currentRowCount = container.querySelectorAll('.analyst-row').length;
+            const nextPref = storedPrefs[currentRowCount];
+            if (nextPref) {
+                existingData = {
+                    name: nextPref.name,
+                    isTitular: false,
+                    makesReport: false,
+                    percentage: 0
+                };
+            }
+        }
+    }
+
     const row = document.createElement('div');
     row.className = 'analyst-row';
-    
+
     const analystName = existingData ? existingData.name : '';
     const isTitularChecked = existingData ? (existingData.isTitular ? 'checked' : '') : (container.children.length === 0 ? 'checked' : '');
     const isReportChecked = existingData ? (existingData.makesReport ? 'checked' : '') : (container.children.length === 0 ? 'checked' : '');
     const pctValue = existingData ? existingData.percentage : (container.children.length === 0 ? 100 : 0);
 
     row.innerHTML = `
-        <select class="analyst-select" style="flex: 2; padding: 0.4rem; font-size: 0.8rem; border: 1px solid #cbd5e1; border-radius: 4px;" required>
+        <select class="analyst-select" style="flex: 2; padding: 0.3rem 0.25rem; font-size: 0.72rem; border: 1px solid #cbd5e1; border-radius: 4px;" required>
             <option value="">Analista...</option>
             ${(dbAnalysts || []).map(a => `<option value="${a.name}" ${analystName === a.name ? 'selected' : ''}>${a.name}</option>`).join('')}
         </select>
@@ -2268,50 +2325,62 @@ function addAnalystToTask(existingData = null) {
 async function onTaskClientChange() {
     const clientId = document.getElementById('taskClient').value;
     const container = document.getElementById('taskAnalystsContainer');
-    
+    clientAnalystPreferences = []; // reset preferencias al cambiar cliente
+
     if(!clientId) {
         container.innerHTML = '<div style="font-size: 0.8rem; color: var(--text-secondary); text-align: center;">Seleccione primero un cliente para añadir analistas.</div>';
         return;
     }
-    
-    if(container.innerHTML.trim() === '' || container.innerHTML.includes('Seleccione primero')) {
-        container.innerHTML = '';
-        if(!supabaseClient) {
-            addAnalystToTask();
-            return;
-        }
-        
-        try {
-            const { data: preferences, error } = await supabaseClient
-                .from('client_analyst_preferences')
-                .select('priority_level, analysts(id, name)')
-                .eq('client_id', clientId);
-                
-            if (error) console.error("Error cargando prioridades:", error);
-            
-            const priorityOrder = { 'Primary': 1, 'Secondary': 2, 'Backup': 3 };
-            const sortedPrefs = (preferences || []).sort((a,b) => priorityOrder[a.priority_level] - priorityOrder[b.priority_level]);
-            
-            let titularAdded = false;
-            sortedPrefs.forEach(pref => {
-                if(pref.analysts && !Array.isArray(pref.analysts)) {
-                    addAnalystToTask({
-                        name: pref.analysts.name,
-                        isTitular: !titularAdded,
-                        makesReport: !titularAdded,
-                        percentage: !titularAdded ? 100 : 0
-                    });
-                    titularAdded = true;
-                }
-            });
 
-            if(!titularAdded) {
-                addAnalystToTask();
-            }
-        } catch(err) {
-            console.error("Error in onTaskClientChange:", err);
+    // Siempre limpiar al cambiar de cliente (también el dataset)
+    container.dataset.clientPreferences = '[]';
+    container.innerHTML = '';
+
+    if(!supabaseClient) {
+        addAnalystToTask();
+        return;
+    }
+
+    try {
+        // Misma consulta que loadPreferences() que funciona correctamente
+        const { data: preferences, error } = await supabaseClient
+            .from('client_analyst_preferences')
+            .select('*, analysts(name)')
+            .eq('client_id', clientId);
+
+        if (error) console.error("Error cargando prioridades:", error);
+
+        const priorityOrder = { 'Primary': 1, 'Secondary': 2, 'Backup': 3 };
+
+        // Ordenar por prioridad y filtrar los que tienen analista válido
+        const sortedPrefs = (preferences || [])
+            .filter(p => p.analysts && p.analysts.name)
+            .sort((a, b) => (priorityOrder[a.priority_level] || 9) - (priorityOrder[b.priority_level] || 9));
+
+        // Guardar TODAS las preferencias ordenadas: [0]=Primary, [1]=Secondary, [2]=Backup
+        clientAnalystPreferences = sortedPrefs.map(p => ({
+            name: p.analysts.name,
+            priority: p.priority_level
+        }));
+
+        // Guardar también en el dataset del container para acceso robusto desde onclick
+        container.dataset.clientPreferences = JSON.stringify(clientAnalystPreferences);
+
+        // Pre-llenar SOLO el analista titular (Primary) por defecto
+        if(clientAnalystPreferences.length > 0) {
+            addAnalystToTask({
+                name: clientAnalystPreferences[0].name,
+                isTitular: true,
+                makesReport: true,
+                percentage: 100
+            });
+        } else {
+            // Sin preferencias configuradas: fila vacía
             addAnalystToTask();
         }
+    } catch(err) {
+        console.error("Error in onTaskClientChange:", err);
+        addAnalystToTask();
     }
 }
 
@@ -2830,16 +2899,12 @@ function openNewTaskModal() {
             });
         }
 
-        // Resetear contenedores de analistas
+        // Resetear contenedores de analistas y preferencias del cliente
+        clientAnalystPreferences = [];
         const container = document.getElementById('taskAnalystsContainer');
         if (container) {
-            container.innerHTML = '';
-            addAnalystToTask({
-                name: '',
-                isTitular: true,
-                makesReport: true,
-                percentage: 100
-            });
+            container.dataset.clientPreferences = '[]';
+            container.innerHTML = '<div style="font-size: 0.8rem; color: var(--text-secondary); text-align: center;">Seleccione primero un cliente para añadir analistas.</div>';
         }
 
         populateBillingMonthSelect();
@@ -2909,8 +2974,11 @@ function openEditTaskModal(taskId) {
             });
         }
 
+        // Al editar, las preferencias del cliente no aplican (se usan los datos guardados)
+        clientAnalystPreferences = [];
         const container = document.getElementById('taskAnalystsContainer');
         if (container) {
+            container.dataset.clientPreferences = '[]';
             container.innerHTML = '';
             if (task.analysts_assignment && task.analysts_assignment.length > 0) {
                 task.analysts_assignment.forEach(a => addAnalystToTask(a));
@@ -3873,6 +3941,64 @@ async function loadPreferences(clientId) {
         `).join('');
     } catch(err) {
         console.error("Error in loadPreferences:", err);
+    }
+}
+
+async function submitPreferenceForm(event, clientId) {
+    event.preventDefault();
+    if(!supabaseClient) return;
+
+    const analystId   = document.getElementById('prefAnalyst').value;
+    const priorityLevel = document.getElementById('prefLevel').value;
+
+    if(!analystId) {
+        showToast('Selecciona un analista.', 'error');
+        return;
+    }
+
+    try {
+        const { error } = await supabaseClient
+            .from('client_analyst_preferences')
+            .upsert({ client_id: clientId, analyst_id: analystId, priority_level: priorityLevel },
+                    { onConflict: 'client_id,analyst_id' });
+
+        if(error) {
+            console.error('Error guardando preferencia:', error);
+            showToast('Error al guardar la preferencia.', 'error');
+            return;
+        }
+
+        showToast('Analista vinculado correctamente.', 'success');
+        document.getElementById('prefAnalyst').value = '';
+        loadPreferences(clientId);
+    } catch(err) {
+        console.error('Error en submitPreferenceForm:', err);
+        showToast('Error inesperado.', 'error');
+    }
+}
+
+async function deletePreference(clientId, analystId) {
+    if(!supabaseClient) return;
+    if(!confirm('¿Quitar este analista de las preferencias del cliente?')) return;
+
+    try {
+        const { error } = await supabaseClient
+            .from('client_analyst_preferences')
+            .delete()
+            .eq('client_id', clientId)
+            .eq('analyst_id', analystId);
+
+        if(error) {
+            console.error('Error eliminando preferencia:', error);
+            showToast('Error al eliminar la preferencia.', 'error');
+            return;
+        }
+
+        showToast('Preferencia eliminada.', 'success');
+        loadPreferences(clientId);
+    } catch(err) {
+        console.error('Error en deletePreference:', err);
+        showToast('Error inesperado.', 'error');
     }
 }
 
