@@ -2386,7 +2386,7 @@ async function onTaskClientChange() {
 
 function onTaskServiceTypeChange() {
     const serviceType = document.getElementById('taskServiceType').value;
-    const isAbsence = (serviceType === 'Vacaciones' || serviceType === 'Incapacidad');
+    const isAbsence = (serviceType === 'Vacaciones' || serviceType === 'Incapacidad' || serviceType === 'Compensatorio');
     
     const fieldsToToggle = ['group-client', 'group-budget', 'group-equipment', 'group-report'];
     fieldsToToggle.forEach(id => {
@@ -3138,7 +3138,7 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
         const editId = document.getElementById('editTaskId').value;
         const clientId = clientSelect ? clientSelect.value : '';
 
-        const isAbsence = (serviceType === 'Vacaciones' || serviceType === 'Incapacidad');
+        const isAbsence = (serviceType === 'Vacaciones' || serviceType === 'Incapacidad' || serviceType === 'Compensatorio');
         const finalClientName = isAbsence ? `AUSENCIA: ${serviceType}` : clientName;
 
         const container = document.getElementById('taskAnalystsContainer');
