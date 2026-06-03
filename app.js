@@ -1615,8 +1615,26 @@ function renderCalendar() {
     // Actualizar Header
     const headerRow = document.getElementById('calendar-header-row');
     if(headerRow) {
-        // Añadimos un div vacío arriba para que "Analista" se alinee con el número del día abajo
         headerRow.innerHTML = '<th class="sticky-col"><div style="font-size:0.65rem; color:transparent">.</div>Analista<div class="calendar-col-resizer"></div></th>';
+
+        // Vista semana: ajustar ancho de la columna analista al nombre más largo
+        if(calendarView === 'week' && analystsToRender.length > 0) {
+            const longest = analystsToRender.reduce((a, b) => a.name.length > b.name.length ? a : b).name;
+            // Medir en un span temporal fuera del flujo
+            const ruler = document.createElement('span');
+            ruler.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-size:0.78rem;font-weight:600;padding:0 0.5rem 0 0.35rem;';
+            ruler.textContent = longest;
+            document.body.appendChild(ruler);
+            const colWidth = ruler.offsetWidth + 16; // +16px margen para el resizer
+            document.body.removeChild(ruler);
+            // Aplicar a todas las celdas sticky
+            requestAnimationFrame(() => {
+                document.querySelectorAll('.calendar-table.view-week .sticky-col').forEach(el => {
+                    el.style.width    = colWidth + 'px';
+                    el.style.minWidth = colWidth + 'px';
+                });
+            });
+        }
         daysToRender.forEach(d => {
             const th = document.createElement('th');
             if(d.isWeekend) th.classList.add('weekend-cell'); // Using our new class

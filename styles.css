@@ -426,27 +426,29 @@ h1 {
     width: 100%;
 }
 
-/* Columna analista en semana: se encoge al nombre más largo */
+/* Columna analista en semana: JS fija el ancho exacto al nombre más largo */
 .calendar-table.view-week th.sticky-col,
 .calendar-table.view-week td.sticky-col {
-    width: 1px;           /* fuerza mínimo de contenido con table-layout:auto */
     white-space: nowrap;
+    padding-left:  0.35rem;
+    padding-right: 0.5rem;
+    font-size: 0.78rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-/* Días no laborales en semana: más angostos */
-.calendar-table.view-week th.weekend-cell {
-    width: 34px;
-    min-width: 28px;
-}
+/* Días no laborales en semana: 2 partes */
+.calendar-table.view-week th.weekend-cell,
 .calendar-table.view-week td.weekend-cell {
-    width: 34px;
-    min-width: 28px;
+    width: 60px;
+    min-width: 36px;
 }
 
-/* Días laborales en semana: se reparten el espacio restante */
+/* Días laborales en semana: 3 partes (= 1.5× el ancho del no laboral) */
 .calendar-table.view-week th:not(.sticky-col):not(.weekend-cell),
 .calendar-table.view-week td:not(.sticky-col):not(.weekend-cell) {
-    min-width: 80px;
+    width: 90px;
+    min-width: 54px;
 }
 
 
