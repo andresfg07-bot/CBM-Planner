@@ -951,7 +951,8 @@ function renderDashboardStats() {
     // Cálculo por analista
     const analystStats = {};
     gestionesFiltradas.forEach(t => {
-        if(!t.analyst) return;
+        // Metro Administrativo no cuenta en estadísticas por analista
+        if(!t.analyst || t.serviceType === 'Metro Administrativo') return;
         if(!analystStats[t.analyst]) analystStats[t.analyst] = { closed: 0, total: 0, csat: 0, csatCount: 0 };
         analystStats[t.analyst].total++;
         if(t.status === 'facturada' || t.status === 'ejecutada') analystStats[t.analyst].closed++;
@@ -1273,6 +1274,16 @@ function renderDashboardCharts() {
     // 3. Distribuir gestiones compartidas por porcentaje de participación
     chartData.forEach(t => {
         const budget = parseFloat(t.budget) || 0;
+        const isAdminContract = (t.serviceType === 'Metro Administrativo');
+
+        if (isAdminContract) {
+            // No suma a carga de trabajo; sí suma a facturación bajo "Administrativo"
+            if (t.status === 'facturada') {
+                billingMap['Administrativo'] = (billingMap['Administrativo'] || 0) + budget;
+            }
+            return;
+        }
+
         const assignments = t.analysts_assignment && t.analysts_assignment.length > 0
             ? t.analysts_assignment
             : (t.analyst ? [{ name: t.analyst, percentage: 100 }] : []);
@@ -1281,7 +1292,7 @@ function renderDashboardCharts() {
             if (!a.name) return;
             const pct = (parseFloat(a.percentage) || 0) / 100;
             if (!workloadMap[a.name]) workloadMap[a.name] = 0;
-            workloadMap[a.name] += pct; // fracción de la gestión
+            workloadMap[a.name] += pct;
 
             if (t.status === 'facturada') {
                 if (!billingMap[a.name]) billingMap[a.name] = 0;
@@ -2528,30 +2539,47 @@ async function onTaskClientChange() {
 
 function onTaskServiceTypeChange() {
     const serviceType = document.getElementById('taskServiceType').value;
-    const isAbsence = (serviceType === 'Vacaciones' || serviceType === 'Incapacidad' || serviceType === 'Compensatorio');
-    
+    const isAbsence       = (serviceType === 'Vacaciones' || serviceType === 'Incapacidad' || serviceType === 'Compensatorio');
+    const isAdminContract = (serviceType === 'Metro Administrativo');
+
+    // Campos que se ocultan solo en ausencias
     const fieldsToToggle = ['group-client', 'group-budget', 'group-equipment', 'group-report'];
     fieldsToToggle.forEach(id => {
         const el = document.getElementById(id);
         if(el) el.style.display = isAbsence ? 'none' : 'block';
     });
-    
+
     const container = document.getElementById('taskAnalystsContainer');
+    const analystLabel = container?.previousElementSibling; // el <label> de Analistas
 
     if(isAbsence) {
         if(container.innerHTML.trim() === '' || container.innerHTML.includes('Seleccione primero')) {
             container.innerHTML = '';
             addAnalystToTask();
         }
-        
         document.getElementById('taskClient').required = false;
-        document.getElementById('taskBudget').required = false;
+        document.getElementById('taskBudget').required  = false;
         document.getElementById('taskDaysReport').required = false;
+
+    } else if(isAdminContract) {
+        // Metro Administrativo: campos financieros normales, sin analista
+        document.getElementById('taskClient').required   = true;
+        document.getElementById('taskBudget').required   = true;
+        document.getElementById('taskDaysReport').required = false;
+        clientAnalystPreferences = [];
+        container.dataset.clientPreferences = '[]';
+        container.innerHTML = `
+            <div style="display:flex; align-items:center; gap:0.5rem; padding:0.6rem 0.75rem;
+                        background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px;
+                        font-size:0.8rem; color:#1e40af;">
+                🏢 <strong>Contrato Administrativo</strong> — no requiere analista asignado
+            </div>`;
+
     } else {
-        document.getElementById('taskClient').required = true;
-        document.getElementById('taskBudget').required = true;
+        document.getElementById('taskClient').required   = true;
+        document.getElementById('taskBudget').required   = true;
         document.getElementById('taskDaysReport').required = true;
-        onTaskClientChange(); 
+        onTaskClientChange();
     }
 }
 
@@ -3289,7 +3317,8 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
         const editId = document.getElementById('editTaskId').value;
         const clientId = clientSelect ? clientSelect.value : '';
 
-        const isAbsence = (serviceType === 'Vacaciones' || serviceType === 'Incapacidad' || serviceType === 'Compensatorio');
+        const isAbsence       = (serviceType === 'Vacaciones' || serviceType === 'Incapacidad' || serviceType === 'Compensatorio');
+        const isAdminContract = (serviceType === 'Metro Administrativo');
         const finalClientName = isAbsence ? `AUSENCIA: ${serviceType}` : clientName;
 
         const container = document.getElementById('taskAnalystsContainer');
@@ -3316,17 +3345,17 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
             }
         });
 
-        if(!isAbsence && analystsAssignment.length > 0 && Math.abs(totalPercentage - 100) > 0.01) {
+        if(!isAbsence && !isAdminContract && analystsAssignment.length > 0 && Math.abs(totalPercentage - 100) > 0.01) {
             alert("El porcentaje financiero total debe sumar exactamente 100%. Actualmente suma " + totalPercentage + "%.");
             return;
         }
 
-        const mainAnalyst = analystsAssignment.length > 0 
-            ? (analystsAssignment.find(a => a.isTitular) || analystsAssignment[0]).name 
-            : '';
+        const mainAnalyst = analystsAssignment.length > 0
+            ? (analystsAssignment.find(a => a.isTitular) || analystsAssignment[0]).name
+            : (isAdminContract ? 'Administrativo' : '');
         let displayAnalyst = analystsAssignment.length > 0
             ? analystsAssignment.map(a => `${a.name} (${a.percentage}%)`).join(', ')
-            : '';
+            : (isAdminContract ? 'Administrativo' : '');
         if(analystsAssignment.length === 1) displayAnalyst = mainAnalyst;
 
 
