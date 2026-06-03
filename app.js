@@ -2480,6 +2480,10 @@ async function onTaskClientChange() {
     const container = document.getElementById('taskAnalystsContainer');
     clientAnalystPreferences = []; // reset preferencias al cambiar cliente
 
+    // Metro Administrativo no usa analistas — mantener el banner
+    const serviceType = document.getElementById('taskServiceType')?.value;
+    if(serviceType === 'Metro Administrativo') return;
+
     if(!clientId) {
         container.innerHTML = '<div style="font-size: 0.8rem; color: var(--text-secondary); text-align: center;">Seleccione primero un cliente para añadir analistas.</div>';
         return;
