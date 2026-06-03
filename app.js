@@ -299,12 +299,12 @@ function renderMyWorkCard(task) {
     const makesReport  = assign?.makesReport;
 
     const canExecute   = task.status === 'programada';
-    const canCsat      = task.status === 'ejecutada' && !task.csatScore;
-    const csatDone     = task.status === 'ejecutada' &&  task.csatScore;
+    const canCsat      = task.status === 'ejecutada' && !task.csatScore && !task.clientNoResponse;
+    const csatDone     = task.status === 'ejecutada' && (task.csatScore || task.clientNoResponse);
 
     return `
         <div class="mywork-card status-${task.status}">
-            <div class="mywork-card-top">
+            <div class="mywork-card-top" onclick="openTaskInfoModal('${task.id}')" style="cursor:pointer;" title="Ver detalle">
                 <div class="mywork-card-info">
                     <h3 class="mywork-card-client">${task.client || task.clientName || '—'}</h3>
                     <p class="mywork-card-service">${task.serviceType || '—'}</p>
@@ -328,7 +328,8 @@ function renderMyWorkCard(task) {
             <div class="mywork-card-actions">
                 ${canExecute ? `<button class="mywork-btn btn-execute" onclick="analystMarkExecuted('${task.id}')">✓ Marcar como Ejecutada</button>` : ''}
                 ${canCsat    ? `<button class="mywork-btn btn-csat"    onclick="analystOpenCsat('${task.id}')">📋 Llenar Encuesta CSAT</button>` : ''}
-                ${csatDone   ? `<div class="mywork-csat-done">⭐ CSAT completada — ${task.csatScore}/10</div>` : ''}
+                ${csatDone && task.clientNoResponse ? `<div class="mywork-csat-done" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa;">⚠️ Sin calificación — Cliente no respondió</div>` : ''}
+                ${csatDone && !task.clientNoResponse ? `<div class="mywork-csat-done">⭐ CSAT completada — ${task.csatScore}/5</div>` : ''}
             </div>` : ''}
         </div>`;
 }
@@ -926,7 +927,7 @@ function renderDashboardStats() {
         if(!analystStats[t.analyst]) analystStats[t.analyst] = { closed: 0, total: 0, csat: 0, csatCount: 0 };
         analystStats[t.analyst].total++;
         if(t.status === 'facturada' || t.status === 'ejecutada') analystStats[t.analyst].closed++;
-        if(t.csatScore) {
+        if(t.csatScore && !t.clientNoResponse) {
             analystStats[t.analyst].csat += parseFloat(t.csatScore);
             analystStats[t.analyst].csatCount++;
         }
@@ -1039,7 +1040,102 @@ function renderDashboardStats() {
     // Solo renderizar gráficos si estamos en la vista de dashboard
     if (document.getElementById('view-dashboard').classList.contains('active-view')) {
         renderDashboardCharts();
+        renderAnalystGauges(analystStats);
     }
+}
+
+// ── REQ-03: Gauges CSAT por analista ────────────────────────────────────────
+let _gaugeInstances = {};
+
+function renderAnalystGauges(analystStats) {
+    const section = document.getElementById('analyst-gauges-section');
+    if(!section) return;
+
+    // Solo analistas con al menos una gestión calificada
+    const entries = Object.entries(analystStats)
+        .map(([name, s]) => ({
+            name,
+            avg:   s.csatCount > 0 ? (s.csat / s.csatCount) : null,
+            count: s.csatCount,
+            total: s.total
+        }))
+        .filter(e => e.total > 0);
+
+    if(entries.length === 0) {
+        section.innerHTML = '';
+        return;
+    }
+
+    const gaugeColor = avg => {
+        if(avg === null) return '#cbd5e1';
+        if(avg >= 4)    return '#16a34a';
+        if(avg >= 3)    return '#f59e0b';
+        return '#ef4444';
+    };
+
+    section.innerHTML = `
+        <div class="stats-card" style="padding:1.25rem;">
+            <h3 style="margin:0 0 0.25rem; font-size:1rem;">Calificación CSAT por Analista</h3>
+            <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 1.25rem;">
+                Promedio de gestiones calificadas. Excluye casos sin respuesta del cliente.
+            </p>
+            <div class="gauges-grid">
+                ${entries.map(e => `
+                    <div class="gauge-card">
+                        <canvas id="gauge-${e.name.replace(/\s+/g,'_')}" width="160" height="90"></canvas>
+                        <div class="gauge-value" style="color:${gaugeColor(e.avg)}">
+                            ${e.avg !== null ? e.avg.toFixed(1) : '—'}
+                            <span class="gauge-max">/5</span>
+                        </div>
+                        <div class="gauge-name">${e.name}</div>
+                        <div class="gauge-sub">${e.count} calificación${e.count !== 1 ? 'es' : ''} · ${e.total} gestión${e.total !== 1 ? 'es' : ''}</div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>`;
+
+    // Destruir instancias previas
+    Object.values(_gaugeInstances).forEach(c => c.destroy());
+    _gaugeInstances = {};
+
+    // Crear gauge por analista
+    entries.forEach(e => {
+        const canvasId = `gauge-${e.name.replace(/\s+/g,'_')}`;
+        const ctx = document.getElementById(canvasId);
+        if(!ctx) return;
+
+        const score = e.avg !== null ? e.avg : 0;
+        const remaining = 5 - score;
+        const color = gaugeColor(e.avg);
+
+        _gaugeInstances[canvasId] = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                datasets: [{
+                    data: [score, remaining],
+                    backgroundColor: [color, '#e2e8f0'],
+                    borderWidth: 0,
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                rotation: -90,
+                circumference: 180,
+                cutout: '72%',
+                responsive: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => ctx.dataIndex === 0
+                                ? `Promedio: ${score.toFixed(1)} / 5`
+                                : ''
+                        }
+                    }
+                }
+            }
+        });
+    });
 }
 
 function updateGlobalFilter(type, value) {
@@ -2467,6 +2563,9 @@ function openTaskInfoModal(taskId) {
 
     const editBtn = document.getElementById('btnEditTask');
     const deleteBtn = document.getElementById('btnDeleteTask');
+    const isAnalyst = currentUserProfile?.role === 'analyst';
+    if(editBtn)   editBtn.style.display   = isAnalyst ? 'none' : '';
+    if(deleteBtn) deleteBtn.style.display = isAnalyst ? 'none' : '';
 
     if(editBtn) {
         if(task.status === 'facturada') {
@@ -2716,6 +2815,8 @@ async function saveTaskToSupabase(task) {
             csat_score: task.csatScore || null,
             csat_observations: task.csatObservations || null,
             alertvox_checked: task.alertvoxChecked || false,
+            client_no_response: task.clientNoResponse || false,
+            evidence_notes: task.evidenceNotes || null,
             mes_facturacion: task.mesFacturacion || task.period,
             analysts_assignment: task.analysts_assignment || [] 
         };
@@ -2778,7 +2879,9 @@ async function loadTasksFromSupabase() {
                 mesFacturacion: t.mes_facturacion || t.period || formatPeriod(),
                 csatScore: t.csat_score || null,
                 csatObservations: t.csat_observations || '',
-                alertvoxChecked: t.alertvox_checked || false
+                alertvoxChecked: t.alertvox_checked || false,
+                clientNoResponse: t.client_no_response || false,
+                evidenceNotes: t.evidence_notes || ''
             }));
 
             // 1. Merge remote into local
@@ -3236,43 +3339,57 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
     }
 });
 
+function toggleNoResponseMode(isChecked) {
+    document.getElementById('csatRatingSection').style.display  = isChecked ? 'none' : 'block';
+    document.getElementById('csatEvidenceSection').style.display = isChecked ? 'block' : 'none';
+    const scoreInput = document.getElementById('csatScore');
+    if(scoreInput) scoreInput.required = !isChecked;
+    const evidenceInput = document.getElementById('csatEvidenceNotes');
+    if(evidenceInput) evidenceInput.required = isChecked;
+}
+
 function openClosingMeetingModal(taskId) {
     const task = tasks.find(t => t.id === taskId);
     if(!task) return;
 
     openCsatModal(taskId, task.status);
-    
+
     document.getElementById('csatModalTitle').textContent = 'Reunión de Cierre de Gestión';
     document.getElementById('csatSubmitBtn').textContent = 'Guardar Registro de Cierre';
-    
+
+    const noResponse = task.clientNoResponse || false;
+    document.getElementById('checkNoResponse').checked = noResponse;
     document.getElementById('csatScore').value = task.csatScore || 5;
     document.getElementById('csatObservations').value = task.csatObservations || '';
     document.getElementById('checkAlertvox').checked = task.alertvoxChecked || false;
+    document.getElementById('csatEvidenceNotes').value = task.evidenceNotes || '';
+    toggleNoResponseMode(noResponse);
 }
 
 document.getElementById('csatForm').addEventListener('submit', async e => {
     e.preventDefault();
-    const taskId = document.getElementById('csatTaskId').value;
+    const taskId      = document.getElementById('csatTaskId').value;
     const targetStatus = document.getElementById('csatTargetStatus').value;
-    const score = document.getElementById('csatScore').value;
+    const noResponse  = document.getElementById('checkNoResponse').checked;
+    const score       = noResponse ? null : document.getElementById('csatScore').value;
+    const evidenceNotes = noResponse ? document.getElementById('csatEvidenceNotes').value.trim() : '';
     const observations = document.getElementById('csatObservations').value;
-    const alertvox = document.getElementById('checkAlertvox').checked;
-    
+    const alertvox    = document.getElementById('checkAlertvox').checked;
+
+    if(noResponse && !evidenceNotes) {
+        showToast('Debes escribir una justificación cuando el cliente no respondió.', 'error');
+        return;
+    }
+
     const taskIndex = tasks.findIndex(t => t.id === taskId);
     if(taskIndex !== -1) {
-        const oldStatus = tasks[taskIndex].status;
-        tasks[taskIndex].status = targetStatus;
-        tasks[taskIndex].csatScore = score;
+        tasks[taskIndex].status           = targetStatus;
+        tasks[taskIndex].csatScore        = score;
         tasks[taskIndex].csatObservations = observations;
-        tasks[taskIndex].alertvoxChecked = alertvox;
-        
-        let logMsg = `✅ Registro de cierre para <strong>${tasks[taskIndex].client}</strong> actualizado. CSAT: <strong>⭐ ${score}/5</strong>.`;
-        if (oldStatus !== targetStatus) {
-            logMsg += ` Estado cambió a <strong>${targetStatus.toUpperCase()}</strong>.`;
-        }
-        
+        tasks[taskIndex].alertvoxChecked  = alertvox;
+        tasks[taskIndex].clientNoResponse = noResponse;
+        tasks[taskIndex].evidenceNotes    = evidenceNotes;
 
-        
         saveTasks();
         await saveTaskToSupabase(tasks[taskIndex]);
 
@@ -3280,8 +3397,12 @@ document.getElementById('csatForm').addEventListener('submit', async e => {
         renderCalendar();
         renderPlanningSidebar();
         renderTasksView();
+        if(typeof renderMyWorkView === 'function') renderMyWorkView();
         closeModal('csatModal');
-        showToast('Registro de cierre guardado correctamente.', 'success');
+        const msg = noResponse
+            ? 'Registro guardado — Cliente no respondió.'
+            : `Registro de cierre guardado. CSAT: ⭐ ${score}/5`;
+        showToast(msg, 'success');
     }
 });
 
