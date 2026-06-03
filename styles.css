@@ -2019,19 +2019,69 @@ body.role-analyst .calendar-task-pill:active {
 
 /* Lista de tarjetas */
 .mywork-task-list {
+    flex: 1;
+    overflow: hidden;
+}
+
+/* ── Layout Kanban ────────────────────────────────────────────────────────── */
+.mywork-kanban {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+}
+.mywork-column {
+    flex: 1;
+    min-width: 220px;
+    max-width: 340px;
+    background: #f8fafc;
+    border-radius: var(--radius-lg);
+    border: 1px solid #e2e8f0;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
-    gap: 0.875rem;
+}
+.mywork-col-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.65rem 1rem;
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.82rem;
+    letter-spacing: 0.02em;
+}
+.mywork-col-icon { font-size: 1rem; }
+.mywork-col-title { flex: 1; }
+.mywork-col-count {
+    background: rgba(255,255,255,0.25);
+    border-radius: 12px;
+    padding: 0.1rem 0.55rem;
+    font-size: 0.75rem;
+    font-weight: 800;
+}
+.mywork-col-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    padding: 0.75rem;
+    max-height: calc(100vh - 320px);
+    overflow-y: auto;
+}
+
+@media (max-width: 600px) {
+    .mywork-kanban { flex-direction: column; }
+    .mywork-column { max-width: 100%; }
 }
 
 /* Tarjeta individual */
 .mywork-card {
     background: white;
     border-radius: var(--radius-md);
-    padding: 1.1rem 1.25rem;
-    box-shadow: var(--shadow-sm);
+    padding: 0.85rem 1rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.07);
     border: 1px solid #e2e8f0;
-    border-left: 4px solid var(--clr-blue);
     transition: box-shadow 0.2s, transform 0.15s;
 }
 .mywork-card:hover {
@@ -2042,10 +2092,6 @@ body.role-analyst .calendar-task-pill:active {
     background: #f8fafc;
     border-radius: 6px;
 }
-.mywork-card.status-proyectada { border-left-color: var(--clr-purple); }
-.mywork-card.status-programada { border-left-color: var(--clr-blue); }
-.mywork-card.status-ejecutada  { border-left-color: #f59e0b; }
-.mywork-card.status-facturada  { border-left-color: var(--clr-green); }
 
 /* Cabecera de la tarjeta */
 .mywork-card-top {

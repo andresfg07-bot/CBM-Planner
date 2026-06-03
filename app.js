@@ -271,12 +271,41 @@ function renderMyWorkView() {
         container.innerHTML = `
             <div class="mywork-empty">
                 <div class="mywork-empty-icon">📅</div>
-                <p>No tienes gestiones asignadas este mes.</p>
+                <p>No tienes gestiones asignadas este período.</p>
             </div>`;
         return;
     }
 
-    container.innerHTML = myTasks.map(t => renderMyWorkCard(t)).join('');
+    // ── Layout Kanban: agrupar por estado ────────────────────────────────────
+    const columns = [
+        { key: 'proyectada', label: 'Proyectadas',  color: '#7c3aed', bg: '#f5f3ff', icon: '📋' },
+        { key: 'programada', label: 'Programadas',  color: '#2563eb', bg: '#eff6ff', icon: '📅' },
+        { key: 'ejecutada',  label: 'Ejecutadas',   color: '#d97706', bg: '#fffbeb', icon: '✅' },
+        { key: 'facturada',  label: 'Facturadas',   color: '#16a34a', bg: '#f0fdf4', icon: '💰' },
+    ];
+
+    const grouped = {};
+    columns.forEach(c => { grouped[c.key] = []; });
+    myTasks.forEach(t => { if(grouped[t.status]) grouped[t.status].push(t); });
+
+    // Solo mostrar columnas con gestiones
+    const activeCols = columns.filter(c => grouped[c.key].length > 0);
+
+    container.innerHTML = `
+        <div class="mywork-kanban">
+            ${activeCols.map(col => `
+                <div class="mywork-column">
+                    <div class="mywork-col-header" style="background:${col.color};">
+                        <span class="mywork-col-icon">${col.icon}</span>
+                        <span class="mywork-col-title">${col.label}</span>
+                        <span class="mywork-col-count">${grouped[col.key].length}</span>
+                    </div>
+                    <div class="mywork-col-body">
+                        ${grouped[col.key].map(t => renderMyWorkCard(t)).join('')}
+                    </div>
+                </div>
+            `).join('')}
+        </div>`;
 }
 
 function renderMyWorkCard(task) {
@@ -311,7 +340,6 @@ function renderMyWorkCard(task) {
                     ${task.equipment || task.equipmentName
                         ? `<p class="mywork-card-equip">${task.equipment || task.equipmentName}</p>` : ''}
                 </div>
-                <span class="status-badge ${task.status}">${statusLabel[task.status] || task.status}</span>
             </div>
 
             <div class="mywork-card-dates">
