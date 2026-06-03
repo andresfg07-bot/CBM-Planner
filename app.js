@@ -2795,10 +2795,10 @@ function renderFinanceView() {
     });
     
     const cards = [
-        { label: 'Proyectada', key: 'proyectada', val: stats.proyectada, clr: 'var(--clr-blue)', bg: 'var(--clr-blue-light)' },
-        { label: 'Programada', key: 'programada', val: stats.programada, clr: 'var(--clr-purple)', bg: 'var(--clr-purple-light)' },
-        { label: 'Ejecutada', key: 'ejecutada', val: stats.ejecutada, clr: 'var(--clr-pink)', bg: 'var(--clr-pink-light)' },
-        { label: 'Facturada', key: 'facturada', val: stats.facturada, clr: 'var(--clr-green)', bg: 'var(--clr-green-light)' }
+        { label: 'Proyectada', key: 'proyectada', val: stats.proyectada, clr: '#2563eb', bg: '#eff6ff', icon: '📋' },
+        { label: 'Programada', key: 'programada', val: stats.programada, clr: '#7c3aed', bg: '#f5f3ff', icon: '📅' },
+        { label: 'Ejecutada',  key: 'ejecutada',  val: stats.ejecutada,  clr: '#ea580c', bg: '#fff7ed', icon: '✅' },
+        { label: 'Facturada',  key: 'facturada',  val: stats.facturada,  clr: '#16a34a', bg: '#f0fdf4', icon: '💰' }
     ];
     
     const periodLabel = financeFilters.type === 'single' ? monthNames[currentMonth-1] :
@@ -2809,23 +2809,57 @@ function renderFinanceView() {
 
     container.innerHTML = cards.map(c => {
         const bd = breakdowns[c.key];
-        const bdHtml = Object.keys(bd).length > 0 ?
-            Object.entries(bd).map(([client, amount]) => `
-                <div style="display: flex; justify-content: space-between; overflow: hidden; white-space: nowrap; margin-bottom: 2px;">
-                    <span style="overflow: hidden; text-overflow: ellipsis; max-width: 60%;">${client}</span>
-                    <span style="font-weight: 600;">$${amount.toLocaleString('es-CO')}</span>
-                </div>
-            `).join('')
-            : '<div style="color: var(--text-secondary); text-align: center; font-style: italic;">Sin gestiones</div>';
+        const rows = Object.keys(bd).length > 0
+            ? Object.entries(bd).map(([client, amount]) => `
+                <div style="display:flex; justify-content:space-between; align-items:center;
+                            padding:0.35rem 0; border-bottom:1px solid ${c.clr}18;
+                            font-size:0.78rem; gap:0.5rem;">
+                    <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; color:#374151;">${client}</span>
+                    <span style="font-weight:700; color:${c.clr}; white-space:nowrap;">$${amount.toLocaleString('es-CO')}</span>
+                </div>`).join('')
+            : `<div style="color:#94a3b8; text-align:center; font-style:italic; padding:0.75rem 0; font-size:0.78rem;">Sin gestiones</div>`;
 
         return `
-        <div class="stats-card" style="border-top: 4px solid ${c.clr}; background: ${c.bg}; display: flex; flex-direction: column;">
-            <h3 style="margin-bottom: 0.5rem; color: ${c.clr}">${c.label.toUpperCase()}</h3>
-            <div class="finance-breakdown" style="flex: 1; max-height: 150px; overflow-y: auto; font-size: 0.75rem; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 0.5rem; margin-bottom: 0.5rem;">
-                ${bdHtml}
+        <div style="
+            background:${c.bg};
+            border-radius:12px;
+            border: 1px solid ${c.clr}30;
+            border-top: 5px solid ${c.clr};
+            display:flex; flex-direction:column;
+            box-shadow: 0 2px 8px ${c.clr}15;
+            overflow:hidden;
+        ">
+            <!-- Pill header -->
+            <div style="padding:1rem 1rem 0.75rem;">
+                <span style="
+                    display:inline-flex; align-items:center; gap:0.35rem;
+                    background:${c.clr}; color:#fff;
+                    font-size:0.7rem; font-weight:700;
+                    padding:0.3rem 0.8rem; border-radius:20px;
+                    text-transform:uppercase; letter-spacing:0.04em;
+                ">${c.icon} ${c.label}</span>
             </div>
-            <div style="font-size: 1.5rem; font-weight: 800; color: var(--text-primary)">$${c.val.toLocaleString('es-CO')}</div>
-            <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">Total acumulado: ${periodLabel}</p>
+
+            <!-- Filas de clientes -->
+            <div style="flex:1; max-height:180px; overflow-y:auto; padding:0 1rem;">
+                ${rows}
+            </div>
+
+            <!-- Total destacado -->
+            <div style="
+                margin:0.75rem 1rem 1rem;
+                padding:0.6rem 0.75rem;
+                background:${c.clr}12;
+                border-radius:8px;
+                border-left:3px solid ${c.clr};
+            ">
+                <div style="font-size:0.62rem; font-weight:700; color:${c.clr}; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.2rem;">
+                    Total acumulado · ${periodLabel}
+                </div>
+                <div style="font-size:1.6rem; font-weight:900; color:${c.clr}; line-height:1.1;">
+                    $${c.val.toLocaleString('es-CO')}
+                </div>
+            </div>
         </div>`;
     }).join('') + `
         <div style="grid-column: 1 / -1; margin-top: 0.5rem;">
