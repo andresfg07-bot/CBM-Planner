@@ -2568,23 +2568,35 @@ function onTaskServiceTypeChange() {
         document.getElementById('taskDaysReport').required = false;
 
     } else if(isAdminContract) {
-        // Metro Administrativo: campos financieros normales, sin analista
-        document.getElementById('taskClient').required   = true;
-        document.getElementById('taskBudget').required   = true;
+        // Metro Administrativo: solo cliente y presupuesto — sin analista, días ni equipo
+        document.getElementById('taskClient').required    = true;
+        document.getElementById('taskBudget').required    = true;
+        document.getElementById('taskDaysField').required = false;
         document.getElementById('taskDaysReport').required = false;
+
+        // Ocultar analistas, días y equipo
+        ['group-analysts', 'group-days', 'group-equipment'].forEach(id => {
+            const el = document.getElementById(id);
+            if(el) el.style.display = 'none';
+        });
+
+        // Mostrar banner en el contenedor de analistas (por si acaso)
         clientAnalystPreferences = [];
         container.dataset.clientPreferences = '[]';
-        container.innerHTML = `
-            <div style="display:flex; align-items:center; gap:0.5rem; padding:0.6rem 0.75rem;
-                        background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px;
-                        font-size:0.8rem; color:#1e40af;">
-                🏢 <strong>Contrato Administrativo</strong> — no requiere analista asignado
-            </div>`;
+        container.innerHTML = '';
 
     } else {
-        document.getElementById('taskClient').required   = true;
-        document.getElementById('taskBudget').required   = true;
+        // Servicio normal: restaurar todos los campos
+        document.getElementById('taskClient').required    = true;
+        document.getElementById('taskBudget').required    = true;
+        document.getElementById('taskDaysField').required = true;
         document.getElementById('taskDaysReport').required = true;
+
+        ['group-analysts', 'group-days', 'group-equipment'].forEach(id => {
+            const el = document.getElementById(id);
+            if(el) el.style.display = '';
+        });
+
         onTaskClientChange();
     }
 }
@@ -3050,6 +3062,14 @@ function openNewTaskModal() {
     try {
         const form = document.getElementById('taskForm');
         if(form) form.reset();
+
+        // Restaurar visibilidad de campos que pudo haber ocultado Metro Administrativo
+        ['group-analysts', 'group-days', 'group-equipment'].forEach(id => {
+            const el = document.getElementById(id);
+            if(el) el.style.display = '';
+        });
+        document.getElementById('taskDaysField').required  = true;
+        document.getElementById('taskDaysReport').required = true;
         
         const editIdEl = document.getElementById('editTaskId');
         if (editIdEl) editIdEl.value = '';

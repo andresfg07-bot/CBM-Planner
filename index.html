@@ -520,16 +520,16 @@
                         <option value="">Seleccione un cliente...</option>
                     </select>
                 </div>
-                <div class="form-group">
+                <div class="form-group" id="group-analysts">
                     <label style="display:flex; justify-content:space-between; align-items:center;">
                         Analistas Asignados
-                        <button type="button" class="btn-secondary" onclick="addAnalystToTask()" style="padding: 0.2rem 0.5rem; font-size: 0.7rem; cursor: pointer;">+ Añadir Analista</button>
+                        <button type="button" id="btnAddAnalyst" class="btn-secondary" onclick="addAnalystToTask()" style="padding: 0.2rem 0.5rem; font-size: 0.7rem; cursor: pointer;">+ Añadir Analista</button>
                     </label>
                     <div id="taskAnalystsContainer" style="display: flex; flex-direction: column; gap: 0.5rem; border: 1px solid #e2e8f0; padding: 0.5rem; border-radius: 4px; background: #f8fafc; margin-top: 4px; max-height: 200px; overflow-y: auto;">
                         <div style="font-size: 0.8rem; color: var(--text-secondary); text-align: center;">Seleccione primero un cliente para añadir analistas.</div>
                     </div>
                 </div>
-                <div style="display: flex; gap: 1rem;">
+                <div id="group-days" style="display: flex; gap: 1rem;">
                     <div class="form-group" style="flex: 1;">
                         <label>Días Planta</label>
                         <input type="number" id="taskDaysField" min="1" value="1" required>
