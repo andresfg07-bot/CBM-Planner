@@ -2805,30 +2805,61 @@ function renderFinanceView() {
                        financeFilters.type === 'year' ? `Todo ${currentYear}` :
                        `${filteredPeriods.length} meses seleccionados`;
 
+    const grandTotal = stats.proyectada + stats.programada + stats.ejecutada + stats.facturada;
+
     container.innerHTML = cards.map(c => {
         const bd = breakdowns[c.key];
-        const bdHtml = Object.keys(bd).length > 0 ? 
+        const bdHtml = Object.keys(bd).length > 0 ?
             Object.entries(bd).map(([client, amount]) => `
                 <div style="display: flex; justify-content: space-between; overflow: hidden; white-space: nowrap; margin-bottom: 2px;">
                     <span style="overflow: hidden; text-overflow: ellipsis; max-width: 60%;">${client}</span>
                     <span style="font-weight: 600;">$${amount.toLocaleString('es-CO')}</span>
                 </div>
-            `).join('') 
+            `).join('')
             : '<div style="color: var(--text-secondary); text-align: center; font-style: italic;">Sin gestiones</div>';
 
         return `
         <div class="stats-card" style="border-top: 4px solid ${c.clr}; background: ${c.bg}; display: flex; flex-direction: column;">
             <h3 style="margin-bottom: 0.5rem; color: ${c.clr}">${c.label.toUpperCase()}</h3>
-            
             <div class="finance-breakdown" style="flex: 1; max-height: 150px; overflow-y: auto; font-size: 0.75rem; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 0.5rem; margin-bottom: 0.5rem;">
                 ${bdHtml}
             </div>
-
             <div style="font-size: 1.5rem; font-weight: 800; color: var(--text-primary)">$${c.val.toLocaleString('es-CO')}</div>
             <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">Total acumulado: ${periodLabel}</p>
-        </div>
-        `
-    }).join('');
+        </div>`;
+    }).join('') + `
+        <div style="grid-column: 1 / -1; margin-top: 0.5rem;">
+            <div class="stats-card" style="
+                border-top: 4px solid #0f172a;
+                background: #0f172a;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 1rem 1.5rem;
+                flex-direction: row;
+                gap: 1rem;
+            ">
+                <div style="display:flex; align-items:center; gap:0.75rem;">
+                    <span style="font-size:1.3rem;">📊</span>
+                    <div>
+                        <div style="font-size:0.7rem; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em;">
+                            Total Gestiones · ${periodLabel}
+                        </div>
+                        <div style="font-size:0.78rem; color:#64748b; margin-top:2px;">
+                            ${financeTasks.length} gestión${financeTasks.length !== 1 ? 'es' : ''} en el período
+                        </div>
+                    </div>
+                </div>
+                <div style="text-align:right;">
+                    <div style="font-size:0.65rem; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:2px;">
+                        Total Facturas
+                    </div>
+                    <div style="font-size:2rem; font-weight:900; color:#ffffff; line-height:1;">
+                        $${grandTotal.toLocaleString('es-CO')}
+                    </div>
+                </div>
+            </div>
+        </div>`;
 }
 
 // Finance Multiple Selection Handler
