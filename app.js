@@ -2817,6 +2817,7 @@ async function saveTaskToSupabase(task) {
             alertvox_checked: task.alertvoxChecked || false,
             client_no_response: task.clientNoResponse || false,
             evidence_notes: task.evidenceNotes || null,
+            evidence_files: task.evidenceFiles || [],
             mes_facturacion: task.mesFacturacion || task.period,
             analysts_assignment: task.analysts_assignment || [] 
         };
@@ -2881,7 +2882,8 @@ async function loadTasksFromSupabase() {
                 csatObservations: t.csat_observations || '',
                 alertvoxChecked: t.alertvox_checked || false,
                 clientNoResponse: t.client_no_response || false,
-                evidenceNotes: t.evidence_notes || ''
+                evidenceNotes: t.evidence_notes || '',
+                evidenceFiles: t.evidence_files || []
             }));
 
             // 1. Merge remote into local
@@ -3339,13 +3341,79 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
     }
 });
 
+// Archivos de evidencia seleccionados (pendientes de subir)
+let _evidencePendingFiles = [];
+
 function toggleNoResponseMode(isChecked) {
-    document.getElementById('csatRatingSection').style.display  = isChecked ? 'none' : 'block';
+    document.getElementById('csatRatingSection').style.display   = isChecked ? 'none' : 'block';
     document.getElementById('csatEvidenceSection').style.display = isChecked ? 'block' : 'none';
     const scoreInput = document.getElementById('csatScore');
     if(scoreInput) scoreInput.required = !isChecked;
-    const evidenceInput = document.getElementById('csatEvidenceNotes');
-    if(evidenceInput) evidenceInput.required = isChecked;
+}
+
+function onEvidenceFilesSelected(fileList) {
+    Array.from(fileList).forEach(f => {
+        if(!_evidencePendingFiles.find(x => x.name === f.name && x.size === f.size)) {
+            _evidencePendingFiles.push(f);
+        }
+    });
+    renderEvidenceFilesList();
+    // Limpiar el input para permitir reseleccionar el mismo archivo
+    document.getElementById('evidenceFilesInput').value = '';
+}
+
+function removeEvidencePendingFile(index) {
+    _evidencePendingFiles.splice(index, 1);
+    renderEvidenceFilesList();
+}
+
+function renderEvidenceFilesList() {
+    const container = document.getElementById('evidenceFilesList');
+    if(!container) return;
+    if(_evidencePendingFiles.length === 0) { container.innerHTML = ''; return; }
+    container.innerHTML = _evidencePendingFiles.map((f, i) => `
+        <div class="evidence-file-item">
+            <span class="evidence-file-icon">${f.type.startsWith('image/') ? '🖼️' : '📄'}</span>
+            <span class="evidence-file-name">${f.name}</span>
+            <span class="evidence-file-size">${(f.size/1024).toFixed(0)} KB</span>
+            <button type="button" onclick="removeEvidencePendingFile(${i})" class="evidence-file-remove">✕</button>
+        </div>
+    `).join('');
+}
+
+function renderSavedEvidenceFiles(files) {
+    const container = document.getElementById('evidenceFilesList');
+    if(!container || !files.length) return;
+    const savedHTML = files.map(f => `
+        <div class="evidence-file-item evidence-file-saved">
+            <span class="evidence-file-icon">${f.name?.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? '🖼️' : '📄'}</span>
+            <a href="${f.url}" target="_blank" class="evidence-file-name" style="color:var(--clr-blue);text-decoration:underline;">${f.name}</a>
+            <span class="evidence-file-size" style="color:var(--clr-green);">✓ Guardado</span>
+        </div>
+    `).join('');
+    container.innerHTML = savedHTML + container.innerHTML;
+}
+
+async function uploadEvidenceFiles(taskId) {
+    if(!supabaseClient || _evidencePendingFiles.length === 0) return [];
+    const urls = [];
+    for(const file of _evidencePendingFiles) {
+        const ext  = file.name.split('.').pop();
+        const path = `tasks/${taskId}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+        const { data, error } = await supabaseClient.storage
+            .from('evidence-files')
+            .upload(path, file, { upsert: false });
+        if(error) {
+            console.error('Error subiendo evidencia:', error);
+            showToast(`Error subiendo ${file.name}`, 'error');
+        } else {
+            const { data: urlData } = supabaseClient.storage
+                .from('evidence-files')
+                .getPublicUrl(path);
+            urls.push({ name: file.name, url: urlData.publicUrl });
+        }
+    }
+    return urls;
 }
 
 function openClosingMeetingModal(taskId) {
@@ -3363,6 +3431,11 @@ function openClosingMeetingModal(taskId) {
     document.getElementById('csatObservations').value = task.csatObservations || '';
     document.getElementById('checkAlertvox').checked = task.alertvoxChecked || false;
     document.getElementById('csatEvidenceNotes').value = task.evidenceNotes || '';
+
+    // Limpiar archivos pendientes y mostrar los ya guardados
+    _evidencePendingFiles = [];
+    renderEvidenceFilesList();
+    renderSavedEvidenceFiles(task.evidenceFiles || []);
     toggleNoResponseMode(noResponse);
 }
 
@@ -3376,19 +3449,32 @@ document.getElementById('csatForm').addEventListener('submit', async e => {
     const observations = document.getElementById('csatObservations').value;
     const alertvox    = document.getElementById('checkAlertvox').checked;
 
-    if(noResponse && !evidenceNotes) {
-        showToast('Debes escribir una justificación cuando el cliente no respondió.', 'error');
+    if(noResponse && !evidenceNotes && _evidencePendingFiles.length === 0
+       && !(tasks.find(t => t.id === taskId)?.evidenceFiles?.length)) {
+        showToast('Debes añadir una justificación escrita o al menos un archivo de evidencia.', 'error');
         return;
     }
 
     const taskIndex = tasks.findIndex(t => t.id === taskId);
     if(taskIndex !== -1) {
+        // Subir archivos nuevos si los hay
+        const submitBtn = document.getElementById('csatSubmitBtn');
+        if(submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Subiendo archivos...'; }
+
+        const newFileUrls = noResponse ? await uploadEvidenceFiles(taskId) : [];
+        const existingFiles = tasks[taskIndex].evidenceFiles || [];
+        const allFiles = [...existingFiles, ...newFileUrls];
+        _evidencePendingFiles = [];
+
+        if(submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Guardar Registro de Cierre'; }
+
         tasks[taskIndex].status           = targetStatus;
         tasks[taskIndex].csatScore        = score;
         tasks[taskIndex].csatObservations = observations;
         tasks[taskIndex].alertvoxChecked  = alertvox;
         tasks[taskIndex].clientNoResponse = noResponse;
         tasks[taskIndex].evidenceNotes    = evidenceNotes;
+        tasks[taskIndex].evidenceFiles    = allFiles;
 
         saveTasks();
         await saveTaskToSupabase(tasks[taskIndex]);

@@ -2155,6 +2155,51 @@ body.role-analyst .calendar-task-pill:active {
     padding-top: 0.25rem;
 }
 
+/* ── REQ-02: Evidencia de archivos ────────────────────────────────────────── */
+.evidence-dropzone {
+    border: 2px dashed #fed7aa;
+    border-radius: 8px;
+    background: #fff7ed;
+    padding: 1rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+.evidence-dropzone:hover {
+    background: #ffedd5;
+    border-color: #f97316;
+}
+.evidence-dropzone-label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.82rem;
+    color: #c2410c;
+    font-weight: 600;
+    pointer-events: none;
+}
+.evidence-file-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.78rem;
+}
+.evidence-file-saved {
+    background: #f0fdf4;
+    border-color: #bbf7d0;
+}
+.evidence-file-icon { font-size: 1rem; flex-shrink: 0; }
+.evidence-file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.evidence-file-size { color: var(--text-secondary); flex-shrink: 0; }
+.evidence-file-remove {
+    background: none; border: none; color: #ef4444;
+    cursor: pointer; font-size: 0.85rem; padding: 0 2px; flex-shrink: 0;
+}
+
 /* ── REQ-03: Gauges CSAT ──────────────────────────────────────────────────── */
 .gauges-grid {
     display: flex;

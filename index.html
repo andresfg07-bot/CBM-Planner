@@ -634,7 +634,19 @@
                 <div id="csatEvidenceSection" style="display:none;">
                     <div class="form-group">
                         <label style="color:#c2410c;">Justificación / Evidencia de No Respuesta <span style="color:#ef4444">*</span></label>
-                        <textarea id="csatEvidenceNotes" placeholder="Describe el intento de contacto, canal utilizado, fecha y hora, o cualquier justificación oficial..." style="width:100%; min-height:110px; padding:0.75rem; border:1px solid #fed7aa; border-radius:var(--radius-md); font-family:inherit; font-size:0.85rem; background:#fff7ed;" required></textarea>
+                        <textarea id="csatEvidenceNotes" placeholder="Describe el intento de contacto, canal utilizado, fecha y hora, o cualquier justificación oficial..." style="width:100%; min-height:80px; padding:0.75rem; border:1px solid #fed7aa; border-radius:var(--radius-md); font-family:inherit; font-size:0.85rem; background:#fff7ed;"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label style="color:#c2410c;">Archivos de Evidencia <span style="font-weight:400; color:#92400e;">(imágenes, PDF, documentos)</span></label>
+                        <div id="evidenceDropZone" class="evidence-dropzone" onclick="document.getElementById('evidenceFilesInput').click()">
+                            <input type="file" id="evidenceFilesInput" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" style="display:none" onchange="onEvidenceFilesSelected(this.files)">
+                            <div class="evidence-dropzone-label">
+                                <span style="font-size:1.5rem;">📎</span>
+                                <span>Haz clic para adjuntar archivos</span>
+                                <span style="font-size:0.72rem; opacity:0.7;">Imágenes, PDF o documentos</span>
+                            </div>
+                        </div>
+                        <div id="evidenceFilesList" style="margin-top:0.5rem; display:flex; flex-direction:column; gap:0.35rem;"></div>
                     </div>
                 </div>
 
