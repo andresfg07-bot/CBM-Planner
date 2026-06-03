@@ -1526,10 +1526,12 @@ function renderPlanningSidebar() {
     sidebarContainer.innerHTML = '';
     
     // Filtrado estricto: Una gestión en 'Por programar' NO DEBE tener días programados.
-    let filteredTasks = tasks.filter(t => 
-        t.status && 
-        t.status.toLowerCase() === 'proyectada' && 
+    // Metro Administrativo se excluye siempre (va directo a facturada, no necesita programarse).
+    let filteredTasks = tasks.filter(t =>
+        t.status &&
+        t.status.toLowerCase() === 'proyectada' &&
         (!t.scheduledDays || t.scheduledDays.length === 0) &&
+        t.serviceType !== 'Metro Administrativo' &&
         isTaskInCurrentPeriod(t)
     );
 
@@ -3397,7 +3399,7 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
                 serviceType: serviceType,
                 isAbsence: isAbsence,
                 scheduledDays: [],
-                status: 'proyectada',
+                status: isAdminContract ? 'facturada' : 'proyectada',
                 period: formatPeriod(),
                 mesFacturacion: document.getElementById('taskBillingMonth').value
             };
