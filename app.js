@@ -4168,36 +4168,104 @@ function exportReportCSV() {
     a.click(); URL.revokeObjectURL(url);
 }
 
-function exportReportPDF() {
+async function exportReportPDF() {
     const data = getReportData();
     if(data.length === 0) { alert('No hay datos para exportar.'); return; }
     if(typeof window.jspdf === 'undefined' && typeof jsPDF === 'undefined') {
         alert('La librería PDF está cargando. Intenta en unos segundos.'); return;
     }
 
+    // Cargar logo como base64
+    let logoDataUrl = null;
+    try {
+        const resp = await fetch('logo.png');
+        const blob = await resp.blob();
+        logoDataUrl = await new Promise(resolve => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.readAsDataURL(blob);
+        });
+    } catch(e) { /* continúa sin logo */ }
+
     const { jsPDF: JSPDF } = window.jspdf || {};
-    const doc = JSPDF ? new JSPDF({ orientation:'landscape', unit:'mm', format:'letter' }) : new jsPDF({ orientation:'landscape', unit:'mm', format:'letter' });
+    const doc = JSPDF
+        ? new JSPDF({ orientation:'landscape', unit:'mm', format:'letter' })
+        : new jsPDF({ orientation:'landscape', unit:'mm', format:'letter' });
 
-    // Header branding
-    doc.setFillColor(30, 64, 175);
-    doc.rect(0, 0, 280, 22, 'F');
-    doc.setTextColor(255,255,255);
-    doc.setFontSize(14); doc.setFont('helvetica','bold');
-    doc.text('A-MAQ S.A. — Reporte Histórico de Gestiones CBM', 14, 10);
-    doc.setFontSize(9); doc.setFont('helvetica','normal');
-    doc.text(`Generado: ${new Date().toLocaleDateString('es-CO')}`, 14, 17);
+    const pageW  = 279.4;
+    const pageH  = 215.9;
+    const mX     = 15;
+    const BLUE   = [30, 64, 175];
+    const LBLUE  = [96, 165, 250];
 
-    // Filters summary
-    const filterParts = [];
-    if(reportFilters.analyst) filterParts.push(`Analista: ${reportFilters.analyst}`);
-    if(reportFilters.client) filterParts.push(`Cliente: ${reportFilters.client}`);
-    if(reportFilters.dateFrom) filterParts.push(`Desde: ${reportFilters.dateFrom}`);
-    if(reportFilters.dateTo) filterParts.push(`Hasta: ${reportFilters.dateTo}`);
-    if(filterParts.length > 0) {
-        doc.setTextColor(100); doc.setFontSize(8);
-        doc.text('Filtros: ' + filterParts.join(' | '), 14, 28);
+    // ── Dibuja encabezado y pie de página (formato A-MAQ) ────────────────────
+    function drawPageLayout(pageNum) {
+        // Logo superior derecho
+        if(logoDataUrl) {
+            doc.addImage(logoDataUrl, 'PNG', pageW - 34, 5, 22, 22);
+        }
+        // Nombre empresa junto al logo
+        doc.setTextColor(...BLUE);
+        doc.setFontSize(7); doc.setFont('helvetica','bold');
+        doc.text('A-MAQ S.A.', pageW - 23, 29, { align:'center' });
+
+        // Línea azul debajo del encabezado
+        doc.setDrawColor(...BLUE);
+        doc.setLineWidth(0.8);
+        doc.line(mX, 31, pageW - mX, 31);
+
+        // ── PIE DE PÁGINA ──
+        // Línea azul sobre el pie
+        doc.setLineWidth(0.5);
+        doc.line(mX, pageH - 20, pageW - mX, pageH - 20);
+
+        // Círculos decorativos esquinas inferiores (imitan las ondas del membrete)
+        doc.setFillColor(...BLUE);
+        doc.circle(-4, pageH + 3, 18, 'F');     // esquina inferior izquierda
+        doc.setFillColor(...LBLUE);
+        doc.circle(pageW + 4, pageH + 3, 18, 'F'); // esquina inferior derecha
+
+        // Datos de contacto
+        doc.setTextColor(...BLUE);
+        doc.setFontSize(7); doc.setFont('helvetica','normal');
+        doc.text(
+            '+57 300 8622954   •   info@a-maq.com   •   www.a-maq.com',
+            pageW / 2, pageH - 14, { align:'center' }
+        );
+
+        // Número de página
+        doc.setTextColor(130);
+        doc.setFontSize(7);
+        doc.text(`Pág. ${pageNum}`, pageW - mX, pageH - 14, { align:'right' });
     }
 
+    // ── Página 1: encabezado + título ────────────────────────────────────────
+    drawPageLayout(1);
+
+    doc.setTextColor(...BLUE);
+    doc.setFontSize(13); doc.setFont('helvetica','bold');
+    doc.text('Reporte Histórico de Gestiones — Departamento CBM', mX, 22);
+
+    doc.setTextColor(90); doc.setFontSize(8); doc.setFont('helvetica','normal');
+    const fechaHoy = new Date().toLocaleDateString('es-CO', { year:'numeric', month:'long', day:'numeric' });
+    doc.text(`Generado el ${fechaHoy}`, mX, 27.5);
+
+    // Filtros aplicados
+    const filterParts = [];
+    if(reportFilters.analyst)     filterParts.push(`Analista: ${reportFilters.analyst}`);
+    if(reportFilters.client)      filterParts.push(`Cliente: ${reportFilters.client}`);
+    if(reportFilters.serviceType) filterParts.push(`Servicio: ${reportFilters.serviceType}`);
+    if(reportFilters.dateFrom)    filterParts.push(`Desde: ${reportFilters.dateFrom}`);
+    if(reportFilters.dateTo)      filterParts.push(`Hasta: ${reportFilters.dateTo}`);
+
+    let startY = 37;
+    if(filterParts.length > 0) {
+        doc.setTextColor(100); doc.setFontSize(7.5);
+        doc.text('Filtros: ' + filterParts.join('  |  '), mX, 35.5);
+        startY = 40;
+    }
+
+    // ── Tabla de datos ───────────────────────────────────────────────────────
     const total = data.reduce((s,t) => s + (t.budget||0), 0);
 
     const tableData = data.map(t => [
@@ -4208,27 +4276,41 @@ function exportReportPDF() {
         t.serviceType || '-',
         t.status.toUpperCase()
     ]);
-    tableData.push(['TOTAL (' + data.length + ' gestiones)', '', '$' + total.toLocaleString('es-CO'), '', '', '']);
+    tableData.push([`TOTAL (${data.length} gestiones)`, '', '$' + total.toLocaleString('es-CO'), '', '', '']);
 
     doc.autoTable({
-        startY: filterParts.length > 0 ? 32 : 26,
-        head: [['Fecha/Período','Cliente (Planta)','Monto ($)','Analistas','Servicio','Estado']],
+        startY,
+        head: [['Fecha / Período','Cliente (Planta)','Monto ($)','Analistas','Tipo de Servicio','Estado']],
         body: tableData,
-        styles: { fontSize: 8, cellPadding: 2.5 },
-        headStyles: { fillColor: [30,64,175], textColor: 255, fontStyle:'bold' },
+        styles: { fontSize: 8, cellPadding: 2.5, font:'helvetica' },
+        headStyles: { fillColor: BLUE, textColor: 255, fontStyle:'bold', fontSize: 8 },
+        alternateRowStyles: { fillColor: [245, 248, 255] },
         columnStyles: {
             0: { cellWidth: 28 },
-            1: { cellWidth: 55 },
+            1: { cellWidth: 58 },
             2: { cellWidth: 30, halign:'right' },
-            3: { cellWidth: 70 },
-            4: { cellWidth: 35 },
-            5: { cellWidth: 22 }
+            3: { cellWidth: 72 },
+            4: { cellWidth: 38 },
+            5: { cellWidth: 22, halign:'center' }
+        },
+        margin: { left: mX, right: mX, bottom: 26 },
+        didDrawPage: function(d) {
+            if(d.pageNumber > 1) drawPageLayout(d.pageNumber);
         },
         didParseCell: function(d) {
+            // Fila de total
             if(d.row.index === tableData.length - 1) {
-                d.cell.styles.fillColor = [240,249,255];
+                d.cell.styles.fillColor = [235, 242, 255];
                 d.cell.styles.fontStyle = 'bold';
-                d.cell.styles.textColor = [30,64,175];
+                d.cell.styles.textColor = BLUE;
+            }
+            // Color por estado
+            if(d.column.index === 5 && d.row.section === 'body' && d.row.index < tableData.length - 1) {
+                const s = (d.cell.raw || '').toLowerCase();
+                if(s === 'facturada')  d.cell.styles.textColor = [22, 163, 74];
+                else if(s === 'ejecutada')  d.cell.styles.textColor = [234, 88, 12];
+                else if(s === 'programada') d.cell.styles.textColor = [124, 58, 237];
+                else if(s === 'proyectada') d.cell.styles.textColor = [37, 99, 235];
             }
         }
     });
