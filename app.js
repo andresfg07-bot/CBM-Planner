@@ -2601,7 +2601,10 @@ function onTaskServiceTypeChange() {
             if(el) el.style.display = '';
         });
 
-        onTaskClientChange();
+        // Solo recargar preferencias si el container está vacío (gestión nueva).
+        // En edición ya están cargados los analistas correctos — no sobreescribir.
+        const hasAnalystRows = container.querySelectorAll('.analyst-row').length > 0;
+        if (!hasAnalystRows) onTaskClientChange();
     }
 }
 
@@ -3404,7 +3407,14 @@ function addAnalystToTask(analystData = null) {
 
 document.getElementById('taskForm').addEventListener('submit', async e => {
     e.preventDefault();
-    
+
+    // Evitar doble guardado: deshabilitar botón mientras procesa
+    const submitBtn = document.getElementById('taskFormSubmit');
+    if(submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Guardando...';
+    }
+
     try {
         const clientSelect = document.getElementById('taskClient');
         let clientName = '';
@@ -3519,7 +3529,14 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
         showToast(editId ? 'Gestión actualizada correctamente.' : 'Gestión creada correctamente.', 'success');
     } catch (error) {
         console.error("Error al procesar el formulario de tarea:", error);
-        alert("Hubo un error al guardar la gestión:\n\n" + error.message + "\n\n" + error.stack);
+        alert("Hubo un error al guardar la gestión:\n\n" + error.message);
+    } finally {
+        // Rehabilitar botón siempre, haya éxito o error
+        if(submitBtn) {
+            submitBtn.disabled = false;
+            const isEdit = !!document.getElementById('editTaskId')?.value;
+            submitBtn.textContent = isEdit ? 'Guardar Cambios' : 'Crear Gestión';
+        }
     }
 });
 
