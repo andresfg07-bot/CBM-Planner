@@ -751,9 +751,11 @@ function renderTasksTable(container) {
     if(dashboardFilters.client) filteredTasks = filteredTasks.filter(t => t.client === dashboardFilters.client);
     if(dashboardFilters.status) filteredTasks = filteredTasks.filter(t => t.status === dashboardFilters.status);
 
-    // Asistente: sólo ve gestiones ejecutadas (listas para facturar)
+    // Asistente: ve ejecutadas (para facturar) + facturadas (historial + Metro Administrativo)
     if (role === 'assistant') {
-        filteredTasks = filteredTasks.filter(t => t.status === 'ejecutada');
+        filteredTasks = filteredTasks.filter(t =>
+            t.status === 'ejecutada' || t.status === 'facturada'
+        );
     }
 
     container.innerHTML = `
@@ -798,10 +800,12 @@ function renderTasksTable(container) {
                                     ${t.status === 'programada' ? actionIcon('revert', `revertToProjected('${t.id}')`, 'Revertir a Proyectada') : ''}
                                     ${actionIcon('delete', `deleteTask('${t.id}')`,              'Borrar')}
                                 ` : role === 'assistant' ? `
-                                    <button class="mywork-btn btn-execute" style="font-size:0.72rem;padding:0.3rem 0.75rem;"
-                                        onclick="updateTaskStatus('${t.id}','facturada')">
-                                        💰 Facturar
-                                    </button>
+                                    ${t.status === 'ejecutada' ? `
+                                        <button class="mywork-btn btn-execute" style="font-size:0.72rem;padding:0.3rem 0.75rem;"
+                                            onclick="updateTaskStatus('${t.id}','facturada')">
+                                            💰 Facturar
+                                        </button>` : `
+                                        <span style="font-size:0.72rem; color:var(--clr-green); font-weight:600;">✓ Facturada</span>`}
                                 ` : ''}
                             </div>
                         </td>
@@ -3712,6 +3716,19 @@ function switchView(viewName) {
         initReportsView();
     } else {
         renderBoard();
+    }
+
+    // Recarga silenciosa desde Supabase al cambiar de vista
+    // Actualiza los datos en segundo plano sin bloquear la UI
+    if(supabaseClient) {
+        loadTasksFromSupabase().then(() => {
+            if(viewName === 'planning')   { renderCalendar(); renderPlanningSidebar(); }
+            else if(viewName === 'mywork')  { renderMyWorkView(); }
+            else if(viewName === 'tasks')   { renderTasksView(); }
+            else if(viewName === 'finance') { renderFinanceView(); }
+            else if(viewName === 'reports') { renderReportsTable(); }
+            else                            { renderBoard(); }
+        }).catch(() => {}); // silencioso si hay error de red
     }
 }
 
