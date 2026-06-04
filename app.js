@@ -2792,8 +2792,12 @@ function renderFinanceView() {
             
             if(taskValue > 0) {
                 stats[t.status] += taskValue;
-                if(!breakdowns[t.status][t.client]) breakdowns[t.status][t.client] = 0;
-                breakdowns[t.status][t.client] += taskValue;
+                // Clave por ID: cada gestión es siempre una línea independiente
+                breakdowns[t.status][t.id] = {
+                    client: t.client,
+                    amount: taskValue,
+                    period: t.period || ''
+                };
             }
         }
     });
@@ -2814,13 +2818,21 @@ function renderFinanceView() {
     container.innerHTML = cards.map(c => {
         const bd = breakdowns[c.key];
         const rows = Object.keys(bd).length > 0
-            ? Object.entries(bd).map(([client, amount]) => `
+            ? Object.values(bd).map(({ client, amount, period }) => {
+                const monthAbbr = period
+                    ? monthNames[parseInt(period.split('-')[1]) - 1]?.substring(0, 3) || ''
+                    : '';
+                return `
                 <div style="display:flex; justify-content:space-between; align-items:center;
                             padding:0.35rem 0; border-bottom:1px solid ${c.clr}18;
                             font-size:0.78rem; gap:0.5rem;">
-                    <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; color:#374151;">${client}</span>
+                    <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; color:#374151;">
+                        ${client}
+                        ${monthAbbr ? `<span style="font-size:0.62rem; color:#94a3b8; font-weight:400;">(${monthAbbr})</span>` : ''}
+                    </span>
                     <span style="font-weight:700; color:${c.clr}; white-space:nowrap;">$${amount.toLocaleString('es-CO')}</span>
-                </div>`).join('')
+                </div>`;
+            }).join('')
             : `<div style="color:#94a3b8; text-align:center; font-style:italic; padding:0.75rem 0; font-size:0.78rem;">Sin gestiones</div>`;
 
         return `
