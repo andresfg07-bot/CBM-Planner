@@ -151,6 +151,71 @@ function applyRoleUI() {
     switchView(defaultView[role] || 'dashboard');
 }
 
+// ── Cambio de contraseña ─────────────────────────────────────────────────────
+
+function openChangePasswordModal() {
+    const form = document.getElementById('changePasswordForm');
+    if(form) form.reset();
+    const errEl = document.getElementById('changePwdError');
+    if(errEl) errEl.style.display = 'none';
+    const btn = document.getElementById('changePwdSubmitBtn');
+    if(btn) { btn.disabled = false; btn.textContent = 'Actualizar Contraseña'; }
+    document.getElementById('changePasswordModal').classList.add('active');
+}
+
+async function submitChangePassword(e) {
+    e.preventDefault();
+
+    const newPwd     = document.getElementById('newPassword').value;
+    const confirmPwd = document.getElementById('confirmPassword').value;
+    const errEl      = document.getElementById('changePwdError');
+    const btn        = document.getElementById('changePwdSubmitBtn');
+
+    // Validar que coinciden
+    if(newPwd !== confirmPwd) {
+        errEl.textContent = 'Las contraseñas no coinciden. Verifica e intenta de nuevo.';
+        errEl.style.display = 'block';
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Actualizando...';
+    errEl.style.display = 'none';
+
+    try {
+        const { error } = await supabaseClient.auth.updateUser({ password: newPwd });
+        if(error) {
+            errEl.textContent = 'Error: ' + error.message;
+            errEl.style.display = 'block';
+            btn.disabled = false;
+            btn.textContent = 'Actualizar Contraseña';
+        } else {
+            closeModal('changePasswordModal');
+            showToast('✓ Contraseña actualizada correctamente.', 'success');
+        }
+    } catch(err) {
+        errEl.textContent = 'Error inesperado. Intenta de nuevo.';
+        errEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Actualizar Contraseña';
+    }
+}
+
+// Detectar token de recuperación en la URL (cuando el usuario llega desde el link del correo)
+(function detectPasswordRecovery() {
+    const hash = window.location.hash;
+    if(hash.includes('access_token') && hash.includes('type=recovery')) {
+        // Esperar a que Supabase procese el token automáticamente
+        setTimeout(() => {
+            const desc = document.getElementById('changePwdDesc');
+            if(desc) desc.textContent = 'Ingresa tu nueva contraseña para completar la recuperación.';
+            openChangePasswordModal();
+            // Limpiar el token de la URL sin recargar
+            history.replaceState(null, '', window.location.pathname);
+        }, 800);
+    }
+})();
+
 // ── Vista del analista: Mis Gestiones ────────────────────────────────────────
 
 let myWorkTimeFilter = 'month';   // 'month' | 'week'

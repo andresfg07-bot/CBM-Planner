@@ -159,12 +159,12 @@
                         <button onclick="changePeriod(1)" style="background:none; border:none; cursor:pointer; font-size:1.2rem; color:var(--text-secondary); padding: 0 0.5rem;">&#8594;</button>
                     </div>
                 
-                    <div class="profile">
+                    <div class="profile" onclick="openChangePasswordModal()" title="Cambiar contraseña" style="cursor:pointer;">
                         <div class="profile-info">
-                            <span class="name">Admin de Datos</span>
-                            <span class="role">Operaciones</span>
+                            <span class="name" id="profile-display-name">Admin de Datos</span>
+                            <span class="role" id="profile-role-label">Operaciones</span>
                         </div>
-                        <div class="avatar">Admin</div>
+                        <div class="avatar" id="profile-avatar">Ad</div>
                     </div>
                 </div>
             </header>
@@ -670,6 +670,35 @@
                 <!-- Injected via JS -->
             </div>
             <button class="btn-secondary" onclick="closeModal('absenceDetailModal')" style="width: 100%; margin-top: 1.5rem; padding: 0.75rem; border: 1px solid var(--border-color); background: transparent; color: var(--text-secondary); border-radius: var(--radius-md); font-weight: 600; cursor: pointer;">Cerrar</button>
+        </div>
+    </div>
+
+    <!-- Modal Cambiar Contraseña -->
+    <div id="changePasswordModal" class="modal">
+        <div class="modal-content" style="max-width:420px;">
+            <span class="close-btn" onclick="closeModal('changePasswordModal')">&times;</span>
+            <h2 style="margin-bottom:0.25rem;">🔒 Cambiar Contraseña</h2>
+            <p id="changePwdDesc" style="font-size:0.82rem; color:var(--text-secondary); margin-bottom:1.5rem;">
+                Ingresa tu nueva contraseña.
+            </p>
+            <form id="changePasswordForm" onsubmit="submitChangePassword(event)">
+                <div class="form-group">
+                    <label>Nueva contraseña</label>
+                    <input type="password" id="newPassword" placeholder="Mínimo 6 caracteres"
+                           minlength="6" required
+                           style="width:100%; padding:0.6rem; border:1px solid #cbd5e1; border-radius:var(--radius-md); font-size:0.9rem;">
+                </div>
+                <div class="form-group">
+                    <label>Confirmar contraseña</label>
+                    <input type="password" id="confirmPassword" placeholder="Repite la contraseña"
+                           minlength="6" required
+                           style="width:100%; padding:0.6rem; border:1px solid #cbd5e1; border-radius:var(--radius-md); font-size:0.9rem;">
+                </div>
+                <div id="changePwdError" style="display:none; color:#ef4444; font-size:0.82rem; margin-bottom:0.75rem; padding:0.5rem 0.75rem; background:#fef2f2; border-radius:6px; border:1px solid #fecaca;"></div>
+                <button type="submit" id="changePwdSubmitBtn" class="btn-primary" style="width:100%;">
+                    Actualizar Contraseña
+                </button>
+            </form>
         </div>
     </div>
 
