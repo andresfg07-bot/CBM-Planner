@@ -520,6 +520,15 @@
                         <option value="">Seleccione un cliente...</option>
                     </select>
                 </div>
+                <div class="form-group" id="group-plant" style="display:none;">
+                    <label>Planta / Sede</label>
+                    <!-- Mostrado cuando el cliente tiene plantas registradas -->
+                    <select id="taskPlant" style="display:none;">
+                        <option value="">Sin planta específica</option>
+                    </select>
+                    <!-- Mostrado cuando NO hay plantas registradas (texto libre) -->
+                    <input type="text" id="taskPlantFree" placeholder="Ej: Planta Jaguas, Planta Miel I..." style="display:none;">
+                </div>
                 <div class="form-group" id="group-analysts">
                     <label style="display:flex; justify-content:space-between; align-items:center;">
                         Analistas Asignados

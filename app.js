@@ -14,6 +14,7 @@ try {
 let dbClients = [];
 let dbAnalysts = [];
 let dbEquipment = [];
+let dbPlants = []; // { id, client_id, name } — plantas/sedes por cliente
 let currentUser = null;
 let currentUserProfile = null; // { id, email, display_name, role, analyst_name }
 let clientAnalystPreferences = []; // preferencias del cliente activo en el form [ {name, priority} ]
@@ -401,6 +402,7 @@ function renderMyWorkCard(task) {
             <div class="mywork-card-top" onclick="openTaskInfoModal('${task.id}')" style="cursor:pointer;" title="Ver detalle">
                 <div class="mywork-card-info">
                     <h3 class="mywork-card-client">${task.client || task.clientName || '—'}</h3>
+                    ${task.plantName ? `<p class="mywork-card-plant">📍 ${task.plantName}</p>` : ''}
                     <p class="mywork-card-service">${task.serviceType || '—'}</p>
                     ${task.equipment || task.equipmentName
                         ? `<p class="mywork-card-equip">${task.equipment || task.equipmentName}</p>` : ''}
@@ -538,6 +540,7 @@ const SVG_ICONS = {
     csat:   `<svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
     revert: `<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`,
     pref:   `<svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>`,
+    plant:  `<svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
 };
 function actionIcon(type, onclick, title) {
     return `<span class="action-icon ${type}" onclick="${onclick}" title="${title}">${SVG_ICONS[type] || ''}</span>`;
@@ -1801,10 +1804,12 @@ function renderCalendar() {
                 pill.setAttribute('data-day-index', dayIdx);
                 pill.draggable = (t.status !== 'facturada');
                 
-                let label = t.client;
-                if(t.isAbsence) label = t.serviceType || 'Ausencia';
+                let label = t.isAbsence
+                    ? (t.serviceType || 'Ausencia')
+                    : (t.plantName || t.client);
+                const tooltipClient = t.isAbsence ? label : (t.plantName ? `${t.client} – ${t.plantName}` : t.client);
                 pill.textContent = label;
-                pill.title = `${label} (${dayInfo.type === 'field' ? 'Planta' : 'Informe'})`;
+                pill.title = `${tooltipClient} (${dayInfo.type === 'field' ? 'Campo' : 'Informe'})`;
                 
                 cell.appendChild(pill);
             });
@@ -2546,6 +2551,48 @@ function addAnalystToTask(existingData = null) {
     container.appendChild(row);
 }
 
+/** Muestra el campo Planta/Sede apropiado según si el cliente tiene plantas registradas o no.
+ *  @param {string} clientId  — ID del cliente seleccionado (vacío = ocultar campo)
+ *  @param {string} [selectedPlantId]   — UUID de la planta a preseleccionar (edición)
+ *  @param {string} [selectedPlantFree] — Texto libre a poner (edición sin plantas registradas)
+ */
+function _populatePlantField(clientId, selectedPlantId = '', selectedPlantFree = '') {
+    const groupPlant = document.getElementById('group-plant');
+    const plantSel   = document.getElementById('taskPlant');
+    const plantFree  = document.getElementById('taskPlantFree');
+    if(!groupPlant || !plantSel || !plantFree) return;
+
+    if(!clientId) {
+        groupPlant.style.display = 'none';
+        plantSel.style.display   = 'none';
+        plantFree.style.display  = 'none';
+        return;
+    }
+
+    const clientPlants = dbPlants.filter(p => p.client_id === clientId);
+    groupPlant.style.display = '';
+
+    if(clientPlants.length > 0) {
+        // Hay plantas registradas → usar dropdown
+        plantSel.innerHTML = '<option value="">Sin planta específica</option>';
+        clientPlants.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.name;
+            if(selectedPlantId && p.id === selectedPlantId) opt.selected = true;
+            plantSel.appendChild(opt);
+        });
+        plantSel.style.display  = '';
+        plantFree.style.display = 'none';
+        plantFree.value = '';
+    } else {
+        // Sin plantas registradas → texto libre
+        plantSel.style.display  = 'none';
+        plantFree.style.display = '';
+        plantFree.value = selectedPlantFree || '';
+    }
+}
+
 async function onTaskClientChange() {
     const clientId = document.getElementById('taskClient').value;
     const container = document.getElementById('taskAnalystsContainer');
@@ -2554,6 +2601,9 @@ async function onTaskClientChange() {
     // Metro Administrativo no usa analistas — mantener el banner
     const serviceType = document.getElementById('taskServiceType')?.value;
     if(serviceType === 'Metro Administrativo') return;
+
+    // Poblar dropdown de plantas para este cliente
+    _populatePlantField(clientId);
 
     if(!clientId) {
         container.innerHTML = '<div style="font-size: 0.8rem; color: var(--text-secondary); text-align: center;">Seleccione primero un cliente para añadir analistas.</div>';
@@ -2635,6 +2685,9 @@ function onTaskServiceTypeChange() {
         document.getElementById('taskClient').required = false;
         document.getElementById('taskBudget').required  = false;
         document.getElementById('taskDaysReport').required = false;
+        // Ocultar campo planta en ausencias
+        const gp = document.getElementById('group-plant');
+        if(gp) gp.style.display = 'none';
 
     } else if(isAdminContract) {
         // Metro Administrativo: solo cliente y presupuesto — sin analista, días ni equipo
@@ -2643,8 +2696,8 @@ function onTaskServiceTypeChange() {
         document.getElementById('taskDaysField').required = false;
         document.getElementById('taskDaysReport').required = false;
 
-        // Ocultar analistas, días y equipo
-        ['group-analysts', 'group-days', 'group-equipment'].forEach(id => {
+        // Ocultar analistas, días, equipo y planta
+        ['group-analysts', 'group-days', 'group-equipment', 'group-plant'].forEach(id => {
             const el = document.getElementById(id);
             if(el) el.style.display = 'none';
         });
@@ -2862,9 +2915,10 @@ function renderFinanceView() {
                 stats[t.status] += taskValue;
                 // Clave por ID: cada gestión es siempre una línea independiente
                 breakdowns[t.status][t.id] = {
-                    client: t.client,
-                    amount: taskValue,
-                    period: t.period || ''
+                    client:    t.client,
+                    plantName: t.plantName || '',
+                    amount:    taskValue,
+                    period:    t.period || ''
                 };
             }
         }
@@ -2886,16 +2940,17 @@ function renderFinanceView() {
     container.innerHTML = cards.map(c => {
         const bd = breakdowns[c.key];
         const rows = Object.keys(bd).length > 0
-            ? Object.values(bd).map(({ client, amount, period }) => {
+            ? Object.values(bd).map(({ client, plantName, amount, period }) => {
                 const monthAbbr = period
                     ? monthNames[parseInt(period.split('-')[1]) - 1]?.substring(0, 3) || ''
                     : '';
+                const clientLabel = plantName ? `${client} <span style="color:${c.clr};font-weight:600;">· ${plantName}</span>` : client;
                 return `
                 <div style="display:flex; justify-content:space-between; align-items:center;
                             padding:0.35rem 0; border-bottom:1px solid ${c.clr}18;
                             font-size:0.78rem; gap:0.5rem;">
                     <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; color:#374151;">
-                        ${client}
+                        ${clientLabel}
                         ${monthAbbr ? `<span style="font-size:0.62rem; color:#94a3b8; font-weight:400;">(${monthAbbr})</span>` : ''}
                     </span>
                     <span style="font-weight:700; color:${c.clr}; white-space:nowrap;">$${amount.toLocaleString('es-CO')}</span>
@@ -3060,7 +3115,9 @@ async function saveTaskToSupabase(task) {
             evidence_notes: task.evidenceNotes || null,
             evidence_files: task.evidenceFiles || [],
             mes_facturacion: task.mesFacturacion || task.period,
-            analysts_assignment: task.analysts_assignment || [] 
+            analysts_assignment: task.analysts_assignment || [],
+            plant_id:   task.plantId   || null,
+            plant_name: task.plantName || null
         };
 
         if (!isTemporaryId) {
@@ -3124,7 +3181,9 @@ async function loadTasksFromSupabase() {
                 alertvoxChecked: t.alertvox_checked || false,
                 clientNoResponse: t.client_no_response || false,
                 evidenceNotes: t.evidence_notes || '',
-                evidenceFiles: t.evidence_files || []
+                evidenceFiles: t.evidence_files || [],
+                plantId:   t.plant_id   || null,
+                plantName: t.plant_name || ''
             }));
 
             // 1. Merge remote into local
@@ -3346,10 +3405,16 @@ function openEditTaskModal(taskId) {
             }
         }
 
+        // Poblar campo de planta para edición
+        const clientIdForPlant = dbClients.find(c =>
+            getClientDisplayName(c) === task.client || c.id === task.clientId
+        )?.id || task.clientId || '';
+        _populatePlantField(clientIdForPlant, task.plantId || '', task.plantName || '');
+
         const serviceTypeSel = document.getElementById('taskServiceType');
         if(serviceTypeSel) {
             serviceTypeSel.value = task.serviceType || '';
-            if (typeof onTaskServiceTypeChange === 'function') onTaskServiceTypeChange(); 
+            if (typeof onTaskServiceTypeChange === 'function') onTaskServiceTypeChange();
         }
 
         const billingMonthEl = document.getElementById('taskBillingMonth');
@@ -3503,6 +3568,14 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
         const isAdminContract = (serviceType === 'Metro Administrativo');
         const finalClientName = isAbsence ? `AUSENCIA: ${serviceType}` : clientName;
 
+        // Planta / Sede: dropdown (con ID) o texto libre
+        const plantSelEl  = document.getElementById('taskPlant');
+        const plantFreeEl = document.getElementById('taskPlantFree');
+        const plantId   = (plantSelEl && plantSelEl.style.display !== 'none') ? (plantSelEl.value || '') : '';
+        const plantName = plantId
+            ? (plantSelEl.options[plantSelEl.selectedIndex]?.text || '')
+            : (plantFreeEl && plantFreeEl.style.display !== 'none' ? (plantFreeEl.value.trim() || '') : '');
+
         const container = document.getElementById('taskAnalystsContainer');
         const rows = container ? container.querySelectorAll('.analyst-row') : [];
         let analystsAssignment = [];
@@ -3555,6 +3628,8 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
                 tasks[idx].daysReport = dReport;
                 tasks[idx].serviceType = serviceType;
                 tasks[idx].isAbsence = isAbsence;
+                tasks[idx].plantId   = plantId   || null;
+                tasks[idx].plantName = plantName || '';
                 tasks[idx].mesFacturacion = document.getElementById('taskBillingMonth').value;
 
                 
@@ -3574,6 +3649,8 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
                 daysReport: dReport,
                 serviceType: serviceType,
                 isAbsence: isAbsence,
+                plantId:   plantId   || null,
+                plantName: plantName || '',
                 scheduledDays: [],
                 status: isAdminContract ? 'facturada' : 'proyectada',
                 period: formatPeriod(),
@@ -3844,10 +3921,14 @@ async function loadMasterData() {
 
         const { data: equipment, error: errE } = await supabaseClient.from('equipment').select('*').eq('is_active', true).order('name');
         if(errE) console.error("Error fetching equipment:", errE);
-        
-        if(clients) dbClients = clients;
-        if(analysts) dbAnalysts = analysts;
+
+        const { data: plants, error: errP } = await supabaseClient.from('client_plants').select('*').order('name');
+        if(errP) console.error("Error fetching client_plants:", errP);
+
+        if(clients)   dbClients   = clients;
+        if(analysts)  dbAnalysts  = analysts;
         if(equipment) dbEquipment = equipment;
+        if(plants)    dbPlants    = plants;
         
         populateGlobalFilterDropdowns();
     } catch(err) {
@@ -4401,9 +4482,10 @@ async function renderAdminView() {
                         <td>${c.contact_name || '-'}</td>
                         <td>
                             <div class="action-icons">
-                                ${actionIcon('pref',   `openPreferenceModal('${c.id}')`, 'Asignar Analistas')}
-                                ${actionIcon('edit',   `editClient('${c.id}')`,           'Editar')}
-                                ${actionIcon('delete', `deleteClient('${c.id}')`,          'Eliminar')}
+                                ${actionIcon('plant',  `openPlantsModal('${c.id}')`,      'Gestionar Plantas')}
+                                ${actionIcon('pref',   `openPreferenceModal('${c.id}')`,  'Asignar Analistas')}
+                                ${actionIcon('edit',   `editClient('${c.id}')`,            'Editar')}
+                                ${actionIcon('delete', `deleteClient('${c.id}')`,           'Eliminar')}
                             </div>
                         </td>
                     </tr>
@@ -4508,6 +4590,87 @@ async function loadPreferences(clientId) {
     } catch(err) {
         console.error("Error in loadPreferences:", err);
     }
+}
+
+// ══════════════════════════════════════════
+// ADMIN CRUD: Plantas / Sedes por Cliente
+// ══════════════════════════════════════════
+
+function openPlantsModal(clientId) {
+    const client = dbClients.find(c => c.id === clientId);
+    if(!client) return;
+
+    document.getElementById('adminModalTitle').textContent = `Plantas / Sedes: ${getClientDisplayName(client)}`;
+    document.getElementById('adminModalContent').innerHTML = `
+        <form onsubmit="addPlant(event, '${clientId}')" style="background:#f8fafc; padding:1rem; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:1rem; display:flex; gap:0.5rem;">
+            <input type="text" id="newPlantName" placeholder="Nombre de la planta o sede..." required
+                   style="flex:1; padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px; font-size:0.85rem;">
+            <button type="submit" class="btn-primary" style="white-space:nowrap;">+ Agregar</button>
+        </form>
+        <div id="plantsList">
+            <div style="text-align:center; font-size:0.8rem; color:var(--text-secondary);">Cargando plantas...</div>
+        </div>
+    `;
+    document.getElementById('adminDataModal').classList.add('active');
+    _renderPlantsList(clientId);
+}
+
+async function _renderPlantsList(clientId) {
+    const listEl = document.getElementById('plantsList');
+    if(!listEl) return;
+    // Recargar desde Supabase
+    if(supabaseClient) {
+        const { data, error } = await supabaseClient
+            .from('client_plants').select('*').eq('client_id', clientId).order('name');
+        if(!error && data) {
+            // Actualizar caché local también
+            dbPlants = dbPlants.filter(p => p.client_id !== clientId).concat(data);
+        }
+    }
+    const plants = dbPlants.filter(p => p.client_id === clientId);
+    if(plants.length === 0) {
+        listEl.innerHTML = '<div style="text-align:center; font-size:0.8rem; color:var(--text-secondary); padding:0.75rem 0;">Aún no hay plantas registradas para este cliente.</div>';
+        return;
+    }
+    listEl.innerHTML = plants.map(p => `
+        <div style="background:var(--bg-color); padding:0.5rem 0.75rem; border-radius:6px; margin-bottom:0.4rem;
+                    font-size:0.85rem; display:flex; justify-content:space-between; align-items:center;
+                    border:1px solid #e2e8f0;">
+            <span>🏭 <strong>${p.name}</strong></span>
+            <span style="color:var(--clr-pink); cursor:pointer; font-size:1rem; padding:0 0.25rem;"
+                  onclick="deletePlant('${p.id}', '${clientId}')" title="Eliminar planta">×</span>
+        </div>
+    `).join('');
+}
+
+async function addPlant(event, clientId) {
+    event.preventDefault();
+    if(!supabaseClient) return;
+    const nameEl = document.getElementById('newPlantName');
+    const name = nameEl ? nameEl.value.trim() : '';
+    if(!name) return;
+
+    const { data, error } = await supabaseClient
+        .from('client_plants')
+        .insert({ client_id: clientId, name })
+        .select()
+        .single();
+
+    if(error) { showToast('Error al agregar planta: ' + error.message); return; }
+    if(data) dbPlants.push(data);
+    if(nameEl) nameEl.value = '';
+    _renderPlantsList(clientId);
+    showToast('Planta agregada correctamente.', 'success');
+}
+
+async function deletePlant(plantId, clientId) {
+    if(!confirm('¿Eliminar esta planta? Las gestiones que la usaban quedarán sin planta asignada.')) return;
+    if(!supabaseClient) return;
+    const { error } = await supabaseClient.from('client_plants').delete().eq('id', plantId);
+    if(error) { showToast('Error al eliminar: ' + error.message); return; }
+    dbPlants = dbPlants.filter(p => p.id !== plantId);
+    _renderPlantsList(clientId);
+    showToast('Planta eliminada.', 'success');
 }
 
 async function submitPreferenceForm(event, clientId) {
