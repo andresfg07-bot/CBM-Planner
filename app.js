@@ -2013,13 +2013,135 @@ function setupCalendarListeners() {
             this.classList.remove('dragging');
         });
         pill.addEventListener('click', function(e) {
-            const taskId = this.getAttribute('data-task-id');
-            openTaskInfoModal(taskId);
+            e.stopPropagation();
+            const taskId  = this.getAttribute('data-task-id');
+            const dayIdx  = parseInt(this.getAttribute('data-day-index'));
+            const canMove = !this.classList.contains('absence') &&
+                            !tasks.find(t => t.id === taskId)?.status?.match(/facturada/);
+            if(canMove) {
+                showMoveDayPopover(taskId, dayIdx, e);
+            } else {
+                openTaskInfoModal(taskId);
+            }
         });
 
         // Touch support for pills
         setupTouchDraggable(pill, (el) => el.id);
     });
+}
+
+// ── Popover "Mover este día" ─────────────────────────────────────────────────
+
+function showMoveDayPopover(taskId, dayIndex, mouseEvent) {
+    // Cerrar cualquier popover abierto
+    const existing = document.getElementById('move-day-popover');
+    if(existing) existing.remove();
+
+    const task = tasks.find(t => t.id === taskId);
+    if(!task || !task.scheduledDays || !task.scheduledDays[dayIndex]) {
+        openTaskInfoModal(taskId);
+        return;
+    }
+
+    const dayInfo   = task.scheduledDays[dayIndex];
+    const currentDate = dayInfo.date || '';
+    const typeLabel = dayInfo.type === 'field' ? '🔧 Campo' : '📝 Informe';
+    const clientLabel = task.plantName ? `${task.client} · ${task.plantName}` : task.client;
+
+    const pop = document.createElement('div');
+    pop.id = 'move-day-popover';
+    pop.style.cssText = `
+        position:fixed; z-index:9000;
+        background:#fff; border:1px solid #e2e8f0;
+        border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.18);
+        padding:1rem 1.1rem 0.85rem; min-width:240px; max-width:280px;
+        font-family:inherit; font-size:0.85rem;
+    `;
+
+    pop.innerHTML = `
+        <div style="font-weight:700; color:#1e293b; margin-bottom:0.15rem; font-size:0.9rem;
+                    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${clientLabel}">
+            ${clientLabel}
+        </div>
+        <div style="font-size:0.75rem; color:#64748b; margin-bottom:0.75rem;">
+            ${typeLabel} &nbsp;·&nbsp; ${currentDate || 'sin fecha'}
+        </div>
+        <label style="font-size:0.75rem; color:#475569; font-weight:600; display:block; margin-bottom:0.3rem;">
+            📅 Mover a nueva fecha:
+        </label>
+        <input type="date" id="moveDayInput" value="${currentDate}"
+               style="width:100%; padding:0.4rem 0.5rem; border:1px solid #cbd5e1;
+                      border-radius:6px; font-size:0.85rem; margin-bottom:0.65rem; box-sizing:border-box;">
+        <div style="display:flex; gap:0.5rem;">
+            <button onclick="confirmMoveDay('${taskId}', ${dayIndex})"
+                    style="flex:1; padding:0.45rem; background:#2563eb; color:#fff; border:none;
+                           border-radius:7px; font-size:0.8rem; font-weight:600; cursor:pointer;">
+                Mover
+            </button>
+            <button onclick="openTaskInfoModal('${taskId}'); document.getElementById('move-day-popover')?.remove();"
+                    style="flex:1; padding:0.45rem; background:#f1f5f9; color:#475569; border:1px solid #e2e8f0;
+                           border-radius:7px; font-size:0.8rem; font-weight:600; cursor:pointer;">
+                Ver gestión
+            </button>
+        </div>
+        <button onclick="document.getElementById('move-day-popover').remove();"
+                style="position:absolute; top:0.5rem; right:0.65rem; background:none; border:none;
+                       font-size:1.1rem; color:#94a3b8; cursor:pointer; line-height:1;">×</button>
+    `;
+    pop.style.position = 'fixed';
+    document.body.appendChild(pop);
+
+    // Posicionar cerca del clic, ajustando para no salirse de la pantalla
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const pw = 280, ph = 160;
+    let left = mouseEvent.clientX + 10;
+    let top  = mouseEvent.clientY + 10;
+    if(left + pw > vw - 8) left = mouseEvent.clientX - pw - 10;
+    if(top  + ph > vh - 8) top  = mouseEvent.clientY - ph - 10;
+    pop.style.left = Math.max(8, left) + 'px';
+    pop.style.top  = Math.max(8, top)  + 'px';
+
+    // Cerrar al hacer clic fuera
+    setTimeout(() => {
+        document.addEventListener('click', function _dismiss(ev) {
+            if(!pop.contains(ev.target)) {
+                pop.remove();
+                document.removeEventListener('click', _dismiss);
+            }
+        });
+    }, 50);
+}
+
+async function confirmMoveDay(taskId, dayIndex) {
+    const newDate = document.getElementById('moveDayInput')?.value;
+    if(!newDate) { showToast('Selecciona una fecha válida.'); return; }
+
+    const pop = document.getElementById('move-day-popover');
+
+    const task = tasks.find(t => t.id === taskId);
+    if(!task || !task.scheduledDays || !task.scheduledDays[dayIndex]) return;
+
+    const oldDate = task.scheduledDays[dayIndex].date;
+    if(newDate === oldDate) { pop?.remove(); return; }
+
+    // Actualizar el día
+    const [, , dd] = newDate.split('-');
+    task.scheduledDays[dayIndex].date = newDate;
+    task.scheduledDays[dayIndex].day  = parseInt(dd, 10);
+
+    pop?.remove();
+
+    // Guardar y re-renderizar
+    saveTasks();
+    renderCalendar();
+    if(typeof renderPlanningSidebar === 'function') renderPlanningSidebar();
+    try {
+        await saveTaskToSupabase(task);
+        showToast('Día movido correctamente.', 'success');
+    } catch(err) {
+        showToast('Error al guardar el cambio en la nube.');
+        console.error(err);
+    }
 }
 
 // ── Tooltip custom para pills del calendario ─────────────────────────────────
