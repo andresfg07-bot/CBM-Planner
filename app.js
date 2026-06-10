@@ -1009,7 +1009,11 @@ function renderDashboardStats() {
     // Si es 'all', no aplicamos filtro de tiempo adicional
 
     if(dashboardFilters.analyst) {
-        gestionesFiltradas = gestionesFiltradas.filter(t => t.analyst === dashboardFilters.analyst);
+        gestionesFiltradas = gestionesFiltradas.filter(t => {
+            if(t.analysts_assignment && t.analysts_assignment.length > 0)
+                return t.analysts_assignment.some(a => a.name === dashboardFilters.analyst);
+            return t.analyst === dashboardFilters.analyst;
+        });
         ausenciasFiltradas = ausenciasFiltradas.filter(t => t.analyst === dashboardFilters.analyst);
     }
 
@@ -1020,18 +1024,25 @@ function renderDashboardStats() {
     const totalGestiones = gestionesFiltradas.length;
     const informesRealizados = gestionesFiltradas.filter(t => t.status === 'ejecutada' || t.status === 'facturada').length;
     
-    // Cálculo por analista
+    // Cálculo por analista — itera analysts_assignment para distribuir correctamente
     const analystStats = {};
     gestionesFiltradas.forEach(t => {
-        // Metro Administrativo no cuenta en estadísticas por analista
-        if(!t.analyst || t.serviceType === 'Metro Administrativo') return;
-        if(!analystStats[t.analyst]) analystStats[t.analyst] = { closed: 0, total: 0, csat: 0, csatCount: 0 };
-        analystStats[t.analyst].total++;
-        if(t.status === 'facturada' || t.status === 'ejecutada') analystStats[t.analyst].closed++;
-        if(t.csatScore && !t.clientNoResponse) {
-            analystStats[t.analyst].csat += parseFloat(t.csatScore);
-            analystStats[t.analyst].csatCount++;
-        }
+        if(t.serviceType === 'Metro Administrativo') return;
+
+        const assignments = t.analysts_assignment && t.analysts_assignment.length > 0
+            ? t.analysts_assignment
+            : (t.analyst ? [{ name: t.analyst }] : []);
+
+        assignments.forEach(a => {
+            if(!a.name) return;
+            if(!analystStats[a.name]) analystStats[a.name] = { closed: 0, total: 0, csat: 0, csatCount: 0 };
+            analystStats[a.name].total++;
+            if(t.status === 'facturada' || t.status === 'ejecutada') analystStats[a.name].closed++;
+            if(t.csatScore && !t.clientNoResponse) {
+                analystStats[a.name].csat += parseFloat(t.csatScore);
+                analystStats[a.name].csatCount++;
+            }
+        });
     });
 
     const absenceByAnalyst = {};
