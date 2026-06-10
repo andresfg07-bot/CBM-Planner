@@ -3078,15 +3078,17 @@ function renderFinanceView() {
                 const monthAbbr = period
                     ? monthNames[parseInt(period.split('-')[1]) - 1]?.substring(0, 3) || ''
                     : '';
-                const clientLabel = plantName ? `${client} <span style="color:${c.clr};font-weight:600;">· ${plantName}</span>` : client;
                 return `
                 <div style="display:flex; justify-content:space-between; align-items:center;
                             padding:0.35rem 0; border-bottom:1px solid ${c.clr}18;
                             font-size:0.78rem; gap:0.5rem;">
-                    <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; color:#374151;">
-                        ${clientLabel}
-                        ${monthAbbr ? `<span style="font-size:0.62rem; color:#94a3b8; font-weight:400;">(${monthAbbr})</span>` : ''}
-                    </span>
+                    <div style="overflow:hidden; flex:1; min-width:0;">
+                        <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#374151;">
+                            ${client}
+                            ${monthAbbr ? `<span style="font-size:0.62rem; color:#94a3b8; font-weight:400;">(${monthAbbr})</span>` : ''}
+                        </div>
+                        ${plantName ? `<div style="font-size:0.68rem; color:${c.clr}; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">📍 ${plantName}</div>` : ''}
+                    </div>
                     <span style="font-weight:700; color:${c.clr}; white-space:nowrap;">$${amount.toLocaleString('es-CO')}</span>
                 </div>`;
             }).join('')
