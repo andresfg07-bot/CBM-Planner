@@ -2161,6 +2161,7 @@ async function confirmMoveDay(taskId, dayIndex) {
         const col = statusColors[task.status] || '#64748b';
         t.innerHTML = `
             <strong>${task.client}</strong>
+            ${task.plantName ? `<div style="font-size:0.75rem;color:#2563eb;font-weight:600;margin-top:1px;">📍 ${task.plantName}</div>` : ''}
             ${task.serviceType ? `<span style="color:#94a3b8;font-size:0.72rem;">${task.serviceType}</span>` : ''}
             <div style="margin-top:4px;font-size:0.75rem;">👤 ${task.analyst || '—'}</div>
             <div style="font-size:0.75rem;">💰 $${(task.budget||0).toLocaleString('es-CO')}</div>
@@ -2852,7 +2853,18 @@ function openTaskInfoModal(taskId) {
     const task = tasks.find(t => t.id === taskId);
     if(!task) return;
     
-    document.getElementById('infoClient').textContent = task.client;
+    const infoClientEl = document.getElementById('infoClient');
+    infoClientEl.textContent = task.client;
+    // Planta/Sede debajo del nombre del cliente
+    let infoPlantEl = document.getElementById('infoPlant');
+    if(!infoPlantEl) {
+        infoPlantEl = document.createElement('p');
+        infoPlantEl.id = 'infoPlant';
+        infoPlantEl.style.cssText = 'font-size:0.85rem; color:var(--clr-blue); font-weight:600; margin:0 0 0.25rem;';
+        infoClientEl.insertAdjacentElement('afterend', infoPlantEl);
+    }
+    infoPlantEl.textContent = task.plantName ? `📍 ${task.plantName}` : '';
+    infoPlantEl.style.display = task.plantName ? '' : 'none';
     document.getElementById('infoAnalyst').textContent = task.analyst ? `Analista ${task.analyst}` : 'Sin Asignar';
     
     const equipEl = document.getElementById('infoEquipment');
@@ -4324,7 +4336,7 @@ function renderReportsTable() {
                 ${data.map(t => `
                     <tr>
                         <td>${formatReportPeriod(t.mesFacturacion || t.period)}</td>
-                        <td><strong>${t.client}</strong></td>
+                        <td><strong>${t.client}</strong>${t.plantName ? `<br><span style="font-size:0.72rem;color:var(--clr-blue);font-weight:600;">📍 ${t.plantName}</span>` : ''}</td>
                         <td style="text-align:right; color:var(--clr-green); font-weight:700;">$${(t.budget||0).toLocaleString('es-CO')}</td>
                         <td style="font-size:0.75rem">${formatAnalystDisplay(t)}</td>
                         <td>${t.serviceType || '-'}</td>
@@ -4350,7 +4362,7 @@ function exportReportCSV() {
     const headers = ['Fecha/Período','Cliente (Planta)','Monto ($)','Analistas','Servicio Realizado','Estado'];
     const rows = data.map(t => [
         formatReportPeriod(t.mesFacturacion || t.period),
-        t.client,
+        t.plantName ? `${t.client} - ${t.plantName}` : t.client,
         t.budget || 0,
         formatAnalystDisplay(t),
         t.serviceType || '',
@@ -4473,7 +4485,7 @@ async function exportReportPDF() {
 
     const tableData = data.map(t => [
         formatReportPeriod(t.mesFacturacion || t.period),
-        t.client,
+        t.plantName ? `${t.client}\n${t.plantName}` : t.client,
         '$' + (t.budget||0).toLocaleString('es-CO'),
         formatAnalystDisplay(t),
         t.serviceType || '-',
