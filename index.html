@@ -95,6 +95,7 @@
                 <a href="#" class="nav-item" id="nav-mywork" data-view="mywork" onclick="switchView('mywork')" style="display:none;">
                     <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
                     <span class="nav-text">Mis Gestiones</span>
+                    <span id="csat-badge" style="display:none; background:#ef4444; color:#fff; font-size:0.65rem; font-weight:800; border-radius:99px; padding:1px 6px; min-width:18px; text-align:center; line-height:1.6; margin-left:auto;"></span>
                 </a>
                 <a href="#" class="nav-item" id="nav-tasks" data-view="tasks" onclick="switchView('tasks')">
                     <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></span>
@@ -424,12 +425,17 @@
             <div id="view-reports" class="view-section" style="padding-top: 2rem;">
                 <div class="kanban-header" style="margin-bottom: 1.5rem;">
                     <div>
-                        <h2>Reportes Históricos</h2>
-                        <p class="subtitle">Busca, filtra y exporta gestiones de cualquier período.</p>
+                        <h2 id="reports-view-title">Reportes Históricos</h2>
+                        <p class="subtitle" id="reports-view-subtitle">Busca, filtra y exporta gestiones de cualquier período.</p>
+                    </div>
+                    <!-- Tab switcher -->
+                    <div class="view-toggle-group">
+                        <button id="tab-btn-gestiones" class="active" onclick="switchReportTab('gestiones')">📋 Gestiones</button>
+                        <button id="tab-btn-csat" onclick="switchReportTab('csat')">⭐ Cierres CSAT</button>
                     </div>
                 </div>
 
-                <!-- Filtros -->
+                <!-- Filtros comunes -->
                 <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end; background:#fff; padding:1.25rem; border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); margin-bottom:1.5rem; border:1px solid #e2e8f0;">
                     <div style="flex:1; min-width:160px;">
                         <label style="font-size:0.65rem; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;">Analista</label>
@@ -443,7 +449,8 @@
                             <option value="">Todas las Plantas</option>
                         </select>
                     </div>
-                    <div style="flex:1; min-width:150px;">
+                    <!-- Filtro Tipo de Servicio (solo en pestaña Gestiones) -->
+                    <div style="flex:1; min-width:150px;" id="filter-service-wrap">
                         <label style="font-size:0.65rem; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;">Tipo de Servicio</label>
                         <select id="report-filter-service" onchange="applyReportFilters()" style="width:100%; padding:0.45rem; font-size:0.82rem; border:1px solid #cbd5e1; border-radius:4px;">
                             <option value="">Todos los Servicios</option>
@@ -456,6 +463,16 @@
                             <option value="Capacitación">Capacitación</option>
                         </select>
                     </div>
+                    <!-- Filtro Estado Cierre (solo en pestaña CSAT) -->
+                    <div style="flex:1; min-width:150px; display:none;" id="filter-csat-status-wrap">
+                        <label style="font-size:0.65rem; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;">Estado Cierre</label>
+                        <select id="report-filter-csat-status" onchange="applyReportFilters()" style="width:100%; padding:0.45rem; font-size:0.82rem; border:1px solid #cbd5e1; border-radius:4px;">
+                            <option value="">Todos</option>
+                            <option value="con-csat">⭐ Con CSAT</option>
+                            <option value="sin-respuesta">⚠️ Sin respuesta del cliente</option>
+                            <option value="pendiente">🕐 Pendiente</option>
+                        </select>
+                    </div>
                     <div style="flex:1; min-width:150px;">
                         <label style="font-size:0.65rem; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;">Desde (mes)</label>
                         <input type="month" id="report-filter-from" onchange="applyReportFilters()" style="width:100%; padding:0.45rem; font-size:0.82rem; border:1px solid #cbd5e1; border-radius:4px;">
@@ -464,16 +481,16 @@
                         <label style="font-size:0.65rem; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;">Hasta (mes)</label>
                         <input type="month" id="report-filter-to" onchange="applyReportFilters()" style="width:100%; padding:0.45rem; font-size:0.82rem; border:1px solid #cbd5e1; border-radius:4px;">
                     </div>
-                    <button onclick="reportFilters={analyst:'',client:'',serviceType:'',dateFrom:'',dateTo:''}; document.getElementById('report-filter-analyst').value=''; document.getElementById('report-filter-client').value=''; document.getElementById('report-filter-service').value=''; document.getElementById('report-filter-from').value=''; document.getElementById('report-filter-to').value=''; renderReportsTable();" style="align-self:flex-end; height:34px; padding:0 0.75rem; background:#fff5f5; border:1px solid #fca5a5; color:#dc2626; border-radius:6px; font-weight:600; cursor:pointer; font-size:0.75rem; white-space:nowrap; transition:background .15s;" onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='#fff5f5'">✕ Limpiar</button>
+                    <button onclick="clearReportFilters()" style="align-self:flex-end; height:34px; padding:0 0.75rem; background:#fff5f5; border:1px solid #fca5a5; color:#dc2626; border-radius:6px; font-weight:600; cursor:pointer; font-size:0.75rem; white-space:nowrap; transition:background .15s;" onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='#fff5f5'">✕ Limpiar</button>
                 </div>
 
                 <!-- Botones de Exportación -->
-                <div style="display:flex; gap:0.75rem; margin-bottom:1rem; flex-wrap:wrap;">
-                    <button onclick="exportReportPDF()" style="display:flex; align-items:center; gap:0.5rem; padding:0.5rem 1.1rem; background:#dc2626; color:#fff; border:none; border-radius:var(--radius-md); font-weight:700; font-size:0.82rem; cursor:pointer; box-shadow:0 2px 6px rgba(220,38,38,0.3); transition:opacity .2s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                <div style="display:flex; gap:0.75rem; margin-bottom:1rem; flex-wrap:wrap;" id="reports-export-btns">
+                    <button id="btn-export-pdf" onclick="exportActiveReportPDF()" style="display:flex; align-items:center; gap:0.5rem; padding:0.5rem 1.1rem; background:#dc2626; color:#fff; border:none; border-radius:var(--radius-md); font-weight:700; font-size:0.82rem; cursor:pointer; box-shadow:0 2px 6px rgba(220,38,38,0.3); transition:opacity .2s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 13h6M9 17h6M9 9h1"/></svg>
                         Exportar PDF
                     </button>
-                    <button onclick="exportReportCSV()" style="display:flex; align-items:center; gap:0.5rem; padding:0.5rem 1.1rem; background:#16a34a; color:#fff; border:none; border-radius:var(--radius-md); font-weight:700; font-size:0.82rem; cursor:pointer; box-shadow:0 2px 6px rgba(22,163,74,0.3); transition:opacity .2s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                    <button id="btn-export-csv" onclick="exportActiveReportCSV()" style="display:flex; align-items:center; gap:0.5rem; padding:0.5rem 1.1rem; background:#16a34a; color:#fff; border:none; border-radius:var(--radius-md); font-weight:700; font-size:0.82rem; cursor:pointer; box-shadow:0 2px 6px rgba(22,163,74,0.3); transition:opacity .2s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         Descargar Excel / CSV
                     </button>

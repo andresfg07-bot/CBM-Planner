@@ -245,6 +245,38 @@ function setMyWorkFilter(filter) {
     renderMyWorkView();
 }
 
+/** Devuelve gestiones con CSAT vencido (>7 días desde último día de informe) */
+function getCsatOverdueTasks(analystName) {
+    const today = Date.now();
+    return tasks.filter(t => {
+        if(t.isAbsence || t.serviceType === 'Metro Administrativo') return false;
+        if(t.status !== 'ejecutada') return false;
+        if(t.csatScore || t.clientNoResponse) return false;
+        if(analystName && !t.analysts_assignment?.some(a => a.name === analystName)) return false;
+        const lastReport = (t.scheduledDays||[])
+            .filter(d => d.type === 'report')
+            .map(d => d.date)
+            .sort().pop();
+        if(!lastReport) return false;
+        const diff = Math.floor((today - new Date(lastReport).getTime()) / 86400000);
+        return diff >= 7;
+    });
+}
+
+/** Actualiza el badge rojo en el menú de Mis Gestiones */
+function updateCsatBadge() {
+    const badge = document.getElementById('csat-badge');
+    if(!badge) return;
+    const analystName = currentUserProfile?.analyst_name;
+    const overdue = getCsatOverdueTasks(analystName);
+    if(overdue.length > 0) {
+        badge.textContent = overdue.length;
+        badge.style.display = 'inline-block';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
 function renderMyWorkView() {
     const container = document.getElementById('mywork-tasks-list');
     const summaryEl = document.getElementById('mywork-summary');
@@ -342,6 +374,30 @@ function renderMyWorkView() {
         return;
     }
 
+    // ── Banner de CSAT vencido ───────────────────────────────────────────────
+    const overdueCsat = getCsatOverdueTasks(analystName);
+    let csatBannerHtml = '';
+    if(overdueCsat.length > 0) {
+        const items = overdueCsat.map(t => {
+            const lbl = t.plantName ? `${t.client} · ${t.plantName}` : t.client;
+            const lastReport = (t.scheduledDays||[]).filter(d=>d.type==='report').map(d=>d.date).sort().pop();
+            const diff = lastReport ? Math.floor((Date.now()-new Date(lastReport).getTime())/86400000) : '?';
+            return `<span onclick="analystOpenCsat('${t.id}')" style="cursor:pointer;text-decoration:underline;font-weight:700;">${lbl}</span> <span style="font-size:0.72rem;opacity:.8;">(${diff} días)</span>`;
+        }).join(' &nbsp;·&nbsp; ');
+        csatBannerHtml = `
+            <div style="background:#fffbeb;border:1px solid #fcd34d;border-left:4px solid #f59e0b;
+                        border-radius:10px;padding:0.75rem 1rem;margin-bottom:1.25rem;
+                        display:flex;align-items:flex-start;gap:0.75rem;">
+                <span style="font-size:1.2rem;flex-shrink:0;">⚠️</span>
+                <div>
+                    <div style="font-weight:700;font-size:0.85rem;color:#92400e;margin-bottom:0.25rem;">
+                        Encuesta CSAT pendiente — ${overdueCsat.length} gestión(es) llevan más de 7 días sin cierre
+                    </div>
+                    <div style="font-size:0.8rem;color:#78350f;">${items}</div>
+                </div>
+            </div>`;
+    }
+
     // ── Layout Kanban: agrupar por estado ────────────────────────────────────
     const columns = [
         { key: 'proyectada', label: 'Proyectadas',  color: '#7c3aed', bg: '#f5f3ff', icon: '📋' },
@@ -357,7 +413,7 @@ function renderMyWorkView() {
     // Solo mostrar columnas con gestiones
     const activeCols = columns.filter(c => grouped[c.key].length > 0);
 
-    container.innerHTML = `
+    container.innerHTML = csatBannerHtml + `
         <div class="mywork-kanban">
             ${activeCols.map(col => `
                 <div class="mywork-column">
@@ -4022,6 +4078,7 @@ function switchView(viewName) {
         renderPlanningSidebar();
     } else if(viewName === 'mywork') {
         renderMyWorkView();
+        updateCsatBadge();
     } else if(viewName === 'tasks') {
         renderTasksView();
     } else if(viewName === 'finance') {
@@ -4036,17 +4093,22 @@ function switchView(viewName) {
         renderBoard();
     }
 
+    updateCsatBadge();
+
     // Recarga silenciosa desde Supabase al cambiar de vista
-    // Actualiza los datos en segundo plano sin bloquear la UI
     if(supabaseClient) {
         loadTasksFromSupabase().then(() => {
             if(viewName === 'planning')   { renderCalendar(); renderPlanningSidebar(); }
-            else if(viewName === 'mywork')  { renderMyWorkView(); }
+            else if(viewName === 'mywork')  { renderMyWorkView(); updateCsatBadge(); }
             else if(viewName === 'tasks')   { renderTasksView(); }
             else if(viewName === 'finance') { renderFinanceView(); }
-            else if(viewName === 'reports') { renderReportsTable(); }
-            else                            { renderBoard(); }
-        }).catch(() => {}); // silencioso si hay error de red
+            else if(viewName === 'reports') {
+                if(reportActiveTab === 'csat') renderCsatTable();
+                else renderReportsTable();
+            }
+            else { renderBoard(); }
+            updateCsatBadge();
+        }).catch(() => {});
     }
 }
 
@@ -4238,7 +4300,8 @@ async function updateEquipment(e, equipmentId) {
 // MÓDULO DE REPORTES HISTÓRICOS
 // ══════════════════════════════════════════
 
-let reportFilters = { analyst: '', client: '', serviceType: '', dateFrom: '', dateTo: '' };
+let reportFilters    = { analyst: '', client: '', serviceType: '', dateFrom: '', dateTo: '', csatStatus: '' };
+let reportActiveTab  = 'gestiones'; // 'gestiones' | 'csat'
 
 function initReportsView() {
     const analystSel = document.getElementById('report-filter-analyst');
@@ -4258,16 +4321,283 @@ function initReportsView() {
         });
         clientSel.value = reportFilters.client;
     }
-    renderReportsTable();
+    // Restaurar estado del tab activo
+    switchReportTab(reportActiveTab);
 }
 
 function applyReportFilters() {
     reportFilters.analyst     = document.getElementById('report-filter-analyst').value;
     reportFilters.client      = document.getElementById('report-filter-client').value;
-    reportFilters.serviceType = document.getElementById('report-filter-service').value;
+    reportFilters.serviceType = document.getElementById('report-filter-service')?.value || '';
     reportFilters.dateFrom    = document.getElementById('report-filter-from').value;
     reportFilters.dateTo      = document.getElementById('report-filter-to').value;
-    renderReportsTable();
+    reportFilters.csatStatus  = document.getElementById('report-filter-csat-status')?.value || '';
+    if(reportActiveTab === 'csat') renderCsatTable();
+    else renderReportsTable();
+}
+
+function clearReportFilters() {
+    reportFilters = { analyst:'', client:'', serviceType:'', dateFrom:'', dateTo:'', csatStatus:'' };
+    ['report-filter-analyst','report-filter-client','report-filter-service',
+     'report-filter-from','report-filter-to','report-filter-csat-status'].forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.value = '';
+    });
+    if(reportActiveTab === 'csat') renderCsatTable();
+    else renderReportsTable();
+}
+
+function switchReportTab(tab) {
+    reportActiveTab = tab;
+    // Actualizar botones
+    document.getElementById('tab-btn-gestiones')?.classList.toggle('active', tab === 'gestiones');
+    document.getElementById('tab-btn-csat')?.classList.toggle('active', tab === 'csat');
+    // Mostrar/ocultar filtros específicos
+    document.getElementById('filter-service-wrap')?.style.setProperty('display', tab === 'gestiones' ? '' : 'none');
+    document.getElementById('filter-csat-status-wrap')?.style.setProperty('display', tab === 'csat' ? '' : 'none');
+    // Actualizar títulos
+    const title = document.getElementById('reports-view-title');
+    const sub   = document.getElementById('reports-view-subtitle');
+    if(tab === 'csat') {
+        if(title) title.textContent = 'Cierres CSAT';
+        if(sub)   sub.textContent  = 'Resultados de encuestas de satisfacción y evidencias de no-respuesta.';
+    } else {
+        if(title) title.textContent = 'Reportes Históricos';
+        if(sub)   sub.textContent  = 'Busca, filtra y exporta gestiones de cualquier período.';
+    }
+    if(tab === 'csat') renderCsatTable();
+    else renderReportsTable();
+}
+
+// ── Exportación según pestaña activa ────────────────────────────────────────
+function exportActiveReportPDF() {
+    if(reportActiveTab === 'csat') exportCsatPDF();
+    else exportReportPDF();
+}
+function exportActiveReportCSV() {
+    if(reportActiveTab === 'csat') exportCsatCSV();
+    else exportReportCSV();
+}
+
+// ── Datos para tabla CSAT ────────────────────────────────────────────────────
+function getCsatTableData() {
+    let data = tasks.filter(t =>
+        !t.isAbsence &&
+        t.serviceType !== 'Metro Administrativo' &&
+        (t.status === 'ejecutada' || t.status === 'facturada')
+    );
+    if(reportFilters.analyst) {
+        data = data.filter(t => {
+            if(t.analysts_assignment?.length > 0)
+                return t.analysts_assignment.some(a => a.name === reportFilters.analyst);
+            return t.analyst === reportFilters.analyst;
+        });
+    }
+    if(reportFilters.client) {
+        data = data.filter(t => t.client === reportFilters.client || t.client.includes(reportFilters.client));
+    }
+    if(reportFilters.dateFrom) {
+        data = data.filter(t => (t.mesFacturacion || t.period || '') >= reportFilters.dateFrom.substring(0,7));
+    }
+    if(reportFilters.dateTo) {
+        data = data.filter(t => (t.mesFacturacion || t.period || '') <= reportFilters.dateTo.substring(0,7));
+    }
+    if(reportFilters.csatStatus) {
+        data = data.filter(t => {
+            if(reportFilters.csatStatus === 'con-csat')      return t.csatScore && !t.clientNoResponse;
+            if(reportFilters.csatStatus === 'sin-respuesta') return t.clientNoResponse;
+            if(reportFilters.csatStatus === 'pendiente')     return !t.csatScore && !t.clientNoResponse;
+            return true;
+        });
+    }
+    return data.sort((a,b) => (b.mesFacturacion||b.period||'').localeCompare(a.mesFacturacion||a.period||''));
+}
+
+function _csatEstadoCierre(t) {
+    if(t.csatScore && !t.clientNoResponse)
+        return { label: `⭐ ${t.csatScore}/5`, color: '#16a34a', bg: '#f0fdf4' };
+    if(t.clientNoResponse)
+        return { label: '⚠️ Sin respuesta', color: '#b45309', bg: '#fffbeb' };
+    // Calcular días pendientes
+    const lastReport = (t.scheduledDays||[]).filter(d=>d.type==='report').map(d=>d.date).sort().pop();
+    if(lastReport) {
+        const diff = Math.floor((Date.now() - new Date(lastReport).getTime()) / 86400000);
+        if(diff >= 7) return { label: `🕐 Pendiente (${diff}d)`, color: '#dc2626', bg: '#fff1f2' };
+    }
+    return { label: '🕐 Pendiente', color: '#6b7280', bg: '#f8fafc' };
+}
+
+function renderCsatTable() {
+    const container = document.getElementById('reports-table-container');
+    if(!container) return;
+    const data = getCsatTableData();
+
+    if(data.length === 0) {
+        container.innerHTML = `<div style="text-align:center;padding:3rem;color:var(--text-secondary);font-size:0.9rem;">No se encontraron cierres con los filtros aplicados.</div>`;
+        return;
+    }
+
+    const scores = data.filter(t => t.csatScore && !t.clientNoResponse).map(t => parseFloat(t.csatScore));
+    const avgCsat = scores.length ? (scores.reduce((s,v)=>s+v,0)/scores.length).toFixed(2) : '—';
+    const sinRespuesta = data.filter(t => t.clientNoResponse).length;
+    const pendientes   = data.filter(t => !t.csatScore && !t.clientNoResponse).length;
+
+    container.innerHTML = `
+        <!-- Resumen rápido -->
+        <div style="display:flex; gap:1rem; flex-wrap:wrap; padding:1rem 1.25rem; border-bottom:1px solid #e2e8f0; background:#f8fafc;">
+            <div style="text-align:center; flex:1; min-width:100px;">
+                <div style="font-size:1.4rem; font-weight:800; color:var(--clr-blue)">${data.length}</div>
+                <div style="font-size:0.7rem; color:#64748b; font-weight:600;">TOTAL</div>
+            </div>
+            <div style="text-align:center; flex:1; min-width:100px;">
+                <div style="font-size:1.4rem; font-weight:800; color:#16a34a">${scores.length}</div>
+                <div style="font-size:0.7rem; color:#64748b; font-weight:600;">CON CSAT</div>
+            </div>
+            <div style="text-align:center; flex:1; min-width:100px;">
+                <div style="font-size:1.4rem; font-weight:800; color:#2563eb">${avgCsat !== '—' ? '⭐ '+avgCsat : '—'}</div>
+                <div style="font-size:0.7rem; color:#64748b; font-weight:600;">PROMEDIO</div>
+            </div>
+            <div style="text-align:center; flex:1; min-width:100px;">
+                <div style="font-size:1.4rem; font-weight:800; color:#b45309">${sinRespuesta}</div>
+                <div style="font-size:0.7rem; color:#64748b; font-weight:600;">SIN RESPUESTA</div>
+            </div>
+            <div style="text-align:center; flex:1; min-width:100px;">
+                <div style="font-size:1.4rem; font-weight:800; color:#dc2626">${pendientes}</div>
+                <div style="font-size:0.7rem; color:#64748b; font-weight:600;">PENDIENTES</div>
+            </div>
+        </div>
+        <!-- Tabla -->
+        <div style="overflow-x:auto;">
+        <table class="data-table" style="font-size:0.8rem; width:100%;">
+            <thead>
+                <tr>
+                    <th style="min-width:100px;">Período</th>
+                    <th style="min-width:160px;">Cliente / Planta</th>
+                    <th style="min-width:140px;">Analista(s)</th>
+                    <th style="min-width:110px;">Servicio</th>
+                    <th style="min-width:130px;">Estado Cierre</th>
+                    <th style="min-width:180px;">Observaciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${data.map(t => {
+                    const cierre = _csatEstadoCierre(t);
+                    const client = t.client + (t.plantName ? `<br><span style="font-size:0.7rem;color:var(--clr-blue);font-weight:600;">📍 ${t.plantName}</span>` : '');
+                    const analysts = formatAnalystDisplay(t);
+                    const evidencia = (t.evidenceFiles||[]).length > 0
+                        ? `<span style="font-size:0.7rem;color:var(--clr-purple);">📎 ${t.evidenceFiles.length} archivo(s)</span>`
+                        : '';
+                    return `<tr>
+                        <td>${formatReportPeriod(t.mesFacturacion||t.period)}</td>
+                        <td>${client}</td>
+                        <td style="font-size:0.75rem;">${analysts}</td>
+                        <td>${t.serviceType||'-'}</td>
+                        <td><span style="background:${cierre.bg};color:${cierre.color};font-weight:700;font-size:0.75rem;padding:0.2rem 0.5rem;border-radius:6px;white-space:nowrap;">${cierre.label}</span></td>
+                        <td style="font-size:0.75rem;color:#475569;">${t.csatObservations||''} ${evidencia}</td>
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table>
+        </div>`;
+}
+
+function exportCsatCSV() {
+    const data = getCsatTableData();
+    if(!data.length) { alert('No hay datos para exportar.'); return; }
+    const headers = ['Período','Cliente','Planta','Analistas','Servicio','Estado Cierre','Puntuación','Observaciones','Archivos evidencia'];
+    const rows = data.map(t => {
+        const cierre = _csatEstadoCierre(t);
+        return [
+            formatReportPeriod(t.mesFacturacion||t.period),
+            t.client, t.plantName||'',
+            formatAnalystDisplay(t),
+            t.serviceType||'',
+            cierre.label.replace(/[⭐⚠️🕐]/g,'').trim(),
+            t.csatScore||'',
+            t.csatObservations||'',
+            (t.evidenceFiles||[]).length
+        ];
+    });
+    const csv = [headers,...rows].map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+    const blob = new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8;'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `Cierres_CSAT_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click(); URL.revokeObjectURL(a.href);
+}
+
+async function exportCsatPDF() {
+    const data = getCsatTableData();
+    if(!data.length) { alert('No hay datos para exportar.'); return; }
+    if(typeof window.jspdf === 'undefined' && typeof jsPDF === 'undefined') {
+        alert('La librería PDF está cargando. Intenta en unos segundos.'); return;
+    }
+    let logoDataUrl = null;
+    try {
+        const resp = await fetch('logo.png');
+        const blob = await resp.blob();
+        logoDataUrl = await new Promise(resolve => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.readAsDataURL(blob);
+        });
+    } catch(e) {}
+
+    const { jsPDF: JSPDF } = window.jspdf || {};
+    const doc = JSPDF
+        ? new JSPDF({ orientation:'landscape', unit:'mm', format:'letter' })
+        : new jsPDF({ orientation:'landscape', unit:'mm', format:'letter' });
+
+    const pageW = 279.4, pageH = 215.9, mX = 15;
+    const BLUE = [30,64,175], LBLUE = [96,165,250];
+
+    function drawLayout(pageNum) {
+        if(logoDataUrl) doc.addImage(logoDataUrl,'PNG',pageW-34,5,22,22);
+        doc.setTextColor(...BLUE); doc.setFontSize(7); doc.setFont('helvetica','bold');
+        doc.text('A-MAQ S.A.',pageW-23,29,{align:'center'});
+        doc.setDrawColor(...BLUE); doc.setLineWidth(0.8);
+        doc.line(mX,31,pageW-mX,31);
+        doc.setLineWidth(0.5); doc.line(mX,pageH-20,pageW-mX,pageH-20);
+        doc.setFillColor(...BLUE);  doc.circle(-4,pageH+3,18,'F');
+        doc.setFillColor(...LBLUE); doc.circle(pageW+4,pageH+3,18,'F');
+        doc.setTextColor(...BLUE); doc.setFontSize(7); doc.setFont('helvetica','normal');
+        doc.text('+57 300 8622954   •   info@a-maq.com   •   www.a-maq.com',pageW/2,pageH-14,{align:'center'});
+        doc.setTextColor(130); doc.setFontSize(7);
+        doc.text(`Pág. ${pageNum}`,pageW-mX,pageH-14,{align:'right'});
+    }
+
+    drawLayout(1);
+    doc.setTextColor(...BLUE); doc.setFontSize(13); doc.setFont('helvetica','bold');
+    doc.text('Reporte de Cierres CSAT — Departamento CBM',mX,22);
+    doc.setTextColor(90); doc.setFontSize(8); doc.setFont('helvetica','normal');
+    doc.text(`Generado el ${new Date().toLocaleDateString('es-CO',{year:'numeric',month:'long',day:'numeric'})}`,mX,27.5);
+
+    const scores = data.filter(t=>t.csatScore&&!t.clientNoResponse).map(t=>parseFloat(t.csatScore));
+    const avg = scores.length ? (scores.reduce((s,v)=>s+v,0)/scores.length).toFixed(2) : '—';
+    doc.text(`Total: ${data.length}  |  Con CSAT: ${scores.length}  |  Promedio: ${avg}  |  Sin respuesta: ${data.filter(t=>t.clientNoResponse).length}  |  Pendientes: ${data.filter(t=>!t.csatScore&&!t.clientNoResponse).length}`,mX,33);
+
+    doc.autoTable({
+        startY: 38,
+        head: [['Período','Cliente / Planta','Analistas','Servicio','Estado Cierre','Observaciones']],
+        body: data.map(t => {
+            const cierre = _csatEstadoCierre(t);
+            return [
+                formatReportPeriod(t.mesFacturacion||t.period),
+                t.plantName ? `${t.client}\n${t.plantName}` : t.client,
+                formatAnalystDisplay(t),
+                t.serviceType||'-',
+                cierre.label.replace(/[⭐⚠️🕐]/g,'').trim(),
+                t.csatObservations||''
+            ];
+        }),
+        styles: { fontSize:7.5, cellPadding:2 },
+        headStyles: { fillColor:BLUE, textColor:[255,255,255], fontStyle:'bold' },
+        alternateRowStyles: { fillColor:[239,246,255] },
+        columnStyles: { 0:{cellWidth:22}, 1:{cellWidth:45}, 2:{cellWidth:40}, 3:{cellWidth:28}, 4:{cellWidth:30}, 5:{cellWidth:'auto'} },
+        margin: { left:mX, right:mX, bottom:25 },
+        didDrawPage: d => { if(d.pageNumber>1) drawLayout(d.pageNumber); }
+    });
+
+    doc.save(`Cierres_CSAT_${new Date().toISOString().slice(0,10)}.pdf`);
 }
 
 function getReportData() {
