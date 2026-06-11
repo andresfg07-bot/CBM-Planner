@@ -728,6 +728,28 @@
         </div>
     </div>
 
+    <!-- Modal Editar Valor de Facturación -->
+    <div id="editBudgetModal" class="modal">
+        <div class="modal-content" style="max-width:380px;">
+            <span class="close-btn" onclick="closeModal('editBudgetModal')">&times;</span>
+            <h2 style="margin-bottom:0.25rem;">💰 Editar Valor</h2>
+            <p style="font-size:0.82rem; color:var(--text-secondary); margin-bottom:1.5rem;">
+                Ingresa el valor real de la factura. Este reemplaza el valor proyectado en todos los módulos.
+            </p>
+            <div class="form-group">
+                <label>Valor (COP)</label>
+                <input type="number" id="editBudgetInput" placeholder="Ej: 2500000" min="0" step="1000"
+                       oninput="updateBudgetPreview()"
+                       style="width:100%; padding:0.6rem; border:1px solid #cbd5e1; border-radius:var(--radius-md); font-size:0.9rem;">
+            </div>
+            <div id="editBudgetPreview" style="font-size:0.9rem; font-weight:600; color:var(--clr-green); margin-bottom:1.25rem; min-height:1.2rem;"></div>
+            <div style="display:flex; gap:0.75rem;">
+                <button class="btn-secondary" onclick="closeModal('editBudgetModal')" style="flex:1;">Cancelar</button>
+                <button class="btn-primary" onclick="saveEditedBudget()" style="flex:1;">Guardar</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Supabase & SheetJS -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>

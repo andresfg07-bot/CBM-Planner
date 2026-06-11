@@ -924,12 +924,18 @@ function renderTasksTable(container) {
                                     ${t.status === 'programada' ? actionIcon('revert', `revertToProjected('${t.id}')`, 'Revertir a Proyectada') : ''}
                                     ${actionIcon('delete', `deleteTask('${t.id}')`,              'Borrar')}
                                 ` : role === 'assistant' ? `
-                                    ${t.status === 'ejecutada' ? `
-                                        <button class="mywork-btn btn-execute" style="font-size:0.72rem;padding:0.3rem 0.75rem;"
-                                            onclick="updateTaskStatus('${t.id}','facturada')">
-                                            💰 Facturar
-                                        </button>` : `
-                                        <span style="font-size:0.72rem; color:var(--clr-green); font-weight:600;">✓ Facturada</span>`}
+                                    <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
+                                        ${t.status === 'ejecutada' ? `
+                                            <button class="mywork-btn btn-execute" style="font-size:0.72rem;padding:0.3rem 0.75rem;"
+                                                onclick="updateTaskStatus('${t.id}','facturada')">
+                                                💰 Facturar
+                                            </button>` : `
+                                            <span style="font-size:0.72rem; color:var(--clr-green); font-weight:600;">✓ Facturada</span>`}
+                                        <button class="mywork-btn" style="font-size:0.72rem;padding:0.3rem 0.75rem;background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;border-radius:6px;cursor:pointer;"
+                                            onclick="openEditBudgetModal('${t.id}')">
+                                            ✏️ Editar valor
+                                        </button>
+                                    </div>
                                 ` : ''}
                             </div>
                         </td>
@@ -1006,6 +1012,39 @@ async function updateTaskStatus(taskId, newStatus) {
         renderTasksView();
         renderDashboardStats();
     }
+}
+
+// ── Editar valor real de facturación (rol asistente) ──────────────────────────
+let _editBudgetTaskId = null;
+
+function openEditBudgetModal(taskId) {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    _editBudgetTaskId = taskId;
+    const input = document.getElementById('editBudgetInput');
+    input.value = task.budget || '';
+    updateBudgetPreview();
+    document.getElementById('editBudgetModal').classList.add('active');
+}
+
+function updateBudgetPreview() {
+    const val = parseFloat(document.getElementById('editBudgetInput').value);
+    const preview = document.getElementById('editBudgetPreview');
+    preview.textContent = isNaN(val) || val === 0 ? '' : `$ ${val.toLocaleString('es-CO')}`;
+}
+
+async function saveEditedBudget() {
+    const task = tasks.find(t => t.id === _editBudgetTaskId);
+    if (!task) return;
+    const val = parseFloat(document.getElementById('editBudgetInput').value);
+    if (isNaN(val) || val < 0) { alert('Ingresa un valor válido.'); return; }
+    task.budget = val;
+    saveTasks();
+    closeModal('editBudgetModal');
+    renderBoard();
+    renderDashboardStats();
+    if (typeof renderFinanceView === 'function') renderFinanceView();
+    await saveTaskToSupabase(task);
 }
 
 async function deleteTask(taskId) {
