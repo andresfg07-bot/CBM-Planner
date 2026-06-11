@@ -779,11 +779,7 @@ async function changePeriod(delta) {
 }
 
 // Initial State & Persistence
-let tasks = JSON.parse(localStorage.getItem('cbm_tasks')) || [
-    { id: 't1', client: 'Industrias XYZ', analyst: 'A', budget: 1500000, status: 'proyectada' },
-    { id: 't2', client: 'Planta Alimentos SUR', analyst: 'B', budget: 2800000, status: 'programada' },
-    { id: 't3', client: 'Minería Norte', analyst: 'C', budget: 5400000, status: 'ejecutada' },
-];
+let tasks = JSON.parse(localStorage.getItem('cbm_tasks')) || [];
 
 // Migrate old tasks to have a period
 let tasksModified = false;
@@ -924,14 +920,14 @@ function renderTasksTable(container) {
                                     ${t.status === 'programada' ? actionIcon('revert', `revertToProjected('${t.id}')`, 'Revertir a Proyectada') : ''}
                                     ${actionIcon('delete', `deleteTask('${t.id}')`,              'Borrar')}
                                 ` : role === 'assistant' ? `
-                                    <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
+                                    <div style="display:flex;gap:0.3rem;align-items:center;">
                                         ${t.status === 'ejecutada' ? `
-                                            <button class="mywork-btn btn-execute" style="font-size:0.72rem;padding:0.3rem 0.75rem;"
+                                            <button class="mywork-btn btn-execute" style="font-size:0.68rem;padding:0.25rem 0.5rem;white-space:nowrap;"
                                                 onclick="updateTaskStatus('${t.id}','facturada')">
                                                 💰 Facturar
                                             </button>` : `
-                                            <span style="font-size:0.72rem; color:var(--clr-green); font-weight:600;">✓ Facturada</span>`}
-                                        <button class="mywork-btn" style="font-size:0.72rem;padding:0.3rem 0.75rem;background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;border-radius:6px;cursor:pointer;"
+                                            <span style="font-size:0.68rem;color:var(--clr-green);font-weight:600;white-space:nowrap;">✓ Facturada</span>`}
+                                        <button class="mywork-btn" style="font-size:0.68rem;padding:0.25rem 0.5rem;background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;border-radius:6px;cursor:pointer;white-space:nowrap;"
                                             onclick="openEditBudgetModal('${t.id}')">
                                             ✏️ Editar valor
                                         </button>
