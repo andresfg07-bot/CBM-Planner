@@ -2468,11 +2468,15 @@ async function handleCalendarDrop(cell, dragInfo) {
         isAssignedToTarget = task.analysts_assignment.some(a => a.name === targetAnalyst);
     }
 
-    // El usuario pidió que el arrastre desde "Por Programar" funcione siempre.
-    // Solo bloqueamos si es un movimiento de Pill (reasignación en calendario) y no es su analista.
+    // Solo bloqueamos pill move a otro analista, excepto días de informe (reasignables)
     if (!isAssignedToTarget && isPillMove) {
-        alert(`Esta gestión está asignada a: ${task.analyst || 'nadie'}. Para moverla, use su propia fila o reasígnela en los detalles.`);
-        return;
+        const _dragEl = document.getElementById(dragInfo);
+        const _dayIdx = _dragEl ? parseInt(_dragEl.getAttribute('data-day-index'), 10) : parseInt(dragInfo.split('-').pop(), 10);
+        if (task.scheduledDays?.[_dayIdx]?.type !== 'report') {
+            alert(`Esta gestión está asignada a: ${task.analyst || 'nadie'}. Para moverla, use su propia fila o reasígnela en los detalles.`);
+            return;
+        }
+        // Es un día de informe → se permite reasignar, continúa al bloque isPillMove
     }
 
     if(task.equipmentId) {
@@ -2505,6 +2509,29 @@ async function handleCalendarDrop(cell, dragInfo) {
         } else {
             dayIdx = parseInt(dragInfo.split('-').pop(), 10);
         }
+
+        const movedDay = task.scheduledDays[dayIdx];
+
+        // Reasignación de día de informe a otro analista
+        if (movedDay?.type === 'report') {
+            const reportMap = getReportDayAssignments(task);
+            let currentOwner = movedDay.analyst;
+            if (!currentOwner) {
+                for (const [name, dates] of reportMap.entries()) {
+                    if (dates.includes(movedDay.date)) { currentOwner = name; break; }
+                }
+            }
+            if (currentOwner !== targetAnalyst) {
+                if (task.status === 'facturada') { alert('Una gestión facturada no puede ser modificada.'); return; }
+                await reassignReportDay(task, dayIdx, targetAnalyst, targetDay, targetDateStr);
+                saveTasks();
+                postDropSync();
+                await saveTaskToSupabase(task);
+                return;
+            }
+        }
+
+        // Movimiento normal de fecha (mismo analista)
         task.scheduledDays[dayIdx].day = targetDay;
         task.scheduledDays[dayIdx].date = targetDateStr;
         task.analyst = targetAnalyst;
@@ -2679,7 +2706,6 @@ function getReportDayAssignments(task) {
     const map = new Map();
 
     if (reportAnalysts.length === 0) {
-        // Sin asignación múltiple: todos los días al analista principal
         if (task.analyst) map.set(task.analyst, reportDays.map(d => d.date));
         return map;
     }
@@ -2687,20 +2713,96 @@ function getReportDayAssignments(task) {
     reportAnalysts.forEach(a => map.set(a.name, []));
     if (reportDays.length === 0) return map;
 
-    const n = reportDays.length;
-    const k = reportAnalysts.length;
-    const base  = Math.floor(n / k);
-    const extra = n % k;
+    // Días con analista explícito (reasignados manualmente)
+    const explicitDays = reportDays.filter(d => d.analyst);
+    const implicitDays = reportDays.filter(d => !d.analyst);
 
-    let idx = 0;
-    reportAnalysts.forEach((analyst, i) => {
-        const quota = base + (i === 0 ? extra : 0); // titular (i=0) absorbe el resto
-        for (let j = 0; j < quota && idx < reportDays.length; j++, idx++) {
-            map.get(analyst.name).push(reportDays[idx].date);
-        }
+    explicitDays.forEach(d => {
+        if (!map.has(d.analyst)) map.set(d.analyst, []);
+        map.get(d.analyst).push(d.date);
     });
 
+    // Días sin asignación explícita: distribución algorítmica entre makesReport
+    if (implicitDays.length > 0) {
+        const n = implicitDays.length;
+        const k = reportAnalysts.length;
+        const base  = Math.floor(n / k);
+        const extra = n % k;
+        let idx = 0;
+        reportAnalysts.forEach((analyst, i) => {
+            const quota = base + (i === 0 ? extra : 0);
+            for (let j = 0; j < quota && idx < implicitDays.length; j++, idx++) {
+                if (!map.has(analyst.name)) map.set(analyst.name, []);
+                map.get(analyst.name).push(implicitDays[idx].date);
+            }
+        });
+    }
+
     return map;
+}
+
+function recalculateAssignmentPercentages(task) {
+    const assignments = task.analysts_assignment || [];
+    if (assignments.length === 0) return;
+
+    const fieldAnalysts  = assignments.filter(a => a.isTitular);
+    const reportAnalysts = assignments.filter(a => a.makesReport);
+    const hasBoth = fieldAnalysts.length > 0 && reportAnalysts.length > 0;
+
+    const fieldPool  = hasBoth ? 50 : (fieldAnalysts.length  > 0 ? 100 : 0);
+    const reportPool = hasBoth ? 50 : (reportAnalysts.length > 0 ? 100 : 0);
+
+    const fieldShare  = fieldAnalysts.length  > 0 ? fieldPool  / fieldAnalysts.length  : 0;
+    const reportShare = reportAnalysts.length > 0 ? reportPool / reportAnalysts.length : 0;
+
+    assignments.forEach(a => {
+        a.percentage = Math.round((a.isTitular ? fieldShare : 0) + (a.makesReport ? reportShare : 0));
+    });
+}
+
+async function reassignReportDay(task, dayIdx, newAnalyst, newDay, newDateStr) {
+    const day = task.scheduledDays[dayIdx];
+
+    // Determinar dueño actual
+    let currentOwner = day.analyst;
+    if (!currentOwner) {
+        const map = getReportDayAssignments(task);
+        for (const [name, dates] of map.entries()) {
+            if (dates.includes(day.date)) { currentOwner = name; break; }
+        }
+    }
+
+    // Mover el día
+    day.analyst  = newAnalyst;
+    if (newDay)     day.day  = newDay;
+    if (newDateStr) day.date = newDateStr;
+
+    const assignments = task.analysts_assignment || [];
+
+    // Asegurar que el nuevo analista esté en la lista con makesReport
+    let newEntry = assignments.find(a => a.name === newAnalyst);
+    if (!newEntry) {
+        newEntry = { name: newAnalyst, isTitular: false, makesReport: true, percentage: 0 };
+        assignments.push(newEntry);
+        task.analysts_assignment = assignments;
+    } else {
+        newEntry.makesReport = true;
+    }
+
+    // Si el dueño anterior ya no tiene días de informe, quitar makesReport
+    if (currentOwner && currentOwner !== newAnalyst) {
+        const stillHasReport = task.scheduledDays.some(
+            d => d.type === 'report' && (d.analyst === currentOwner || (!d.analyst &&
+                (() => { const m = getReportDayAssignments(task); return (m.get(currentOwner)||[]).length > 0; })()))
+        );
+        if (!stillHasReport) {
+            const oldEntry = assignments.find(a => a.name === currentOwner);
+            if (oldEntry) oldEntry.makesReport = false;
+        }
+    }
+
+    recalculateAssignmentPercentages(task);
+    logActivity(`📝 Día de informe de <strong>${task.client}</strong> reasignado a <strong>${newAnalyst}</strong>.`, 'assign');
 }
 
 /**
