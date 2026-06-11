@@ -1964,6 +1964,8 @@ h1 {
     .data-table th, .data-table td { padding: 0.5rem 0.4rem; }
 }
 
+body.role-assistant .role-hide-assistant { display: none !important; }
+
 /* ── Planning: solo lectura para analistas ─────────────────────────────────── */
 body.role-analyst .calendar-task-pill {
     cursor: default !important;
