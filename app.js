@@ -2989,7 +2989,7 @@ async function onTaskClientChange() {
 
 function onTaskServiceTypeChange() {
     const serviceType = document.getElementById('taskServiceType').value;
-    const isAbsence       = (serviceType === 'Vacaciones' || serviceType === 'Incapacidad' || serviceType === 'Compensatorio');
+    const isAbsence       = (serviceType === 'Vacaciones' || serviceType === 'Incapacidad' || serviceType === 'Compensatorio' || serviceType === 'Entrenamiento o Curso');
     const isAdminContract = (serviceType === 'Metro Administrativo');
 
     // Campos que se ocultan solo en ausencias
@@ -3902,7 +3902,7 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
         const editId = document.getElementById('editTaskId').value;
         const clientId = clientSelect ? clientSelect.value : '';
 
-        const isAbsence       = (serviceType === 'Vacaciones' || serviceType === 'Incapacidad' || serviceType === 'Compensatorio');
+        const isAbsence       = (serviceType === 'Vacaciones' || serviceType === 'Incapacidad' || serviceType === 'Compensatorio' || serviceType === 'Entrenamiento o Curso');
         const isAdminContract = (serviceType === 'Metro Administrativo');
         const finalClientName = isAbsence ? `AUSENCIA: ${serviceType}` : clientName;
 
