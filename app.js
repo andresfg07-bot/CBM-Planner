@@ -470,7 +470,7 @@ function renderMyWorkCard(task) {
                 ${reportStr ? `<div class="mywork-date-row">📝 Informe: <strong>${reportStr}</strong></div>` : ''}
                 ${!fieldStr && !reportStr ? `<div class="mywork-date-row mywork-no-date">Sin días programados aún</div>` : ''}
                 <div class="mywork-badges">
-                    ${isTitular   ? '<span class="mywork-badge titular">Titular</span>'      : ''}
+                    ${isTitular   ? '<span class="mywork-badge titular">Campo</span>'        : ''}
                     ${makesReport ? '<span class="mywork-badge report">Hace Informe</span>'  : ''}
                 </div>
             </div>
@@ -2860,7 +2860,7 @@ function addAnalystToTask(existingData = null) {
             ${(dbAnalysts || []).map(a => `<option value="${a.name}" ${analystName === a.name ? 'selected' : ''}>${a.name}</option>`).join('')}
         </select>
         <label style="font-size: 0.7rem; display: flex; align-items: center; gap: 2px;">
-            <input type="radio" name="titular" class="analyst-titular" ${isTitularChecked}> Titular
+            <input type="checkbox" class="analyst-titular" ${isTitularChecked}> Campo
         </label>
         <label style="font-size: 0.7rem; display: flex; align-items: center; gap: 2px;">
             <input type="checkbox" class="analyst-report" ${isReportChecked}> Informe
@@ -3825,7 +3825,7 @@ function addAnalystToTask(analystData = null) {
     if (analystData && analystData.isTitular) titularCheck.checked = true;
     if (!analystData && container.children.length === 0) titularCheck.checked = true;
     titularLabel.appendChild(titularCheck);
-    titularLabel.appendChild(document.createTextNode('Titular'));
+    titularLabel.appendChild(document.createTextNode('Campo'));
 
     // Report Checkbox
     const reportLabel = document.createElement('label');
