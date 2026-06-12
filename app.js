@@ -1869,8 +1869,11 @@ function renderCalendar() {
                 const dayEntry = t.scheduledDays?.find(sd => sd.date === day.dateStr);
                 if (!dayEntry) return false;
 
-                // Días de campo → siempre visibles para todos los analistas asignados
-                if (dayEntry.type === 'field') return true;
+                // Días de campo → solo para analistas titulares (fueron a campo)
+                if (dayEntry.type === 'field') {
+                    const assign = t.analysts_assignment?.find(a => a.name === analyst.name);
+                    return assign ? assign.isTitular : (t.analyst === analyst.name);
+                }
 
                 // Días de informe → solo para el analista responsable de ese día
                 const reportAssignments = getReportDayAssignments(t);
