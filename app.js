@@ -2542,10 +2542,9 @@ async function handleCalendarDrop(cell, dragInfo) {
         if (!task.analysts_assignment || task.analysts_assignment.length === 0) {
             task.analysts_assignment = [{ name: targetAnalyst, isTitular: true, makesReport: true, percentage: 100 }];
         } else {
-            // Asegurar que el targetAnalyst esté en la lista y sea titular (ya debería estarlo por la validación de arriba en isPillMove)
-            task.analysts_assignment.forEach(a => {
-                a.isTitular = (a.name === targetAnalyst);
-            });
+            // Asegurar que el targetAnalyst sea titular; no tocar isTitular de los demás (tarea multi-analista)
+            const found = task.analysts_assignment.find(a => a.name === targetAnalyst);
+            if (found) { found.isTitular = true; }
         }
         logActivity(`🚚 Se movió un día de la gestión <strong>${task.client}</strong> al día <strong>${targetDay}</strong>.`, 'assign');
     } else {
@@ -2554,19 +2553,12 @@ async function handleCalendarDrop(cell, dragInfo) {
         if (!task.analysts_assignment || task.analysts_assignment.length === 0) {
             task.analysts_assignment = [{ name: targetAnalyst, isTitular: true, makesReport: true, percentage: 100 }];
         } else {
-            // Si ya hay analistas, asegurar que el targetAnalyst sea el titular pero NO borrar los demás
-            let found = false;
-            task.analysts_assignment.forEach(a => {
-                if (a.name === targetAnalyst) {
-                    a.isTitular = true;
-                    found = true;
-                } else {
-                    a.isTitular = false;
-                }
-            });
-            if (!found) {
-                // Si no estaba en la lista, lo agregamos como titular con 0% para no descuadrar porcentajes existentes
-                task.analysts_assignment.push({ name: targetAnalyst, isTitular: true, makesReport: true, percentage: 0 });
+            // Asegurar que el targetAnalyst sea titular; no tocar isTitular de los demás (tarea multi-analista)
+            let found = task.analysts_assignment.find(a => a.name === targetAnalyst);
+            if (found) {
+                found.isTitular = true;
+            } else {
+                task.analysts_assignment.push({ name: targetAnalyst, isTitular: true, makesReport: false, percentage: 0 });
             }
         }
         if (!task.scheduledDays || task.scheduledDays.length === 0) {
