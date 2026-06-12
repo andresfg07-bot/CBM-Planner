@@ -2761,18 +2761,21 @@ function recalculateAssignmentPercentages(task) {
 }
 
 async function reassignReportDay(task, dayIdx, newAnalyst, newDay, newDateStr) {
-    const day = task.scheduledDays[dayIdx];
-
-    // Determinar dueño actual
-    let currentOwner = day.analyst;
-    if (!currentOwner) {
-        const map = getReportDayAssignments(task);
-        for (const [name, dates] of map.entries()) {
-            if (dates.includes(day.date)) { currentOwner = name; break; }
+    // Paso 1: congelar todos los días implícitos ANTES de mover cualquier cosa.
+    // Así los días sin analista explícito quedan fijos y no se redistribuyen al nuevo analista.
+    const currentMap = getReportDayAssignments(task);
+    task.scheduledDays.forEach(d => {
+        if (d.type === 'report' && !d.analyst) {
+            for (const [name, dates] of currentMap.entries()) {
+                if (dates.includes(d.date)) { d.analyst = name; break; }
+            }
         }
-    }
+    });
 
-    // Mover el día
+    const day = task.scheduledDays[dayIdx];
+    const currentOwner = day.analyst;
+
+    // Paso 2: mover el día al nuevo analista
     day.analyst  = newAnalyst;
     if (newDay)     day.day  = newDay;
     if (newDateStr) day.date = newDateStr;
@@ -2789,11 +2792,10 @@ async function reassignReportDay(task, dayIdx, newAnalyst, newDay, newDateStr) {
         newEntry.makesReport = true;
     }
 
-    // Si el dueño anterior ya no tiene días de informe, quitar makesReport
+    // Si el dueño anterior ya no tiene ningún día de informe, quitar makesReport
     if (currentOwner && currentOwner !== newAnalyst) {
         const stillHasReport = task.scheduledDays.some(
-            d => d.type === 'report' && (d.analyst === currentOwner || (!d.analyst &&
-                (() => { const m = getReportDayAssignments(task); return (m.get(currentOwner)||[]).length > 0; })()))
+            d => d.type === 'report' && d.analyst === currentOwner
         );
         if (!stillHasReport) {
             const oldEntry = assignments.find(a => a.name === currentOwner);
