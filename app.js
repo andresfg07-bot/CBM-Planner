@@ -908,6 +908,7 @@ function renderTasksTable(container) {
                                 ${statusOptions.map(opt => {
                                     let optDisabled = false;
                                     if(isEjecutada && (opt === 'proyectada' || opt === 'programada')) optDisabled = true;
+                                    if(t.status === 'proyectada' && opt === 'programada') optDisabled = true;
                                     return `<option value="${opt}" ${t.status === opt ? 'selected' : ''} ${optDisabled ? 'disabled' : ''}>${opt.toUpperCase()}</option>`;
                                 }).join('')}
                             </select>
@@ -2850,8 +2851,8 @@ function addAnalystToTask(existingData = null) {
     row.className = 'analyst-row';
 
     const analystName = existingData ? existingData.name : '';
-    const isTitularChecked = existingData ? (existingData.isTitular ? 'checked' : '') : (container.children.length === 0 ? 'checked' : '');
-    const isReportChecked = existingData ? (existingData.makesReport ? 'checked' : '') : (container.children.length === 0 ? 'checked' : '');
+    const isTitularChecked = existingData ? (existingData.isTitular ? 'checked' : '') : 'checked';
+    const isReportChecked  = existingData ? (existingData.makesReport ? 'checked' : '') : (container.children.length === 0 ? 'checked' : '');
     const pctValue = existingData ? existingData.percentage : (container.children.length === 0 ? 100 : 0);
 
     row.innerHTML = `
@@ -3822,8 +3823,8 @@ function addAnalystToTask(analystData = null) {
     const titularCheck = document.createElement('input');
     titularCheck.type = 'checkbox';
     titularCheck.className = 'analyst-titular';
-    if (analystData && analystData.isTitular) titularCheck.checked = true;
-    if (!analystData && container.children.length === 0) titularCheck.checked = true;
+    if (analystData) { titularCheck.checked = !!analystData.isTitular; }
+    else { titularCheck.checked = true; }
     titularLabel.appendChild(titularCheck);
     titularLabel.appendChild(document.createTextNode('Campo'));
 
