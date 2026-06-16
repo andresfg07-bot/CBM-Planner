@@ -2294,15 +2294,23 @@ body.role-commercial .calendar-task-pill:active {
 
 /* ── REQ-03: Gauges CSAT ──────────────────────────────────────────────────── */
 .gauges-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1.25rem;
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 0.5rem;
 }
 .gauge-card {
     display: flex;
     flex-direction: column;
     align-items: center;
-    min-width: 140px;
+    min-width: 0;
+}
+.gauge-card canvas {
+    max-width: 100%;
+    height: auto;
+}
+/* En pantallas más angostas, dos filas de 4 */
+@media (max-width: 1100px) {
+    .gauges-grid { grid-template-columns: repeat(4, 1fr); }
 }
 .gauge-value {
     font-size: 1.6rem;
