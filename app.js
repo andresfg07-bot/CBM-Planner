@@ -119,10 +119,11 @@ function applyRoleUI() {
 
     // Vistas permitidas por rol
     const allowedViews = {
-        admin:     ['dashboard', 'tasks', 'planning', 'finance', 'admin', 'reports'],
-        analyst:   ['mywork', 'planning'],
-        assistant: ['dashboard', 'tasks', 'planning', 'finance', 'reports'],
-        viewer:    ['dashboard'],
+        admin:      ['dashboard', 'tasks', 'planning', 'finance', 'admin', 'reports'],
+        analyst:    ['mywork', 'planning'],
+        assistant:  ['dashboard', 'tasks', 'planning', 'finance', 'reports'],
+        commercial: ['dashboard', 'tasks', 'planning', 'finance', 'reports'],
+        viewer:     ['dashboard'],
     };
     const allowed = allowedViews[role] || allowedViews.viewer;
 
@@ -137,7 +138,7 @@ function applyRoleUI() {
     const roleEl  = document.querySelector('.profile-info .role');
     const avatar  = document.querySelector('.avatar');
     const displayName = currentUserProfile?.display_name || currentUser?.email?.split('@')[0] || 'Usuario';
-    const roleLabel   = { admin: 'Administrador', analyst: 'Analista', assistant: 'Asistente', viewer: 'Visitante' }[role] || role;
+    const roleLabel   = { admin: 'Administrador', analyst: 'Analista', assistant: 'Asistente', commercial: 'Comercial', viewer: 'Visitante' }[role] || role;
     if (nameEl)  nameEl.textContent  = displayName;
     if (roleEl)  roleEl.textContent  = roleLabel;
     if (avatar)  avatar.textContent  = displayName[0].toUpperCase();
@@ -148,7 +149,7 @@ function applyRoleUI() {
     document.body.classList.add(`role-${role}`);
 
     // Navegar a la vista por defecto del rol
-    const defaultView = { admin: 'dashboard', analyst: 'mywork', assistant: 'tasks', viewer: 'dashboard' };
+    const defaultView = { admin: 'dashboard', analyst: 'mywork', assistant: 'tasks', commercial: 'dashboard', viewer: 'dashboard' };
     switchView(defaultView[role] || 'dashboard');
 }
 
@@ -520,7 +521,7 @@ async function renderUsersAdminSection() {
         return;
     }
 
-    const roleOptions = ['admin','analyst','assistant','viewer'];
+    const roleOptions = ['admin','analyst','assistant','commercial','viewer'];
 
     container.innerHTML = `
         <table class="data-table dense-table">
@@ -904,6 +905,9 @@ function renderTasksTable(container) {
                         <td style="color:var(--clr-green); font-weight:600">$${(t.budget || 0).toLocaleString('es-CO')}</td>
                         <td>${formatAnalystDisplay(t)}</td>
                         <td>
+                            ${role === 'commercial' ? `
+                                <span style="padding: 0.4rem 0.6rem; font-size: 0.85rem; border-radius: 6px; background:#f1f5f9; font-weight: 600; display:inline-block;">${t.status.toUpperCase()}</span>
+                            ` : `
                             <select onchange="updateTaskStatus('${t.id}', this.value)" style="padding: 0.4rem; font-size: 0.85rem; border-radius: 6px; border: 1px solid #cbd5e1; width: 100%; font-weight: 500;" ${isFacturada ? 'disabled' : ''}>
                                 ${statusOptions.map(opt => {
                                     let optDisabled = false;
@@ -912,6 +916,7 @@ function renderTasksTable(container) {
                                     return `<option value="${opt}" ${t.status === opt ? 'selected' : ''} ${optDisabled ? 'disabled' : ''}>${opt.toUpperCase()}</option>`;
                                 }).join('')}
                             </select>
+                            `}
                         </td>
                         <td>
                             <div class="action-icons">
@@ -920,6 +925,8 @@ function renderTasksTable(container) {
                                     ${actionIcon('csat',   `openClosingMeetingModal('${t.id}')`, 'Reunión de Cierre')}
                                     ${t.status === 'programada' ? actionIcon('revert', `revertToProjected('${t.id}')`, 'Revertir a Proyectada') : ''}
                                     ${actionIcon('delete', `deleteTask('${t.id}')`,              'Borrar')}
+                                ` : role === 'commercial' ? `
+                                    <span style="font-size:0.72rem; color:var(--text-secondary);">Solo lectura</span>
                                 ` : role === 'assistant' ? `
                                     <div style="display:flex;gap:0.3rem;align-items:center;">
                                         ${t.status === 'ejecutada' ? `
@@ -1661,9 +1668,15 @@ function openAbsenceDetailModal(analystName) {
 // Render Planning
 let isDragging = false;
 
+/** Roles que solo pueden visualizar el calendario, sin arrastrar ni modificar nada */
+function isPlanningReadOnly() {
+    const r = currentUserProfile?.role;
+    return r === 'analyst' || r === 'commercial';
+}
+
 function handleDragStart(e) {
-    // Analistas no pueden arrastrar — planning es solo lectura para ellos
-    if (currentUserProfile?.role === 'analyst') {
+    // Analistas/Comerciales no pueden arrastrar — planning es solo lectura para ellos
+    if (isPlanningReadOnly()) {
         e.preventDefault();
         return;
     }
@@ -1690,9 +1703,9 @@ function renderPlanningSidebar() {
     const sidebarContainer = document.getElementById('planning-sidebar-items');
     if(!sidebarContainer) return;
 
-    // Para analistas: ocultar el panel de backlog — solo pueden ver el calendario
+    // Para analistas/comerciales: ocultar el panel de backlog — solo pueden ver el calendario
     const unassignedBar = sidebarContainer.closest('.unassigned-sidebar');
-    if (currentUserProfile?.role === 'analyst') {
+    if (isPlanningReadOnly()) {
         if (unassignedBar) unassignedBar.style.display = 'none';
         return;
     }
@@ -2098,12 +2111,12 @@ function setupCalendarListeners() {
     });
 
     document.querySelectorAll('.calendar-task-pill').forEach(pill => {
-        // Para analistas: planning es solo lectura, no se puede arrastrar nada
-        if (currentUserProfile?.role === 'analyst') {
+        // Para analistas/comerciales: planning es solo lectura, no se puede arrastrar nada
+        if (isPlanningReadOnly()) {
             pill.draggable = false;
         }
         pill.addEventListener('dragstart', function(e) {
-            if (currentUserProfile?.role === 'analyst') {
+            if (isPlanningReadOnly()) {
                 e.preventDefault();
                 return;
             }
@@ -2438,7 +2451,7 @@ async function processDrop(target, taskId) {
 }
 
 async function handleCalendarDrop(cell, dragInfo) {
-    if (currentUserProfile?.role === 'analyst') return;
+    if (isPlanningReadOnly()) return;
     let isPillMove = dragInfo && dragInfo.startsWith('pill-');
     let taskId = dragInfo;
     if (isPillMove) {
@@ -2640,7 +2653,7 @@ async function handleKanbanDrop(column, taskId) {
 }
 
 async function handleSidebarDrop(e) {
-    if (currentUserProfile?.role === 'analyst') return;
+    if (isPlanningReadOnly()) return;
     if (e && e.preventDefault) e.preventDefault();
     
     // We try to get ID from multiple sources for maximum compatibility
@@ -3116,9 +3129,9 @@ function openTaskInfoModal(taskId) {
 
     const editBtn = document.getElementById('btnEditTask');
     const deleteBtn = document.getElementById('btnDeleteTask');
-    const isAnalyst = currentUserProfile?.role === 'analyst';
-    if(editBtn)   editBtn.style.display   = isAnalyst ? 'none' : '';
-    if(deleteBtn) deleteBtn.style.display = isAnalyst ? 'none' : '';
+    const isReadOnlyViewer = currentUserProfile?.role === 'analyst' || currentUserProfile?.role === 'commercial';
+    if(editBtn)   editBtn.style.display   = isReadOnlyViewer ? 'none' : '';
+    if(deleteBtn) deleteBtn.style.display = isReadOnlyViewer ? 'none' : '';
 
     if(editBtn) {
         if(task.status === 'facturada') {
