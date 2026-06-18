@@ -1190,8 +1190,11 @@ function renderDashboardStats() {
 
     const absenceByAnalyst = {};
     ausenciasFiltradas.forEach(t => {
-        if(!absenceByAnalyst[t.analyst]) absenceByAnalyst[t.analyst] = { count: 0 };
-        absenceByAnalyst[t.analyst].count += (t.scheduledDays ? t.scheduledDays.length : 0);
+        if(!absenceByAnalyst[t.analyst]) absenceByAnalyst[t.analyst] = { count: 0, byType: {} };
+        const days = t.scheduledDays ? t.scheduledDays.length : 0;
+        absenceByAnalyst[t.analyst].count += days;
+        const type = t.serviceType || 'Otra';
+        absenceByAnalyst[t.analyst].byType[type] = (absenceByAnalyst[t.analyst].byType[type] || 0) + days;
     });
 
     // Renderizado HTML
@@ -1276,12 +1279,21 @@ function renderDashboardStats() {
                     ${Object.keys(absenceByAnalyst).length === 0 ? 
                         '<p style="font-size:0.8rem; color:var(--text-secondary)">Sin novedades registradas.</p>' : 
                         `<div style="display:flex; flex-direction:column; gap:0.5rem;">
-                            ${Object.entries(absenceByAnalyst).map(([name, data]) => `
-                                <div class="absence-tag" onclick="openAbsenceDetailModal('${name.replace(/'/g, "\\'")}')" style="background:var(--clr-pink-light); padding:0.5rem 1rem; border-radius:var(--radius-md); border-left:3px solid var(--clr-pink); display:flex; justify-content:space-between; align-items:center;">
-                                    <span style="font-weight:700; font-size:0.8rem">${name}</span> 
-                                    <span style="color:var(--clr-pink); font-weight:800">${data.count} días</span>
-                                </div>
-                            `).join('')}
+                            ${Object.entries(absenceByAnalyst).map(([name, data]) => {
+                                const typeIcons = { 'Vacaciones':'🌴', 'Incapacidad':'💊', 'Compensatorio':'🔄', 'Entrenamiento o Curso':'🎓', 'Otra':'•' };
+                                const typeChips = Object.entries(data.byType)
+                                    .sort((a,b) => b[1]-a[1])
+                                    .map(([type, days]) => `<span style="font-size:0.7rem; color:var(--text-secondary); background:#ffffffcc; padding:0.1rem 0.45rem; border-radius:999px; white-space:nowrap;">${typeIcons[type] || '•'} ${type.replace('Entrenamiento o Curso','Entrenamiento')}: <strong>${days}</strong></span>`)
+                                    .join('');
+                                return `
+                                <div class="absence-tag" onclick="openAbsenceDetailModal('${name.replace(/'/g, "\\'")}')" style="background:var(--clr-pink-light); padding:0.5rem 1rem; border-radius:var(--radius-md); border-left:3px solid var(--clr-pink);">
+                                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                                        <span style="font-weight:700; font-size:0.8rem">${name}</span>
+                                        <span style="color:var(--clr-pink); font-weight:800">${data.count} días</span>
+                                    </div>
+                                    <div style="display:flex; flex-wrap:wrap; gap:0.3rem; margin-top:0.4rem;">${typeChips}</div>
+                                </div>`;
+                            }).join('')}
                         </div>`
                     }
                 </div>
