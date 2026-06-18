@@ -700,6 +700,11 @@ function isTaskInCurrentPeriod(t) {
     });
 }
 
+/** Período de facturación de una gestión (mes en que se factura, no en que se ejecuta). */
+function getTaskBillingPeriod(t) {
+    return t.mesFacturacion || t.period || '';
+}
+
 let dashboardFilters = {
     analyst: '',
     client: '',
@@ -1130,18 +1135,17 @@ function renderDashboardStats() {
 
     if (dashboardScope === 'month') {
         const periodKey = formatPeriod();
+        // Gestiones: se imputan al mes de FACTURACIÓN (no al de ejecución).
         gestionesFiltradas = gestionesFiltradas.filter(t => {
-            if (t.status === 'proyectada') return t.period === periodKey; 
-            if (!t.scheduledDays || t.scheduledDays.length === 0) return t.period === periodKey;
-            return t.scheduledDays.some(sd => (sd.date ? sd.date.substring(0, 7) : t.period) === periodKey);
+            if (t.status === 'proyectada') return t.period === periodKey;
+            return getTaskBillingPeriod(t) === periodKey;
         });
         ausenciasFiltradas = ausenciasFiltradas.filter(t => t.scheduledDays && t.scheduledDays.some(sd => (sd.date ? sd.date.substring(0, 7) : t.period) === periodKey));
     } else if (dashboardScope === 'year') {
         const yearStr = currentYear.toString();
         gestionesFiltradas = gestionesFiltradas.filter(t => {
             if (t.status === 'proyectada') return true;
-            if (!t.scheduledDays || t.scheduledDays.length === 0) return t.period.startsWith(yearStr);
-            return t.scheduledDays.some(sd => (sd.date ? sd.date.substring(0, 4) : t.period.substring(0,4)) === yearStr);
+            return getTaskBillingPeriod(t).startsWith(yearStr);
         });
         ausenciasFiltradas = ausenciasFiltradas.filter(t => t.scheduledDays && t.scheduledDays.some(sd => (sd.date ? sd.date.substring(0, 4) : t.period.substring(0,4)) === yearStr));
     }
@@ -1463,15 +1467,13 @@ function renderDashboardCharts() {
         const periodKey = formatPeriod();
         chartData = chartData.filter(t => {
             if (t.status === 'proyectada') return true;
-            if (!t.scheduledDays || t.scheduledDays.length === 0) return t.period === periodKey;
-            return t.scheduledDays.some(sd => (sd.date ? sd.date.substring(0, 7) : t.period) === periodKey);
+            return getTaskBillingPeriod(t) === periodKey;
         });
     } else if (dashboardScope === 'year') {
         const yearStr = currentYear.toString();
         chartData = chartData.filter(t => {
             if (t.status === 'proyectada') return true;
-            if (!t.scheduledDays || t.scheduledDays.length === 0) return t.period.startsWith(yearStr);
-            return t.scheduledDays.some(sd => (sd.date ? sd.date.substring(0, 4) : t.period.substring(0,4)) === yearStr);
+            return getTaskBillingPeriod(t).startsWith(yearStr);
         });
     }
 
