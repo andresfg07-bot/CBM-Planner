@@ -751,6 +751,35 @@
         </div>
     </div>
 
+    <!-- Modal Detalles del Servicio (para el comercial) -->
+    <div id="serviceDetailsModal" class="modal">
+        <div class="modal-content" style="max-width:480px;">
+            <span class="close-btn" onclick="closeModal('serviceDetailsModal')">&times;</span>
+            <h2 id="serviceDetailsTitle" style="margin-bottom:0.25rem;">📝 Detalles del Servicio</h2>
+            <p style="font-size:0.82rem; color:var(--text-secondary); margin-bottom:1rem;">
+                Agrega los detalles del servicio necesarios para el comercial, tal como # de subsistemas,
+                # de horas de servicio (hora de entrada y de salida del servicio), etc.
+            </p>
+            <div class="form-group" style="position:relative;">
+                <textarea id="serviceDetailsInput" rows="7"
+                          placeholder="Ej: Se midieron 12 subsistemas. Ingreso 7:30 a.m., salida 2:00 p.m. (6.5 h). Se revisaron 8 equipos rotativos..."
+                          style="width:100%; padding:0.7rem; border:1px solid #cbd5e1; border-radius:var(--radius-md); font-size:0.9rem; resize:vertical; line-height:1.5;"></textarea>
+                <button type="button" id="serviceDetailsMicBtn" onclick="toggleServiceDetailsDictation()"
+                        title="Dictar por voz"
+                        style="display:none; position:absolute; bottom:10px; right:10px; background:#eff6ff; border:1px solid #bae6fd; color:#0369a1; border-radius:50%; width:38px; height:38px; font-size:1.1rem; cursor:pointer;">
+                    🎤
+                </button>
+            </div>
+            <div id="serviceDetailsMicHint" style="display:none; font-size:0.72rem; color:var(--clr-blue); margin-bottom:0.75rem;">
+                🎤 Escuchando… habla y el texto se irá agregando. Pulsa de nuevo para detener.
+            </div>
+            <div id="serviceDetailsActions" style="display:flex; gap:0.75rem; margin-top:0.5rem;">
+                <button class="btn-secondary" onclick="closeModal('serviceDetailsModal')" style="flex:1;">Cancelar</button>
+                <button class="btn-primary" onclick="saveServiceDetails()" style="flex:1;">Guardar</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Supabase & SheetJS -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>

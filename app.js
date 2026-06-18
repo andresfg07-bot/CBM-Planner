@@ -458,14 +458,19 @@ function renderMyWorkCard(task) {
 
     return `
         <div class="mywork-card status-${task.status}">
-            <div class="mywork-card-top" onclick="openTaskInfoModal('${task.id}')" style="cursor:pointer;" title="Ver detalle">
-                <div class="mywork-card-info">
+            <div class="mywork-card-top">
+                <div class="mywork-card-info" onclick="openTaskInfoModal('${task.id}')" style="cursor:pointer;" title="Ver detalle">
                     <h3 class="mywork-card-client">${task.client || task.clientName || '—'}</h3>
                     ${task.plantName ? `<p class="mywork-card-plant">📍 ${task.plantName}</p>` : ''}
                     <p class="mywork-card-service">${task.serviceType || '—'}</p>
                     ${task.equipment || task.equipmentName
                         ? `<p class="mywork-card-equip">${task.equipment || task.equipmentName}</p>` : ''}
                 </div>
+                <button class="mywork-eye-btn ${task.serviceDetails ? 'has-details' : ''}"
+                        onclick="event.stopPropagation(); openServiceDetailsModal('${task.id}')"
+                        title="${task.serviceDetails ? 'Editar detalles para el comercial' : 'Agregar detalles del servicio para el comercial'}">
+                    👁️
+                </button>
             </div>
 
             <div class="mywork-card-dates">
@@ -523,6 +528,98 @@ async function reopenCsat(taskId) {
     if(typeof renderMyWorkView === 'function') renderMyWorkView();
     renderDashboardStats();
     showToast('CSAT reabierto. El analista ya puede registrarlo de nuevo.', 'success');
+}
+
+// ── Detalles del servicio para el comercial ──────────────────────────────────
+let _serviceDetailsTaskId = null;
+let _serviceDictation = null; // instancia de SpeechRecognition
+
+function openServiceDetailsModal(taskId) {
+    const task = tasks.find(t => t.id === taskId);
+    if(!task) return;
+    _serviceDetailsTaskId = taskId;
+
+    const role = currentUserProfile?.role || 'viewer';
+    const editable = (role === 'analyst' || role === 'admin');
+
+    const input   = document.getElementById('serviceDetailsInput');
+    const actions = document.getElementById('serviceDetailsActions');
+    const micBtn  = document.getElementById('serviceDetailsMicBtn');
+    const title   = document.getElementById('serviceDetailsTitle');
+
+    input.value = task.serviceDetails || '';
+    input.readOnly = !editable;
+    title.textContent = editable ? '📝 Detalles del Servicio' : '📝 Detalles del Servicio (solo lectura)';
+
+    // Botones de guardar/cancelar solo si puede editar
+    actions.style.display = editable ? 'flex' : 'none';
+
+    // Micrófono: solo si puede editar y el navegador soporta reconocimiento de voz
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    micBtn.style.display = (editable && SpeechRec) ? 'block' : 'none';
+    _stopServiceDictation();
+
+    document.getElementById('serviceDetailsModal').classList.add('active');
+}
+
+async function saveServiceDetails() {
+    const task = tasks.find(t => t.id === _serviceDetailsTaskId);
+    if(!task) return;
+    _stopServiceDictation();
+    task.serviceDetails = document.getElementById('serviceDetailsInput').value.trim();
+
+    saveTasks();
+    closeModal('serviceDetailsModal');
+    if(typeof renderMyWorkView === 'function') renderMyWorkView();
+    renderTasksView();
+    await saveTaskToSupabase(task);
+    showToast('Detalles del servicio guardados.', 'success');
+}
+
+function toggleServiceDetailsDictation() {
+    if(_serviceDictation) { _stopServiceDictation(); return; }
+
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!SpeechRec) return;
+
+    const rec = new SpeechRec();
+    rec.lang = 'es-CO';
+    rec.continuous = true;
+    rec.interimResults = false;
+
+    const input = document.getElementById('serviceDetailsInput');
+    const micBtn = document.getElementById('serviceDetailsMicBtn');
+    const hint = document.getElementById('serviceDetailsMicHint');
+
+    rec.onresult = (e) => {
+        let nuevo = '';
+        for(let i = e.resultIndex; i < e.results.length; i++) {
+            if(e.results[i].isFinal) nuevo += e.results[i][0].transcript;
+        }
+        if(nuevo) {
+            const sep = input.value && !input.value.endsWith(' ') ? ' ' : '';
+            input.value += sep + nuevo.trim();
+        }
+    };
+    rec.onerror = () => _stopServiceDictation();
+    rec.onend = () => { if(_serviceDictation) { try { rec.start(); } catch(_) {} } };
+
+    _serviceDictation = rec;
+    try { rec.start(); } catch(_) {}
+    if(micBtn) { micBtn.style.background = '#fee2e2'; micBtn.style.borderColor = '#fca5a5'; micBtn.style.color = '#dc2626'; micBtn.textContent = '⏹'; }
+    if(hint) hint.style.display = 'block';
+}
+
+function _stopServiceDictation() {
+    const micBtn = document.getElementById('serviceDetailsMicBtn');
+    const hint = document.getElementById('serviceDetailsMicHint');
+    if(_serviceDictation) {
+        const rec = _serviceDictation;
+        _serviceDictation = null; // evita reinicio en onend
+        try { rec.stop(); } catch(_) {}
+    }
+    if(micBtn) { micBtn.style.background = '#eff6ff'; micBtn.style.borderColor = '#bae6fd'; micBtn.style.color = '#0369a1'; micBtn.textContent = '🎤'; }
+    if(hint) hint.style.display = 'none';
 }
 
 // ── Gestión de usuarios (admin) ───────────────────────────────────────────────
@@ -624,6 +721,7 @@ const SVG_ICONS = {
     pref:   `<svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>`,
     plant:  `<svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
     reopen: `<svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>`,
+    note:   `<svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
 };
 function actionIcon(type, onclick, title) {
     return `<span class="action-icon ${type}" onclick="${onclick}" title="${title}">${SVG_ICONS[type] || ''}</span>`;
@@ -994,11 +1092,14 @@ function renderTasksTable(container) {
                                 ${role === 'admin' ? `
                                     ${actionIcon('edit',   `openEditTaskModal('${t.id}')`,       'Editar')}
                                     ${actionIcon('csat',   `openClosingMeetingModal('${t.id}')`, 'Reunión de Cierre')}
+                                    ${actionIcon('note',   `openServiceDetailsModal('${t.id}')`, t.serviceDetails ? 'Ver detalles del servicio (comercial)' : 'Agregar detalles del servicio (comercial)')}
                                     ${(t.csatScore || t.clientNoResponse) ? actionIcon('reopen', `reopenCsat('${t.id}')`, 'Reabrir CSAT (para que el analista lo llene de nuevo)') : ''}
                                     ${t.status === 'programada' ? actionIcon('revert', `revertToProjected('${t.id}')`, 'Revertir a Proyectada') : ''}
                                     ${actionIcon('delete', `deleteTask('${t.id}')`,              'Borrar')}
                                 ` : role === 'commercial' ? `
-                                    <span style="font-size:0.72rem; color:var(--text-secondary);">Solo lectura</span>
+                                    ${t.serviceDetails
+                                        ? actionIcon('note', `openServiceDetailsModal('${t.id}')`, 'Ver detalles del servicio')
+                                        : '<span style="font-size:0.72rem; color:var(--text-secondary);">Sin detalles</span>'}
                                 ` : role === 'assistant' ? `
                                     <div style="display:flex;gap:0.3rem;align-items:center;">
                                         ${t.status === 'ejecutada' ? `
@@ -3546,6 +3647,7 @@ async function saveTaskToSupabase(task) {
             client_no_response: task.clientNoResponse || false,
             evidence_notes: task.evidenceNotes || null,
             evidence_files: task.evidenceFiles || [],
+            service_details: task.serviceDetails || null,
             mes_facturacion: task.mesFacturacion || task.period,
             analysts_assignment: task.analysts_assignment || [],
             plant_id:   task.plantId   || null,
@@ -3614,6 +3716,7 @@ async function loadTasksFromSupabase() {
                 clientNoResponse: t.client_no_response || false,
                 evidenceNotes: t.evidence_notes || '',
                 evidenceFiles: t.evidence_files || [],
+                serviceDetails: t.service_details || '',
                 plantId:   t.plant_id   || null,
                 plantName: t.plant_name || ''
             }));
@@ -3870,6 +3973,7 @@ function openCsatModal(taskId, targetStatus) {
 }
 
 function closeModal(modalId) {
+    if (modalId === 'serviceDetailsModal' && typeof _stopServiceDictation === 'function') _stopServiceDictation();
     const modal = document.getElementById(modalId);
     if (modal) modal.classList.remove('active');
 }
@@ -4929,10 +5033,16 @@ function renderReportsTable() {
                     <th style="min-width:200px">Analistas</th>
                     <th style="min-width:120px">Servicio Realizado</th>
                     <th style="min-width:90px">Estado</th>
+                    <th style="min-width:170px">Detalle p/Comercial</th>
                 </tr>
             </thead>
             <tbody>
-                ${data.map(t => `
+                ${data.map(t => {
+                    const det = (t.serviceDetails || '').trim();
+                    const detCell = det
+                        ? `<span onclick="openServiceDetailsModal('${t.id}')" title="${det.replace(/"/g,'&quot;')}" style="cursor:pointer; color:var(--clr-blue); display:inline-block; max-width:170px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; vertical-align:bottom;">📝 ${det.length > 30 ? det.substring(0,30)+'…' : det}</span>`
+                        : '<span style="color:#cbd5e1;">—</span>';
+                    return `
                     <tr>
                         <td>${formatReportPeriod(t.mesFacturacion || t.period)}</td>
                         <td><strong>${t.client}</strong>${t.plantName ? `<br><span style="font-size:0.72rem;color:var(--clr-blue);font-weight:600;">📍 ${t.plantName}</span>` : ''}</td>
@@ -4940,14 +5050,15 @@ function renderReportsTable() {
                         <td style="font-size:0.75rem">${formatAnalystDisplay(t)}</td>
                         <td>${t.serviceType || '-'}</td>
                         <td><span class="status-tag ${t.status}" style="font-size:0.7rem">${t.status.toUpperCase()}</span></td>
+                        <td style="font-size:0.75rem">${detCell}</td>
                     </tr>
-                `).join('')}
+                `;}).join('')}
             </tbody>
             <tfoot>
                 <tr style="background: #f0f9ff; font-weight:800; border-top: 2px solid var(--clr-blue);">
                     <td colspan="2" style="padding: 0.75rem; font-size:0.85rem; color:var(--clr-blue)">TOTAL (${data.length} gestiones)</td>
                     <td style="text-align:right; color:var(--clr-green); font-size:1rem; padding:0.75rem;">$${total.toLocaleString('es-CO')}</td>
-                    <td colspan="3"></td>
+                    <td colspan="4"></td>
                 </tr>
             </tfoot>
         </table>
@@ -4958,17 +5069,18 @@ function exportReportCSV() {
     const data = getReportData();
     if(data.length === 0) { alert('No hay datos para exportar.'); return; }
 
-    const headers = ['Fecha/Período','Cliente (Planta)','Monto ($)','Analistas','Servicio Realizado','Estado'];
+    const headers = ['Fecha/Período','Cliente (Planta)','Monto ($)','Analistas','Servicio Realizado','Estado','Detalle p/Comercial'];
     const rows = data.map(t => [
         formatReportPeriod(t.mesFacturacion || t.period),
         t.plantName ? `${t.client} - ${t.plantName}` : t.client,
         t.budget || 0,
         formatAnalystDisplay(t),
         t.serviceType || '',
-        t.status
+        t.status,
+        t.serviceDetails || ''
     ]);
     const total = data.reduce((s, t) => s + (t.budget || 0), 0);
-    rows.push(['TOTAL', '', total, '', '', '']);
+    rows.push(['TOTAL', '', total, '', '', '', '']);
 
     const csvContent = [headers, ...rows]
         .map(r => r.map(cell => `"${String(cell).replace(/"/g,'""')}"`).join(','))

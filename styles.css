@@ -2142,6 +2142,23 @@ body.role-commercial .calendar-task-pill:active {
     margin-bottom: 0.75rem;
 }
 .mywork-card-info { flex: 1; }
+.mywork-eye-btn {
+    flex-shrink: 0;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    width: 34px;
+    height: 34px;
+    font-size: 1rem;
+    cursor: pointer;
+    line-height: 1;
+    transition: background 0.15s, transform 0.1s;
+}
+.mywork-eye-btn:hover { background: #e0f2fe; transform: scale(1.08); }
+.mywork-eye-btn.has-details {
+    background: #dcfce7;
+    border-color: #86efac;
+}
 .mywork-card-client {
     font-size: 1rem;
     font-weight: 700;
