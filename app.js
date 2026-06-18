@@ -502,6 +502,29 @@ function analystOpenCsat(taskId) {
     openClosingMeetingModal(taskId);
 }
 
+/** Admin: reabre el CSAT de una gestión para que el analista pueda volver a llenarlo. */
+async function reopenCsat(taskId) {
+    const task = tasks.find(t => t.id === taskId);
+    if(!task) return;
+    const ok = confirm(
+        '¿Reabrir el CSAT de esta gestión?\n\n' +
+        'Se borrará la calificación y la marca de "cliente no respondió" para que el analista pueda registrarlo de nuevo.\n' +
+        'Las observaciones y archivos de evidencia se conservan.'
+    );
+    if(!ok) return;
+
+    task.csatScore        = null;
+    task.clientNoResponse = false;
+
+    saveTasks();
+    await saveTaskToSupabase(task);
+
+    renderTasksView();
+    if(typeof renderMyWorkView === 'function') renderMyWorkView();
+    renderDashboardStats();
+    showToast('CSAT reabierto. El analista ya puede registrarlo de nuevo.', 'success');
+}
+
 // ── Gestión de usuarios (admin) ───────────────────────────────────────────────
 
 let dbProfiles = []; // perfiles de todos los usuarios
@@ -600,6 +623,7 @@ const SVG_ICONS = {
     revert: `<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`,
     pref:   `<svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>`,
     plant:  `<svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
+    reopen: `<svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>`,
 };
 function actionIcon(type, onclick, title) {
     return `<span class="action-icon ${type}" onclick="${onclick}" title="${title}">${SVG_ICONS[type] || ''}</span>`;
@@ -970,6 +994,7 @@ function renderTasksTable(container) {
                                 ${role === 'admin' ? `
                                     ${actionIcon('edit',   `openEditTaskModal('${t.id}')`,       'Editar')}
                                     ${actionIcon('csat',   `openClosingMeetingModal('${t.id}')`, 'Reunión de Cierre')}
+                                    ${(t.csatScore || t.clientNoResponse) ? actionIcon('reopen', `reopenCsat('${t.id}')`, 'Reabrir CSAT (para que el analista lo llene de nuevo)') : ''}
                                     ${t.status === 'programada' ? actionIcon('revert', `revertToProjected('${t.id}')`, 'Revertir a Proyectada') : ''}
                                     ${actionIcon('delete', `deleteTask('${t.id}')`,              'Borrar')}
                                 ` : role === 'commercial' ? `
