@@ -864,6 +864,18 @@ function getGlobalFiltersHTML() {
         </div>`;
 }
 
+let tasksSortState = { column: null, dir: 'asc' };
+
+function sortTasksBy(column) {
+    if (tasksSortState.column === column) {
+        tasksSortState.dir = tasksSortState.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+        tasksSortState.column = column;
+        tasksSortState.dir = 'asc';
+    }
+    renderTasksView();
+}
+
 function renderTasksTable(container) {
     const role = currentUserProfile?.role || 'admin';
     let filteredTasks = tasks.slice().filter(t => !t.isAbsence && isTaskInCurrentPeriod(t));
@@ -879,15 +891,43 @@ function renderTasksTable(container) {
         );
     }
 
+    // Ordenamiento por columna
+    if (tasksSortState.column) {
+        const statusOrder = { proyectada: 0, programada: 1, ejecutada: 2, facturada: 3 };
+        const getVal = (t) => {
+            switch (tasksSortState.column) {
+                case 'client':  return (t.client || '').toLowerCase();
+                case 'type':    return (t.serviceType || '').toLowerCase();
+                case 'budget':  return t.budget || 0;
+                case 'analyst': return (formatAnalystDisplay(t) || '').toLowerCase();
+                case 'status':  return statusOrder[t.status] ?? 99;
+                default:        return '';
+            }
+        };
+        const dir = tasksSortState.dir === 'asc' ? 1 : -1;
+        filteredTasks.sort((a, b) => {
+            const va = getVal(a), vb = getVal(b);
+            if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+            return String(va).localeCompare(String(vb), 'es') * dir;
+        });
+    }
+
+    const sortArrow = (col) => {
+        if (tasksSortState.column !== col) return '<span style="opacity:0.3;">↕</span>';
+        return tasksSortState.dir === 'asc' ? '↑' : '↓';
+    };
+    const thSort = (col, label, extraStyle = '') =>
+        `<th onclick="sortTasksBy('${col}')" style="cursor:pointer; user-select:none; ${extraStyle}">${label} <span style="font-size:0.75em;">${sortArrow(col)}</span></th>`;
+
     container.innerHTML = `
         <table class="data-table">
             <thead>
                 <tr>
-                    <th>Gestión / Cliente</th>
-                    <th>Tipo</th>
-                    <th>Presupuesto</th>
-                    <th>Analista</th>
-                    <th style="width: 15rem;">Estado</th>
+                    ${thSort('client',  'Gestión / Cliente')}
+                    ${thSort('type',    'Tipo')}
+                    ${thSort('budget',  'Presupuesto')}
+                    ${thSort('analyst', 'Analista')}
+                    ${thSort('status',  'Estado', 'width: 15rem;')}
                     <th style="width: 8rem;">Acción</th>
                 </tr>
             </thead>
