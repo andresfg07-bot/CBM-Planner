@@ -4629,6 +4629,26 @@ function _csatEstadoCierre(t) {
     return { label: '🕐 Pendiente', color: '#6b7280', bg: '#f8fafc' };
 }
 
+/** Celda de evidencia: justificación escrita (tooltip) + enlaces a archivos adjuntos. */
+function _csatEvidenceCell(t) {
+    const files = t.evidenceFiles || [];
+    const hasNotes = !!(t.evidenceNotes && t.evidenceNotes.trim());
+    if(files.length === 0 && !hasNotes) return '<span style="color:#cbd5e1;">—</span>';
+
+    const noteHTML = hasNotes
+        ? `<div title="${t.evidenceNotes.replace(/"/g,'&quot;')}" style="font-size:0.7rem;color:#475569;margin-bottom:0.25rem;cursor:help;">📝 ${t.evidenceNotes.length > 40 ? t.evidenceNotes.substring(0,40)+'…' : t.evidenceNotes}</div>`
+        : '';
+
+    const linksHTML = files.map(f => {
+        const url  = typeof f === 'string' ? f : f.url;
+        const name = typeof f === 'string' ? (f.split('/').pop() || 'archivo') : f.name;
+        const isImg = /\.(jpg|jpeg|png|gif|webp)$/i.test(name);
+        return `<a href="${url}" target="_blank" rel="noopener" style="display:block;font-size:0.72rem;color:var(--clr-blue);text-decoration:underline;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px;">${isImg ? '🖼️' : '📄'} ${name}</a>`;
+    }).join('');
+
+    return noteHTML + linksHTML;
+}
+
 function renderCsatTable() {
     const container = document.getElementById('reports-table-container');
     if(!container) return;
@@ -4679,6 +4699,7 @@ function renderCsatTable() {
                     <th style="min-width:110px;">Servicio</th>
                     <th style="min-width:130px;">Estado Cierre</th>
                     <th style="min-width:180px;">Observaciones</th>
+                    <th style="min-width:150px;">Evidencia</th>
                 </tr>
             </thead>
             <tbody>
@@ -4686,16 +4707,14 @@ function renderCsatTable() {
                     const cierre = _csatEstadoCierre(t);
                     const client = t.client + (t.plantName ? `<br><span style="font-size:0.7rem;color:var(--clr-blue);font-weight:600;">📍 ${t.plantName}</span>` : '');
                     const analysts = formatAnalystDisplay(t);
-                    const evidencia = (t.evidenceFiles||[]).length > 0
-                        ? `<span style="font-size:0.7rem;color:var(--clr-purple);">📎 ${t.evidenceFiles.length} archivo(s)</span>`
-                        : '';
                     return `<tr>
                         <td>${formatReportPeriod(t.mesFacturacion||t.period)}</td>
                         <td>${client}</td>
                         <td style="font-size:0.75rem;">${analysts}</td>
                         <td>${t.serviceType||'-'}</td>
                         <td><span style="background:${cierre.bg};color:${cierre.color};font-weight:700;font-size:0.75rem;padding:0.2rem 0.5rem;border-radius:6px;white-space:nowrap;">${cierre.label}</span></td>
-                        <td style="font-size:0.75rem;color:#475569;">${t.csatObservations||''} ${evidencia}</td>
+                        <td style="font-size:0.75rem;color:#475569;">${t.csatObservations||''}</td>
+                        <td>${_csatEvidenceCell(t)}</td>
                     </tr>`;
                 }).join('')}
             </tbody>
@@ -4706,9 +4725,10 @@ function renderCsatTable() {
 function exportCsatCSV() {
     const data = getCsatTableData();
     if(!data.length) { alert('No hay datos para exportar.'); return; }
-    const headers = ['Período','Cliente','Planta','Analistas','Servicio','Estado Cierre','Puntuación','Observaciones','Archivos evidencia'];
+    const headers = ['Período','Cliente','Planta','Analistas','Servicio','Estado Cierre','Puntuación','Observaciones','Justificación','Evidencia (enlaces)'];
     const rows = data.map(t => {
         const cierre = _csatEstadoCierre(t);
+        const urls = (t.evidenceFiles||[]).map(f => typeof f === 'string' ? f : f.url).join(' | ');
         return [
             formatReportPeriod(t.mesFacturacion||t.period),
             t.client, t.plantName||'',
@@ -4717,7 +4737,8 @@ function exportCsatCSV() {
             cierre.label.replace(/[⭐⚠️🕐]/g,'').trim(),
             t.csatScore||'',
             t.csatObservations||'',
-            (t.evidenceFiles||[]).length
+            t.evidenceNotes||'',
+            urls
         ];
     });
     const csv = [headers,...rows].map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
@@ -4779,22 +4800,28 @@ async function exportCsatPDF() {
 
     doc.autoTable({
         startY: 38,
-        head: [['Período','Cliente / Planta','Analistas','Servicio','Estado Cierre','Observaciones']],
+        head: [['Período','Cliente / Planta','Analistas','Servicio','Estado Cierre','Observaciones','Evidencia']],
         body: data.map(t => {
             const cierre = _csatEstadoCierre(t);
+            const nFiles = (t.evidenceFiles||[]).length;
+            const evid = [
+                nFiles > 0 ? `${nFiles} archivo(s)` : '',
+                (t.evidenceNotes||'').trim()
+            ].filter(Boolean).join('\n') || '—';
             return [
                 formatReportPeriod(t.mesFacturacion||t.period),
                 t.plantName ? `${t.client}\n${t.plantName}` : t.client,
                 formatAnalystDisplay(t),
                 t.serviceType||'-',
                 cierre.label.replace(/[⭐⚠️🕐]/g,'').trim(),
-                t.csatObservations||''
+                t.csatObservations||'',
+                evid
             ];
         }),
         styles: { fontSize:7.5, cellPadding:2 },
         headStyles: { fillColor:BLUE, textColor:[255,255,255], fontStyle:'bold' },
         alternateRowStyles: { fillColor:[239,246,255] },
-        columnStyles: { 0:{cellWidth:22}, 1:{cellWidth:45}, 2:{cellWidth:40}, 3:{cellWidth:28}, 4:{cellWidth:30}, 5:{cellWidth:'auto'} },
+        columnStyles: { 0:{cellWidth:20}, 1:{cellWidth:42}, 2:{cellWidth:38}, 3:{cellWidth:26}, 4:{cellWidth:28}, 5:{cellWidth:'auto'}, 6:{cellWidth:40} },
         margin: { left:mX, right:mX, bottom:25 },
         didDrawPage: d => { if(d.pageNumber>1) drawLayout(d.pageNumber); }
     });
