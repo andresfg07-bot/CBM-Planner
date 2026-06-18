@@ -451,8 +451,10 @@ function renderMyWorkCard(task) {
     const makesReport  = assign?.makesReport;
 
     const canExecute   = task.status === 'programada';
-    const canCsat      = task.status === 'ejecutada' && !task.csatScore && !task.clientNoResponse;
-    const csatDone     = task.status === 'ejecutada' && (task.csatScore || task.clientNoResponse);
+    // El cierre CSAT puede hacerse antes o después de facturar
+    const closable     = task.status === 'ejecutada' || task.status === 'facturada';
+    const canCsat      = closable && !task.csatScore && !task.clientNoResponse;
+    const csatDone     = closable && (task.csatScore || task.clientNoResponse);
 
     return `
         <div class="mywork-card status-${task.status}">
