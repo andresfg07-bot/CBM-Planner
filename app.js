@@ -4767,7 +4767,7 @@ function _csatEvidenceCell(t) {
     if(files.length === 0 && !hasNotes) return '<span style="color:#cbd5e1;">—</span>';
 
     const noteHTML = hasNotes
-        ? `<div title="${t.evidenceNotes.replace(/"/g,'&quot;')}" style="font-size:0.7rem;color:#475569;margin-bottom:0.25rem;cursor:help;">📝 ${t.evidenceNotes.length > 40 ? t.evidenceNotes.substring(0,40)+'…' : t.evidenceNotes}</div>`
+        ? `<div onclick="openEvidenceNote('${t.id}')" title="Clic para ver completo" style="font-size:0.7rem;color:var(--clr-blue);margin-bottom:0.25rem;cursor:pointer;text-decoration:underline;">📝 ${t.evidenceNotes.length > 40 ? t.evidenceNotes.substring(0,40)+'…' : t.evidenceNotes}</div>`
         : '';
 
     const linksHTML = files.map(f => {
@@ -4779,6 +4779,15 @@ function _csatEvidenceCell(t) {
     }).join('');
 
     return noteHTML + linksHTML;
+}
+
+/** Muestra el texto completo de la justificación del analista en un modal. */
+function openEvidenceNote(taskId) {
+    const task = tasks.find(t => t.id === taskId);
+    if(!task || !task.evidenceNotes) return;
+    document.getElementById('textViewerTitle').textContent = '📝 Justificación del analista';
+    document.getElementById('textViewerBody').textContent = task.evidenceNotes;
+    document.getElementById('textViewerModal').classList.add('active');
 }
 
 /**

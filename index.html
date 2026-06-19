@@ -780,6 +780,18 @@
         </div>
     </div>
 
+    <!-- Modal Visor de Texto (justificaciones / notas) -->
+    <div id="textViewerModal" class="modal">
+        <div class="modal-content" style="max-width:460px;">
+            <span class="close-btn" onclick="closeModal('textViewerModal')">&times;</span>
+            <h2 id="textViewerTitle" style="margin-bottom:1rem;">Detalle</h2>
+            <div id="textViewerBody" style="font-size:0.9rem; color:#334155; line-height:1.6; white-space:pre-wrap; max-height:60vh; overflow-y:auto; background:#f8fafc; border:1px solid #e2e8f0; border-radius:var(--radius-md); padding:1rem;"></div>
+            <div style="margin-top:1.25rem;">
+                <button class="btn-primary" onclick="closeModal('textViewerModal')" style="width:100%;">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Supabase & SheetJS -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
