@@ -4774,10 +4774,37 @@ function _csatEvidenceCell(t) {
         const url  = typeof f === 'string' ? f : f.url;
         const name = typeof f === 'string' ? (f.split('/').pop() || 'archivo') : f.name;
         const isImg = /\.(jpg|jpeg|png|gif|webp)$/i.test(name);
-        return `<a href="${url}" target="_blank" rel="noopener" style="display:block;font-size:0.72rem;color:var(--clr-blue);text-decoration:underline;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px;">${isImg ? '🖼️' : '📄'} ${name}</a>`;
+        const safeUrl = url.replace(/'/g, "\\'");
+        return `<a href="${url}" target="_blank" rel="noopener" onclick="event.preventDefault(); openEvidence('${safeUrl}');" style="display:block;font-size:0.72rem;color:var(--clr-blue);text-decoration:underline;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px;cursor:pointer;">${isImg ? '🖼️' : '📄'} ${name}</a>`;
     }).join('');
 
     return noteHTML + linksHTML;
+}
+
+/**
+ * Abre un archivo de evidencia. Genera una URL firmada temporal (funciona con bucket
+ * privado); si falla, intenta abrir la URL pública directamente.
+ */
+async function openEvidence(fileUrl) {
+    try {
+        const marker = '/evidence-files/';
+        const idx = fileUrl.indexOf(marker);
+        if(idx !== -1 && supabaseClient) {
+            const path = decodeURIComponent(fileUrl.substring(idx + marker.length));
+            const { data, error } = await supabaseClient.storage
+                .from('evidence-files')
+                .createSignedUrl(path, 3600); // válido 1 hora
+            if(!error && data && data.signedUrl) {
+                window.open(data.signedUrl, '_blank', 'noopener');
+                return;
+            }
+            console.error('No se pudo firmar la URL de evidencia:', error);
+        }
+    } catch(e) {
+        console.error('Error abriendo evidencia:', e);
+    }
+    // Fallback: intentar la URL pública directamente
+    window.open(fileUrl, '_blank', 'noopener');
 }
 
 function renderCsatTable() {
