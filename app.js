@@ -4636,7 +4636,24 @@ async function updateEquipment(e, equipmentId) {
 let reportFilters    = { analyst: '', client: '', serviceType: '', dateFrom: '', dateTo: '', csatStatus: '' };
 let reportActiveTab  = 'gestiones'; // 'gestiones' | 'csat'
 
+let reportsDefaultApplied = false;
+
 function initReportsView() {
+    // Por defecto, filtrar al mes ACTUAL real (de hoy), independiente de la
+    // navegación de mes del calendario/dashboard. Solo se aplica la primera vez;
+    // luego respeta lo que el usuario haya escogido (o limpiado).
+    if(!reportsDefaultApplied) {
+        const now = new Date();
+        const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        reportFilters.dateFrom = ym;
+        reportFilters.dateTo   = ym;
+        reportsDefaultApplied  = true;
+    }
+    const fromEl = document.getElementById('report-filter-from');
+    const toEl   = document.getElementById('report-filter-to');
+    if(fromEl) fromEl.value = reportFilters.dateFrom || '';
+    if(toEl)   toEl.value   = reportFilters.dateTo   || '';
+
     const analystSel = document.getElementById('report-filter-analyst');
     const clientSel = document.getElementById('report-filter-client');
     if(analystSel) {
