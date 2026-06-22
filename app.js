@@ -3458,6 +3458,7 @@ function renderFinanceView() {
                     client:      t.client,
                     plantName:   t.plantName || '',
                     serviceType: t.serviceType || '',
+                    analyst:     formatAnalystDisplay(t),
                     amount:      taskValue,
                     period:      t.period || ''
                 };
@@ -3486,7 +3487,7 @@ function renderFinanceView() {
         const ellipsis = expanded ? 'clip' : 'ellipsis';
 
         const rows = Object.keys(bd).length > 0
-            ? Object.values(bd).map(({ client, plantName, serviceType, amount, period }) => {
+            ? Object.values(bd).map(({ client, plantName, serviceType, analyst, amount, period }) => {
                 const monthAbbr = period
                     ? monthNames[parseInt(period.split('-')[1]) - 1]?.substring(0, 3) || ''
                     : '';
@@ -3501,6 +3502,7 @@ function renderFinanceView() {
                         </div>
                         ${plantName ? `<div style="font-size:0.68rem; color:${c.clr}; font-weight:600; white-space:${wrap}; overflow:${overflowText}; text-overflow:${ellipsis}; word-break:break-word;">📍 ${plantName}</div>` : ''}
                         ${expanded && serviceType ? `<div style="font-size:0.68rem; color:#64748b; font-weight:500; margin-top:0.15rem;">🔧 ${serviceType}</div>` : ''}
+                        ${expanded && analyst && analyst !== '-' ? `<div style="font-size:0.68rem; color:#64748b; font-weight:500; margin-top:0.15rem;">👤 ${analyst}</div>` : ''}
                     </div>
                     <span style="font-weight:700; color:${c.clr}; white-space:nowrap;">$${amount.toLocaleString('es-CO')}</span>
                 </div>`;
