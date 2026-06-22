@@ -3379,6 +3379,15 @@ function populateFinanceMonths() {
     });
 }
 
+/** Estado de expansión por tarjeta en la vista de Finanzas (per-sesión). */
+const financeExpandedCards = new Set();
+
+function toggleFinanceCardExpand(key) {
+    if(financeExpandedCards.has(key)) financeExpandedCards.delete(key);
+    else financeExpandedCards.add(key);
+    renderFinanceView();
+}
+
 function renderFinanceView() {
     const container = document.getElementById('finance-summary-container');
     if(!container) return;
@@ -3446,10 +3455,11 @@ function renderFinanceView() {
                 stats[t.status] += taskValue;
                 // Clave por ID: cada gestión es siempre una línea independiente
                 breakdowns[t.status][t.id] = {
-                    client:    t.client,
-                    plantName: t.plantName || '',
-                    amount:    taskValue,
-                    period:    t.period || ''
+                    client:      t.client,
+                    plantName:   t.plantName || '',
+                    serviceType: t.serviceType || '',
+                    amount:      taskValue,
+                    period:      t.period || ''
                 };
             }
         }
@@ -3470,21 +3480,27 @@ function renderFinanceView() {
 
     container.innerHTML = cards.map(c => {
         const bd = breakdowns[c.key];
+        const expanded = financeExpandedCards.has(c.key);
+        const wrap = expanded ? 'normal' : 'nowrap';
+        const overflowText = expanded ? 'visible' : 'hidden';
+        const ellipsis = expanded ? 'clip' : 'ellipsis';
+
         const rows = Object.keys(bd).length > 0
-            ? Object.values(bd).map(({ client, plantName, amount, period }) => {
+            ? Object.values(bd).map(({ client, plantName, serviceType, amount, period }) => {
                 const monthAbbr = period
                     ? monthNames[parseInt(period.split('-')[1]) - 1]?.substring(0, 3) || ''
                     : '';
                 return `
-                <div style="display:flex; justify-content:space-between; align-items:center;
+                <div style="display:flex; justify-content:space-between; align-items:${expanded ? 'flex-start' : 'center'};
                             padding:0.35rem 0; border-bottom:1px solid ${c.clr}18;
                             font-size:0.78rem; gap:0.5rem;">
                     <div style="overflow:hidden; flex:1; min-width:0;">
-                        <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#374151;">
+                        <div style="overflow:${overflowText}; text-overflow:${ellipsis}; white-space:${wrap}; color:#374151; word-break:break-word;">
                             ${client}
                             ${monthAbbr ? `<span style="font-size:0.62rem; color:#94a3b8; font-weight:400;">(${monthAbbr})</span>` : ''}
                         </div>
-                        ${plantName ? `<div style="font-size:0.68rem; color:${c.clr}; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">📍 ${plantName}</div>` : ''}
+                        ${plantName ? `<div style="font-size:0.68rem; color:${c.clr}; font-weight:600; white-space:${wrap}; overflow:${overflowText}; text-overflow:${ellipsis}; word-break:break-word;">📍 ${plantName}</div>` : ''}
+                        ${expanded && serviceType ? `<div style="font-size:0.68rem; color:#64748b; font-weight:500; margin-top:0.15rem;">🔧 ${serviceType}</div>` : ''}
                     </div>
                     <span style="font-weight:700; color:${c.clr}; white-space:nowrap;">$${amount.toLocaleString('es-CO')}</span>
                 </div>`;
@@ -3501,8 +3517,8 @@ function renderFinanceView() {
             box-shadow: 0 2px 8px ${c.clr}15;
             overflow:hidden;
         ">
-            <!-- Pill header -->
-            <div style="padding:1rem 1rem 0.75rem;">
+            <!-- Pill header con botón expandir -->
+            <div style="padding:1rem 1rem 0.75rem; display:flex; justify-content:space-between; align-items:center; gap:0.5rem;">
                 <span style="
                     display:inline-flex; align-items:center; gap:0.35rem;
                     background:${c.clr}; color:#fff;
@@ -3510,10 +3526,16 @@ function renderFinanceView() {
                     padding:0.3rem 0.8rem; border-radius:20px;
                     text-transform:uppercase; letter-spacing:0.04em;
                 ">${c.icon} ${c.label}</span>
+                ${Object.keys(bd).length > 0 ? `
+                <button onclick="toggleFinanceCardExpand('${c.key}')"
+                        title="${expanded ? 'Contraer' : 'Expandir para ver todo'}"
+                        style="background:transparent; border:1px solid ${c.clr}40; color:${c.clr}; cursor:pointer; padding:0.2rem 0.55rem; border-radius:6px; font-size:0.68rem; font-weight:700; line-height:1;">
+                    ${expanded ? '▲ Contraer' : '▼ Expandir'}
+                </button>` : ''}
             </div>
 
             <!-- Filas de clientes -->
-            <div style="flex:1; max-height:180px; overflow-y:auto; padding:0 1rem;">
+            <div style="flex:1; ${expanded ? '' : 'max-height:180px;'} overflow-y:auto; padding:0 1rem;">
                 ${rows}
             </div>
 
