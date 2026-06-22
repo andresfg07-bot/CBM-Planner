@@ -3348,7 +3348,7 @@ let financeFilters = {
 function toggleFinancePeriodInputs() {
     const type = document.getElementById('finance-period-type').value;
     financeFilters.type = type;
-    
+
     const selector = document.getElementById('finance-weeks-selector');
     if(type === 'multiple') {
         selector.style.display = 'block';
@@ -3356,6 +3356,7 @@ function toggleFinancePeriodInputs() {
     } else {
         selector.style.display = 'none';
     }
+    renderFinanceView();
 }
 
 function populateFinanceMonths() {
