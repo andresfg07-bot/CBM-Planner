@@ -3537,8 +3537,8 @@ function renderFinanceView() {
                 </button>` : ''}
             </div>
 
-            <!-- Filas de clientes -->
-            <div style="flex:1; ${expanded ? '' : 'max-height:180px;'} overflow-y:auto; padding:0 1rem;">
+            <!-- Filas de clientes (siempre con scroll interno para no romper el layout) -->
+            <div style="flex:1; max-height:180px; overflow-y:auto; padding:0 1rem;">
                 ${rows}
             </div>
 
