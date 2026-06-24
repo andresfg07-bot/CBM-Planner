@@ -817,11 +817,9 @@ function getEndOfWeek(startDate) {
 function isTaskInCurrentPeriod(t) {
     const currentPeriod = formatPeriod();
     if (t.status === 'proyectada') return true; // BACKLOG UNIVERSAL: Proyectadas siempre visibles
-    if (!t.scheduledDays || t.scheduledDays.length === 0) return t.period === currentPeriod;
-    return t.scheduledDays.some(sd => {
-        const sdDate = sd.date ? sd.date.substring(0, 7) : `${t.period}`;
-        return sdDate === currentPeriod;
-    });
+    // Una gestión pertenece al mes que el usuario eligió en "Mes de Gestión" (t.period),
+    // independiente de en qué meses caigan los días del cronograma.
+    return t.period === currentPeriod;
 }
 
 /** Período de facturación de una gestión (mes en que se factura, no en que se ejecuta). */
@@ -3884,6 +3882,10 @@ function openNewTaskModal() {
         const billingMonthEl = document.getElementById('taskBillingMonth');
         if (billingMonthEl) billingMonthEl.value = formatPeriod();
 
+        populatePeriodMonthSelect();
+        const periodMonthEl = document.getElementById('taskPeriodMonth');
+        if (periodMonthEl) periodMonthEl.value = formatPeriod();
+
         const modal = document.getElementById('taskModal');
         if (modal) modal.classList.add('active');
     } catch (error) {
@@ -3981,6 +3983,12 @@ function openEditTaskModal(taskId) {
         if (billingMonthEl) {
             populateBillingMonthSelect();
             billingMonthEl.value = task.mesFacturacion || formatPeriod();
+        }
+
+        const periodMonthEl = document.getElementById('taskPeriodMonth');
+        if (periodMonthEl) {
+            populatePeriodMonthSelect();
+            periodMonthEl.value = task.period || formatPeriod();
         }
 
         const modal = document.getElementById('taskModal');
@@ -4192,8 +4200,9 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
                 tasks[idx].plantId   = plantId   || null;
                 tasks[idx].plantName = plantName || '';
                 tasks[idx].mesFacturacion = document.getElementById('taskBillingMonth').value;
+                tasks[idx].period = document.getElementById('taskPeriodMonth')?.value || tasks[idx].period;
 
-                
+
                 await saveTaskToSupabase(tasks[idx]);
             }
         } else {
@@ -4214,7 +4223,7 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
                 plantName: plantName || '',
                 scheduledDays: [],
                 status: isAdminContract ? 'facturada' : 'proyectada',
-                period: formatPeriod(),
+                period: document.getElementById('taskPeriodMonth')?.value || formatPeriod(),
                 mesFacturacion: document.getElementById('taskBillingMonth').value
             };
             tasks.push(newTask);
@@ -5990,6 +5999,22 @@ function populateBillingMonthSelect() {
     select.innerHTML = '';
     const now = new Date();
     for(let i = -3; i <= 6; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+        const y = d.getFullYear();
+        const m = d.getMonth() + 1;
+        const val = `${y}-${String(m).padStart(2, '0')}`;
+        const label = `${monthNames[m-1]} ${y}`;
+        select.innerHTML += `<option value="${val}">${label}</option>`;
+    }
+}
+
+function populatePeriodMonthSelect() {
+    const select = document.getElementById('taskPeriodMonth');
+    if(!select) return;
+    select.innerHTML = '';
+    const now = new Date();
+    // Mes de gestión: permite planear hasta 12 meses adelante (planeación anual)
+    for(let i = -3; i <= 12; i++) {
         const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
         const y = d.getFullYear();
         const m = d.getMonth() + 1;

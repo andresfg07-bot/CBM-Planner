@@ -576,17 +576,23 @@
                 </div>
                 <div style="display: flex; gap: 1rem;">
                     <div class="form-group" style="flex: 1;">
+                        <label>Mes de Gestión <span style="font-weight:400; color:#64748b; font-size:0.72rem;">(en qué mes va a aparecer)</span></label>
+                        <select id="taskPeriodMonth" required>
+                            <!-- Poblado por JS -->
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex: 1;">
                         <label>Mes de Facturación</label>
                         <select id="taskBillingMonth" required>
-                            <!-- Pobaldo por JS (Periodo actual - 3 meses a Futuro + 3) -->
+                            <!-- Poblado por JS -->
                         </select>
                     </div>
-                    <div class="form-group" id="group-equipment" style="flex: 1.5;">
-                        <label>Equipo Asignado</label>
-                        <select id="taskEquipment">
-                            <option value="">Sin equipo asignado</option>
-                        </select>
-                    </div>
+                </div>
+                <div class="form-group" id="group-equipment">
+                    <label>Equipo Asignado</label>
+                    <select id="taskEquipment">
+                        <option value="">Sin equipo asignado</option>
+                    </select>
                 </div>
                 <button type="submit" id="taskFormSubmit" class="btn-primary">Crear Gestión</button>
             </form>
