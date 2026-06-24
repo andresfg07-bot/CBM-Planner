@@ -1064,10 +1064,25 @@ function renderTasksTable(container) {
                     const statusOptions = ['proyectada', 'programada', 'ejecutada', 'facturada'];
                     const isFacturada = t.status === 'facturada';
                     const isEjecutada = t.status === 'ejecutada';
-                    
+
+                    // Abreviación del mes de facturación + color según relación con period
+                    const billPeriod = t.mesFacturacion || t.period || '';
+                    let billBadge = '';
+                    if (billPeriod) {
+                        const m = parseInt(billPeriod.split('-')[1]);
+                        const abbr = monthNames[m-1]?.substring(0,3) || '';
+                        let color = '#94a3b8'; // gris: mismo mes que la gestión
+                        if (billPeriod > (t.period || '')) color = '#ea580c';     // naranja: futuro
+                        else if (billPeriod < (t.period || '')) color = '#dc2626'; // rojo: anterior (raro)
+                        billBadge = ` <span style="font-size:0.65rem; font-weight:600; color:${color};">(${abbr})</span>`;
+                    }
+
                     return `
                     <tr data-task-id="${t.id}">
-                        <td><strong>${t.client}</strong></td>
+                        <td>
+                            <strong>${t.client}</strong>${billBadge}
+                            ${t.plantName ? `<div style="font-size:0.7rem; color:var(--clr-blue); font-weight:600; margin-top:2px;">📍 ${t.plantName}</div>` : ''}
+                        </td>
                         <td><span class="card-analyst" style="font-size:0.75rem">${t.serviceType || '-'}</span></td>
                         <td style="color:var(--clr-green); font-weight:600">$${(t.budget || 0).toLocaleString('es-CO')}</td>
                         <td>${formatAnalystDisplay(t)}</td>
