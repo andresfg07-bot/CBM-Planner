@@ -121,7 +121,7 @@ function applyRoleUI() {
     const allowedViews = {
         admin:      ['dashboard', 'tasks', 'planning', 'finance', 'admin', 'reports'],
         analyst:    ['mywork', 'planning'],
-        assistant:  ['dashboard', 'tasks', 'planning', 'finance', 'reports'],
+        assistant:  ['dashboard', 'tasks', 'finance', 'reports'],
         commercial: ['dashboard', 'tasks', 'planning', 'finance', 'reports'],
         viewer:     ['dashboard'],
     };
