@@ -816,10 +816,11 @@ function getEndOfWeek(startDate) {
 
 function isTaskInCurrentPeriod(t) {
     const currentPeriod = formatPeriod();
-    if (t.status === 'proyectada') return true; // BACKLOG UNIVERSAL: Proyectadas siempre visibles
-    // Una gestión pertenece al mes que el usuario eligió en "Mes de Gestión" (t.period),
-    // independiente de en qué meses caigan los días del cronograma.
-    return t.period === currentPeriod;
+    // Una gestión (incluidas las proyectadas) pertenece al mes que el usuario eligió en
+    // "Mes de Gestión" (t.period), independiente de en qué meses caigan los días del
+    // cronograma. Esto permite planear gestiones para meses futuros sin que aparezcan
+    // contaminando el backlog del mes actual.
+    return (t.period || currentPeriod) === currentPeriod;
 }
 
 /** Período de facturación de una gestión (mes en que se factura, no en que se ejecuta). */
