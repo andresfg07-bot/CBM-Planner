@@ -1513,11 +1513,24 @@ function renderAnalystGauges(analystStats) {
         return;
     }
 
-    const gaugeColor = avg => {
-        if(avg === null) return '#cbd5e1';
-        if(avg >= 4)    return '#16a34a';
-        if(avg >= 3)    return '#f59e0b';
-        return '#ef4444';
+    // Badge de calidad (semáforo): da la señal de alerta sin perder la identidad de color del analista
+    const qualityBadge = avg => {
+        if(avg === null) return { label: 'Sin calificar', bg: '#f1f5f9', color: '#64748b' };
+        if(avg >= 4.5)   return { label: 'Excelente',     bg: '#dcfce7', color: '#15803d' };
+        if(avg >= 4)     return { label: 'Muy bueno',     bg: '#dbeafe', color: '#1d4ed8' };
+        if(avg >= 3)     return { label: 'Aceptable',     bg: '#fef3c7', color: '#a16207' };
+        return                 { label: 'Bajo',           bg: '#fee2e2', color: '#b91c1c' };
+    };
+
+    // Estrellitas (5 niveles): rellenas hasta el score (medias incluidas)
+    const starsHTML = (avg, color) => {
+        const filled = avg !== null ? Math.round(avg) : 0;
+        let out = '';
+        for(let i = 1; i <= 5; i++) {
+            const c = i <= filled ? color : '#e2e8f0';
+            out += `<span style="color:${c}; font-size:0.7rem; line-height:1;">★</span>`;
+        }
+        return out;
     };
 
     section.innerHTML = `
@@ -1527,17 +1540,26 @@ function renderAnalystGauges(analystStats) {
                 Promedio de gestiones calificadas. Excluye casos sin respuesta del cliente.
             </p>
             <div class="gauges-grid">
-                ${entries.map(e => `
-                    <div class="gauge-card">
+                ${entries.map(e => {
+                    const color = getAnalystColor(e.name);
+                    const badge = qualityBadge(e.avg);
+                    const initial = (e.name[0] || '?').toUpperCase();
+                    return `
+                    <div class="gauge-card" style="border-top:3px solid ${color}; background:#fff; border-radius:12px; padding:0.85rem 0.6rem 0.85rem; box-shadow:0 1px 3px rgba(0,0,0,0.04); position:relative;">
+                        <div class="gauge-avatar" style="position:absolute; top:-14px; left:50%; transform:translateX(-50%); width:28px; height:28px; border-radius:50%; background:${color}; color:#fff; font-weight:800; font-size:0.8rem; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,0.15);">${initial}</div>
                         <canvas id="gauge-${e.name.replace(/\s+/g,'_')}" width="160" height="90"></canvas>
-                        <div class="gauge-value" style="color:${gaugeColor(e.avg)}">
+                        <div class="gauge-value" style="color:${color};">
                             ${e.avg !== null ? e.avg.toFixed(1) : '—'}
                             <span class="gauge-max">/5</span>
                         </div>
+                        <div class="gauge-stars" style="display:flex; justify-content:center; gap:1px; margin:2px 0 4px;">${starsHTML(e.avg, color)}</div>
                         <div class="gauge-name">${e.name}</div>
                         <div class="gauge-sub">${e.count} calificación${e.count !== 1 ? 'es' : ''} · ${e.total} gestión${e.total !== 1 ? 'es' : ''}</div>
-                    </div>
-                `).join('')}
+                        <div style="margin-top:6px; display:flex; justify-content:center;">
+                            <span style="background:${badge.bg}; color:${badge.color}; font-size:0.62rem; font-weight:700; padding:2px 8px; border-radius:999px; text-transform:uppercase; letter-spacing:0.03em;">${badge.label}</span>
+                        </div>
+                    </div>`;
+                }).join('')}
             </div>
         </div>`;
 
@@ -1545,7 +1567,7 @@ function renderAnalystGauges(analystStats) {
     Object.values(_gaugeInstances).forEach(c => c.destroy());
     _gaugeInstances = {};
 
-    // Crear gauge por analista
+    // Crear gauge por analista — arco del color del analista, track gris suave, bordes redondeados
     entries.forEach(e => {
         const canvasId = `gauge-${e.name.replace(/\s+/g,'_')}`;
         const ctx = document.getElementById(canvasId);
@@ -1553,26 +1575,31 @@ function renderAnalystGauges(analystStats) {
 
         const score = e.avg !== null ? e.avg : 0;
         const remaining = 5 - score;
-        const color = gaugeColor(e.avg);
+        const arcColor  = e.avg !== null ? getAnalystColor(e.name) : '#cbd5e1';
 
         _gaugeInstances[canvasId] = new Chart(ctx, {
             type: 'doughnut',
             data: {
                 datasets: [{
                     data: [score, remaining],
-                    backgroundColor: [color, '#e2e8f0'],
+                    backgroundColor: [arcColor, '#eef2f7'],
                     borderWidth: 0,
-                    borderRadius: 4
+                    borderRadius: 6,
+                    spacing: 1
                 }]
             },
             options: {
                 rotation: -90,
                 circumference: 180,
-                cutout: '72%',
+                cutout: '68%',
                 responsive: false,
                 plugins: {
                     legend: { display: false },
                     tooltip: {
+                        backgroundColor: '#0f172a',
+                        padding: 8,
+                        cornerRadius: 6,
+                        displayColors: false,
                         callbacks: {
                             label: ctx => ctx.dataIndex === 0
                                 ? `Promedio: ${score.toFixed(1)} / 5`
