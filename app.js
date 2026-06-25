@@ -1702,9 +1702,11 @@ function renderDashboardCharts() {
             return;
         }
 
-        // Distribución por servicio: cuenta cada gestión por su tipo
+        // Distribución por servicio: pondera por monto facturable + cuenta gestiones
         const svc = t.serviceType || 'Sin tipo';
-        serviceMap[svc] = (serviceMap[svc] || 0) + 1;
+        if(!serviceMap[svc]) serviceMap[svc] = { amount: 0, count: 0 };
+        serviceMap[svc].amount += budget;
+        serviceMap[svc].count  += 1;
 
         const assignments = t.analysts_assignment && t.analysts_assignment.length > 0
             ? t.analysts_assignment
@@ -1728,7 +1730,7 @@ function renderDashboardCharts() {
     const billingAnalysts = Object.keys(billingMap);
     const billingValues   = billingAnalysts.map(a => billingMap[a] || 0);
     const services        = Object.keys(serviceMap);
-    const serviceValues   = services.map(s => serviceMap[s]);
+    const serviceValues   = services.map(s => serviceMap[s].amount);
 
     // Colores consistentes por analista (mismo color en ambas tortas) y por servicio
     const analystColors        = analysts.map(getAnalystColor);
@@ -1799,7 +1801,9 @@ function renderDashboardCharts() {
                 options: _doughnutBaseOptions((ctx) => {
                     const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
                     const percentage = total > 0 ? Math.round((ctx.parsed / total) * 100) : 0;
-                    return ` ${ctx.label}: ${ctx.parsed} gestiones (${percentage}%)`;
+                    const count = serviceMap[ctx.label]?.count ?? 0;
+                    const word  = count === 1 ? 'gestión' : 'gestiones';
+                    return ` ${ctx.label}: $${ctx.parsed.toLocaleString('es-CO')} · ${count} ${word} (${percentage}%)`;
                 })
             });
         }, 70);
