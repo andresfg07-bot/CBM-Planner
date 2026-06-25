@@ -4320,13 +4320,57 @@ function renderSavedEvidenceFiles(files) {
     container.innerHTML = savedHTML + container.innerHTML;
 }
 
+/**
+ * Comprime una imagen si supera el umbral. Para no-imágenes o imágenes pequeñas
+ * devuelve el archivo original. Redimensiona a max 1600px del lado mayor y
+ * recodifica como JPEG calidad 0.8. Si algo falla, devuelve el original.
+ */
+async function compressImageIfNeeded(file) {
+    const isImage = /^image\/(jpeg|jpg|png|webp)$/i.test(file.type);
+    if(!isImage) return file;
+    if(file.size < 250 * 1024) return file; // < 250 KB no vale la pena
+
+    try {
+        const img = await new Promise((resolve, reject) => {
+            const url = URL.createObjectURL(file);
+            const im = new Image();
+            im.onload  = () => { URL.revokeObjectURL(url); resolve(im); };
+            im.onerror = () => { URL.revokeObjectURL(url); reject(); };
+            im.src = url;
+        });
+
+        const MAX_SIDE = 1600;
+        let { width, height } = img;
+        const scale = Math.min(1, MAX_SIDE / Math.max(width, height));
+        width  = Math.round(width  * scale);
+        height = Math.round(height * scale);
+
+        const canvas = document.createElement('canvas');
+        canvas.width  = width;
+        canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+
+        const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.8));
+        if(!blob || blob.size >= file.size) return file; // si no mejora, original
+
+        // Renombrar a .jpg para reflejar el tipo real
+        const baseName = file.name.replace(/\.(png|webp|jpeg|jpg)$/i, '');
+        return new File([blob], `${baseName}.jpg`, { type: 'image/jpeg', lastModified: Date.now() });
+    } catch(e) {
+        console.warn('Compresión saltada para', file.name, e);
+        return file;
+    }
+}
+
 async function uploadEvidenceFiles(taskId) {
     if(!supabaseClient || _evidencePendingFiles.length === 0) return [];
     const urls = [];
-    for(const file of _evidencePendingFiles) {
-        const ext  = file.name.split('.').pop();
+    let savedBytes = 0;
+    for(const original of _evidencePendingFiles) {
+        const file = await compressImageIfNeeded(original);
+        savedBytes += Math.max(0, original.size - file.size);
         const path = `tasks/${taskId}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
-        const { data, error } = await supabaseClient.storage
+        const { error } = await supabaseClient.storage
             .from('evidence-files')
             .upload(path, file, { upsert: false });
         if(error) {
@@ -4338,6 +4382,11 @@ async function uploadEvidenceFiles(taskId) {
                 .getPublicUrl(path);
             urls.push({ name: file.name, url: urlData.publicUrl });
         }
+    }
+    if(savedBytes > 100 * 1024) {
+        const savedKb = Math.round(savedBytes / 1024);
+        const niceSize = savedKb >= 1024 ? `${(savedKb/1024).toFixed(1)} MB` : `${savedKb} KB`;
+        showToast(`Imágenes comprimidas — se ahorraron ${niceSize}`, 'success');
     }
     return urls;
 }
