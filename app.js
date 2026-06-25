@@ -836,6 +836,44 @@ let dashboardFilters = {
 let dashboardScope = 'month'; // 'month', 'year', 'all'
 let workloadChartInstance = null;
 let billingChartInstance = null;
+let serviceChartInstance = null;
+
+/** Paleta sobria para tipos de servicio (consistente entre renders). */
+const SERVICE_TYPE_COLORS = {
+    'Vibraciones':           '#5B8DEF',
+    'Balanceo':              '#7C66C9',
+    'Alineación':            '#3FA68A',
+    'Termografía':           '#E78A47',
+    'Ultrasonido':           '#5BB0C9',
+    'Rotodinámico':          '#6B7280',
+    'Capacitación':          '#D4A24C',
+    'Metro Administrativo':  '#9CA3AF'
+};
+function getServiceColor(name) {
+    return SERVICE_TYPE_COLORS[name] || '#94A3B8';
+}
+
+/** Opciones base para los doughnut del dashboard (estilo moderno con bordes). */
+function _doughnutBaseOptions(tooltipFormatter) {
+    return {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '62%',
+        layout: { padding: 4 },
+        plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 }, padding: 12, usePointStyle: true, pointStyle: 'circle' } },
+            tooltip: {
+                backgroundColor: '#0f172a',
+                titleFont: { size: 12, weight: 'bold' },
+                bodyFont:  { size: 12 },
+                padding: 10,
+                cornerRadius: 8,
+                displayColors: true,
+                callbacks: { label: tooltipFormatter }
+            }
+        }
+    };
+}
 
 const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
@@ -1648,6 +1686,7 @@ function renderDashboardCharts() {
 
     const workloadMap = {};
     const billingMap = {};
+    const serviceMap = {};
 
     // 3. Distribuir gestiones compartidas por porcentaje de participación
     chartData.forEach(t => {
@@ -1659,8 +1698,13 @@ function renderDashboardCharts() {
             if (t.status === 'facturada') {
                 billingMap['Administrativo'] = (billingMap['Administrativo'] || 0) + budget;
             }
+            // Tampoco se cuenta en distribución por servicio (es contrato, no gestión CBM)
             return;
         }
+
+        // Distribución por servicio: cuenta cada gestión por su tipo
+        const svc = t.serviceType || 'Sin tipo';
+        serviceMap[svc] = (serviceMap[svc] || 0) + 1;
 
         const assignments = t.analysts_assignment && t.analysts_assignment.length > 0
             ? t.analysts_assignment
@@ -1681,19 +1725,24 @@ function renderDashboardCharts() {
 
     const analysts = Object.keys(workloadMap);
     const workloadValues = analysts.map(a => workloadMap[a]);
-    const billingValues = analysts.map(a => billingMap[a] || 0);
+    const billingAnalysts = Object.keys(billingMap);
+    const billingValues   = billingAnalysts.map(a => billingMap[a] || 0);
+    const services        = Object.keys(serviceMap);
+    const serviceValues   = services.map(s => serviceMap[s]);
 
-    const bgColors = [
-        'rgba(37, 99, 235, 0.8)',  // clr-blue
-        'rgba(147, 51, 234, 0.8)', // clr-purple
-        'rgba(16, 185, 129, 0.8)', // clr-green
-        'rgba(244, 63, 94, 0.8)',  // clr-pink
-        'rgba(245, 158, 11, 0.8)',  // clr-orange
-        'rgba(14, 165, 233, 0.8)', // Sky blue
-        'rgba(100, 116, 139, 0.8)' // Slate
-    ];
+    // Colores consistentes por analista (mismo color en ambas tortas) y por servicio
+    const analystColors        = analysts.map(getAnalystColor);
+    const billingAnalystColors = billingAnalysts.map(getAnalystColor);
+    const serviceColors        = services.map(getServiceColor);
 
-    // Destruir instancias previas si existen (moved inside timeouts)
+    // Estilo común para los anillos: separación blanca y bordes redondeados
+    const ringStyle = {
+        borderWidth: 4,
+        borderColor: '#ffffff',
+        borderRadius: 8,
+        spacing: 2,
+        hoverOffset: 6
+    };
 
     const ctxWorkload = document.getElementById('workloadChart');
     if (ctxWorkload) {
@@ -1701,33 +1750,17 @@ function renderDashboardCharts() {
         window._workloadTimeout = setTimeout(() => {
             if(workloadChartInstance) workloadChartInstance.destroy();
             workloadChartInstance = new Chart(ctxWorkload, {
-                type: 'pie',
+                type: 'doughnut',
                 data: {
                     labels: analysts,
-                    datasets: [{
-                        data: workloadValues,
-                        backgroundColor: bgColors,
-                        borderWidth: 2,
-                        borderColor: '#ffffff'
-                    }]
+                    datasets: [{ data: workloadValues, backgroundColor: analystColors, ...ringStyle }]
                 },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
-                        tooltip: {
-                            callbacks: {
-                                label: (context) => {
-                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                    const percentage = Math.round((context.parsed / total) * 100);
-                                    const val = Number.isInteger(context.parsed) ? context.parsed : context.parsed.toFixed(1);
-                                    return `${context.label}: ${val} gestiones (${percentage}%)`;
-                                }
-                            }
-                        }
-                    }
-                }
+                options: _doughnutBaseOptions((ctx) => {
+                    const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                    const percentage = total > 0 ? Math.round((ctx.parsed / total) * 100) : 0;
+                    const val = Number.isInteger(ctx.parsed) ? ctx.parsed : ctx.parsed.toFixed(1);
+                    return ` ${ctx.label}: ${val} gestiones (${percentage}%)`;
+                })
             });
         }, 50);
     }
@@ -1738,34 +1771,38 @@ function renderDashboardCharts() {
         window._billingTimeout = setTimeout(() => {
             if(billingChartInstance) billingChartInstance.destroy();
             billingChartInstance = new Chart(ctxBilling, {
-                type: 'pie',
+                type: 'doughnut',
                 data: {
-                    labels: analysts,
-                    datasets: [{
-                        data: billingValues,
-                        backgroundColor: bgColors,
-                        borderWidth: 2,
-                        borderColor: '#ffffff'
-                    }]
+                    labels: billingAnalysts,
+                    datasets: [{ data: billingValues, backgroundColor: billingAnalystColors, ...ringStyle }]
                 },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
-                        tooltip: {
-                            callbacks: {
-                                label: (context) => {
-                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                    const percentage = total > 0 ? Math.round((context.parsed / total) * 100) : 0;
-                                    return `${context.label}: $${context.parsed.toLocaleString()} (${percentage}%)`;
-                                }
-                            }
-                        }
-                    }
-                }
+                options: _doughnutBaseOptions((ctx) => {
+                    const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                    const percentage = total > 0 ? Math.round((ctx.parsed / total) * 100) : 0;
+                    return ` ${ctx.label}: $${ctx.parsed.toLocaleString('es-CO')} (${percentage}%)`;
+                })
             });
-        }, 60); // Ligeramente diferente para no pisarse con el otro
+        }, 60);
+    }
+
+    const ctxService = document.getElementById('serviceChart');
+    if (ctxService) {
+        if (window._serviceTimeout) clearTimeout(window._serviceTimeout);
+        window._serviceTimeout = setTimeout(() => {
+            if(serviceChartInstance) serviceChartInstance.destroy();
+            serviceChartInstance = new Chart(ctxService, {
+                type: 'doughnut',
+                data: {
+                    labels: services,
+                    datasets: [{ data: serviceValues, backgroundColor: serviceColors, ...ringStyle }]
+                },
+                options: _doughnutBaseOptions((ctx) => {
+                    const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                    const percentage = total > 0 ? Math.round((ctx.parsed / total) * 100) : 0;
+                    return ` ${ctx.label}: ${ctx.parsed} gestiones (${percentage}%)`;
+                })
+            });
+        }, 70);
     }
 }
 

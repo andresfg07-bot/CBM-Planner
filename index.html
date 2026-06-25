@@ -185,7 +185,7 @@
                 </div>
 
                 <!-- Charts Section -->
-                <div class="dashboard-charts-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
+                <div class="dashboard-charts-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
                     <div class="stats-card pie-chart-card">
                         <div class="card-header">
                             <h3>Distribución de Gestiones</h3>
@@ -202,6 +202,15 @@
                         </div>
                         <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
                             <canvas id="billingChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="stats-card pie-chart-card">
+                        <div class="card-header">
+                            <h3>Distribución por Servicio</h3>
+                            <p class="subtitle">Cantidad de gestiones por tipo de servicio</p>
+                        </div>
+                        <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+                            <canvas id="serviceChart"></canvas>
                         </div>
                     </div>
                 </div>
