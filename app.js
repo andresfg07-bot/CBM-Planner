@@ -121,7 +121,7 @@ function applyRoleUI() {
     const allowedViews = {
         admin:      ['dashboard', 'tasks', 'planning', 'finance', 'admin', 'reports'],
         analyst:    ['mywork', 'planning'],
-        assistant:  ['dashboard', 'tasks', 'finance', 'reports'],
+        assistant:  ['dashboard', 'tasks', 'planning', 'finance', 'reports'],
         commercial: ['dashboard', 'tasks', 'planning', 'finance', 'reports'],
         viewer:     ['dashboard'],
     };
@@ -1867,7 +1867,7 @@ let isDragging = false;
 /** Roles que solo pueden visualizar el calendario, sin arrastrar ni modificar nada */
 function isPlanningReadOnly() {
     const r = currentUserProfile?.role;
-    return r === 'analyst' || r === 'commercial';
+    return r === 'analyst' || r === 'commercial' || r === 'assistant';
 }
 
 function handleDragStart(e) {

@@ -1967,13 +1967,15 @@ h1 {
 body.role-assistant .role-hide-assistant { display: none !important; }
 body.role-commercial .role-hide-assistant { display: none !important; }
 
-/* ── Planning: solo lectura para analistas y comerciales ───────────────────── */
+/* ── Planning: solo lectura para analistas, comerciales y asistentes ─────── */
 body.role-analyst .calendar-task-pill,
-body.role-commercial .calendar-task-pill {
+body.role-commercial .calendar-task-pill,
+body.role-assistant .calendar-task-pill {
     cursor: default !important;
 }
 body.role-analyst .calendar-task-pill:active,
-body.role-commercial .calendar-task-pill:active {
+body.role-commercial .calendar-task-pill:active,
+body.role-assistant .calendar-task-pill:active {
     cursor: default !important;
 }
 
