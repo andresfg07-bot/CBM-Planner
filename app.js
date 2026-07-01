@@ -5072,15 +5072,62 @@ async function openEvidence(fileUrl) {
     window.open(fileUrl, '_blank', 'noopener');
 }
 
+let csatSortState = { column: null, dir: 'asc' };
+
+function sortCsatBy(column) {
+    if (csatSortState.column === column) {
+        csatSortState.dir = csatSortState.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+        csatSortState.column = column;
+        csatSortState.dir = 'asc';
+    }
+    renderCsatTable();
+}
+
 function renderCsatTable() {
     const container = document.getElementById('reports-table-container');
     if(!container) return;
-    const data = getCsatTableData();
+    let data = getCsatTableData();
 
     if(data.length === 0) {
         container.innerHTML = `<div style="text-align:center;padding:3rem;color:var(--text-secondary);font-size:0.9rem;">No se encontraron cierres con los filtros aplicados.</div>`;
         return;
     }
+
+    // Ordenamiento por columna. Para "Estado Cierre" usamos orden lógico
+    // (calificado → sin respuesta → pendiente).
+    if (csatSortState.column) {
+        const cierreOrder = t => {
+            if (t.csatScore && !t.clientNoResponse) return 0; // calificado (mejor primero)
+            if (t.clientNoResponse) return 1;
+            return 2; // pendiente
+        };
+        const getVal = (t) => {
+            switch (csatSortState.column) {
+                case 'period':   return t.mesFacturacion || t.period || '';
+                case 'client':   return (t.client || '').toLowerCase() + (t.plantName ? ' ' + t.plantName.toLowerCase() : '');
+                case 'analyst':  return (formatAnalystDisplay(t) || '').toLowerCase();
+                case 'service':  return (t.serviceType || '').toLowerCase();
+                case 'cierre':   return cierreOrder(t);
+                case 'obs':      return (t.csatObservations || '').toLowerCase();
+                case 'evidence': return ((t.evidenceFiles || []).length ? 1 : 0) + ((t.evidenceNotes || '').trim() ? 1 : 0);
+                default:         return '';
+            }
+        };
+        const dir = csatSortState.dir === 'asc' ? 1 : -1;
+        data = data.slice().sort((a, b) => {
+            const va = getVal(a), vb = getVal(b);
+            if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+            return String(va).localeCompare(String(vb), 'es') * dir;
+        });
+    }
+
+    const sortArrow = (col) => {
+        if (csatSortState.column !== col) return '<span style="opacity:0.3;">↕</span>';
+        return csatSortState.dir === 'asc' ? '↑' : '↓';
+    };
+    const thSort = (col, label, extraStyle = '') =>
+        `<th onclick="sortCsatBy('${col}')" style="cursor:pointer; user-select:none; ${extraStyle}">${label} <span style="font-size:0.75em;">${sortArrow(col)}</span></th>`;
 
     const scores = data.filter(t => t.csatScore && !t.clientNoResponse).map(t => parseFloat(t.csatScore));
     const avgCsat = scores.length ? (scores.reduce((s,v)=>s+v,0)/scores.length).toFixed(2) : '—';
@@ -5116,13 +5163,13 @@ function renderCsatTable() {
         <table class="data-table" style="font-size:0.8rem; width:100%;">
             <thead>
                 <tr>
-                    <th style="min-width:100px;">Período</th>
-                    <th style="min-width:160px;">Cliente / Planta</th>
-                    <th style="min-width:140px;">Analista(s)</th>
-                    <th style="min-width:110px;">Servicio</th>
-                    <th style="min-width:130px;">Estado Cierre</th>
-                    <th style="min-width:180px;">Observaciones</th>
-                    <th style="min-width:150px;">Evidencia</th>
+                    ${thSort('period',   'Período',        'min-width:100px;')}
+                    ${thSort('client',   'Cliente / Planta','min-width:160px;')}
+                    ${thSort('analyst',  'Analista(s)',    'min-width:140px;')}
+                    ${thSort('service',  'Servicio',       'min-width:110px;')}
+                    ${thSort('cierre',   'Estado Cierre',  'min-width:130px;')}
+                    ${thSort('obs',      'Observaciones',  'min-width:180px;')}
+                    ${thSort('evidence', 'Evidencia',      'min-width:150px;')}
                 </tr>
             </thead>
             <tbody>
@@ -5303,11 +5350,23 @@ function formatAnalystDisplay(t) {
     return t.analyst || '-';
 }
 
+let reportSortState = { column: null, dir: 'asc' };
+
+function sortReportBy(column) {
+    if (reportSortState.column === column) {
+        reportSortState.dir = reportSortState.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+        reportSortState.column = column;
+        reportSortState.dir = 'asc';
+    }
+    renderReportsTable();
+}
+
 function renderReportsTable() {
     const container = document.getElementById('reports-table-container');
     if(!container) return;
     if (tasks.length === 0) { renderSkeletonTable(container, 6, 5); return; }
-    const data = getReportData();
+    let data = getReportData();
     const total = data.reduce((sum, t) => sum + (t.budget || 0), 0);
 
     if(data.length === 0) {
@@ -5315,17 +5374,47 @@ function renderReportsTable() {
         return;
     }
 
+    // Ordenamiento por columna
+    if (reportSortState.column) {
+        const statusOrder = { proyectada: 0, programada: 1, ejecutada: 2, facturada: 3 };
+        const getVal = (t) => {
+            switch (reportSortState.column) {
+                case 'period':  return t.mesFacturacion || t.period || '';
+                case 'client':  return (t.client || '').toLowerCase() + (t.plantName ? ' ' + t.plantName.toLowerCase() : '');
+                case 'budget':  return t.budget || 0;
+                case 'analyst': return (formatAnalystDisplay(t) || '').toLowerCase();
+                case 'service': return (t.serviceType || '').toLowerCase();
+                case 'status':  return statusOrder[t.status] ?? 99;
+                case 'details': return (t.serviceDetails || '').toLowerCase();
+                default:        return '';
+            }
+        };
+        const dir = reportSortState.dir === 'asc' ? 1 : -1;
+        data = data.slice().sort((a, b) => {
+            const va = getVal(a), vb = getVal(b);
+            if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+            return String(va).localeCompare(String(vb), 'es') * dir;
+        });
+    }
+
+    const sortArrow = (col) => {
+        if (reportSortState.column !== col) return '<span style="opacity:0.3;">↕</span>';
+        return reportSortState.dir === 'asc' ? '↑' : '↓';
+    };
+    const thSort = (col, label, extraStyle = '') =>
+        `<th onclick="sortReportBy('${col}')" style="cursor:pointer; user-select:none; ${extraStyle}">${label} <span style="font-size:0.75em;">${sortArrow(col)}</span></th>`;
+
     container.innerHTML = `
         <table class="data-table" style="font-size:0.8rem; width:100%;">
             <thead>
                 <tr>
-                    <th style="min-width:110px">Fecha / Período</th>
-                    <th style="min-width:160px">Cliente (Planta)</th>
-                    <th style="min-width:110px; text-align:right">Monto ($)</th>
-                    <th style="min-width:200px">Analistas</th>
-                    <th style="min-width:120px">Servicio Realizado</th>
-                    <th style="min-width:90px">Estado</th>
-                    <th style="min-width:170px">Detalle p/Comercial</th>
+                    ${thSort('period',  'Fecha / Período',      'min-width:110px')}
+                    ${thSort('client',  'Cliente (Planta)',     'min-width:160px')}
+                    ${thSort('budget',  'Monto ($)',            'min-width:110px; text-align:right')}
+                    ${thSort('analyst', 'Analistas',            'min-width:200px')}
+                    ${thSort('service', 'Servicio Realizado',   'min-width:120px')}
+                    ${thSort('status',  'Estado',               'min-width:90px')}
+                    ${thSort('details', 'Detalle p/Comercial',  'min-width:170px')}
                 </tr>
             </thead>
             <tbody>
