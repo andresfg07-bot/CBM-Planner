@@ -250,7 +250,7 @@ function setMyWorkFilter(filter) {
 function getCsatOverdueTasks(analystName) {
     const today = Date.now();
     return tasks.filter(t => {
-        if(t.isAbsence || t.serviceType === 'Metro Administrativo') return false;
+        if(t.isAbsence || t.serviceType === 'Metro Administrativo' || t.serviceType === 'Metro Terceros') return false;
         if(t.status !== 'ejecutada') return false;
         if(t.csatScore || t.clientNoResponse) return false;
         if(analystName && !t.analysts_assignment?.some(a => a.name === analystName)) return false;
@@ -847,7 +847,8 @@ const SERVICE_TYPE_COLORS = {
     'Ultrasonido':           '#5BB0C9',
     'Rotodinámico':          '#6B7280',
     'Capacitación':          '#D4A24C',
-    'Metro Administrativo':  '#9CA3AF'
+    'Metro Administrativo':  '#9CA3AF',
+    'Metro Terceros':        '#8B7BA8'
 };
 function getServiceColor(name) {
     return SERVICE_TYPE_COLORS[name] || '#94A3B8';
@@ -1350,7 +1351,7 @@ function renderDashboardStats() {
     // Cálculo por analista — itera analysts_assignment para distribuir correctamente
     const analystStats = {};
     gestionesFiltradas.forEach(t => {
-        if(t.serviceType === 'Metro Administrativo') return;
+        if(t.serviceType === 'Metro Administrativo' || t.serviceType === 'Metro Terceros') return;
 
         const assignments = t.analysts_assignment && t.analysts_assignment.length > 0
             ? t.analysts_assignment
@@ -1736,6 +1737,10 @@ function renderDashboardCharts() {
         serviceMap[svc].amount += budget;
         serviceMap[svc].count  += 1;
 
+        // Metro Terceros aparece en distribución por servicio, pero NO en cargas por analista
+        // (no lo ejecuta ningún analista de A-MAQ).
+        if (t.serviceType === 'Metro Terceros') return;
+
         const assignments = t.analysts_assignment && t.analysts_assignment.length > 0
             ? t.analysts_assignment
             : (t.analyst ? [{ name: t.analyst, percentage: 100 }] : []);
@@ -1985,6 +1990,7 @@ function renderPlanningSidebar() {
         t.status.toLowerCase() === 'proyectada' &&
         (!t.scheduledDays || t.scheduledDays.length === 0) &&
         t.serviceType !== 'Metro Administrativo' &&
+        t.serviceType !== 'Metro Terceros' &&
         isTaskInCurrentPeriod(t)
     );
 
@@ -3201,9 +3207,9 @@ async function onTaskClientChange() {
     const container = document.getElementById('taskAnalystsContainer');
     clientAnalystPreferences = []; // reset preferencias al cambiar cliente
 
-    // Metro Administrativo no usa analistas — mantener el banner
+    // Metro Administrativo y Metro Terceros no usan analistas — mantener el banner
     const serviceType = document.getElementById('taskServiceType')?.value;
-    if(serviceType === 'Metro Administrativo') return;
+    if(serviceType === 'Metro Administrativo' || serviceType === 'Metro Terceros') return;
 
     // Poblar dropdown de plantas para este cliente
     _populatePlantField(clientId);
@@ -3269,6 +3275,7 @@ function onTaskServiceTypeChange() {
     const serviceType = document.getElementById('taskServiceType').value;
     const isAbsence       = (serviceType === 'Vacaciones' || serviceType === 'Incapacidad' || serviceType === 'Compensatorio' || serviceType === 'Entrenamiento o Curso');
     const isAdminContract = (serviceType === 'Metro Administrativo');
+    const isThirdParty    = (serviceType === 'Metro Terceros');
 
     // Campos que se ocultan solo en ausencias
     const fieldsToToggle = ['group-client', 'group-budget', 'group-equipment', 'group-report'];
@@ -3278,14 +3285,17 @@ function onTaskServiceTypeChange() {
     });
 
     const container = document.getElementById('taskAnalystsContainer');
-    const analystLabel = container?.previousElementSibling; // el <label> de Analistas
+    const clientSel = document.getElementById('taskClient');
+
+    // Rehabilitar el selector de cliente por defecto (para revertir el lock de Metro Terceros)
+    if (clientSel) clientSel.disabled = false;
 
     if(isAbsence) {
         if(container.innerHTML.trim() === '' || container.innerHTML.includes('Seleccione primero')) {
             container.innerHTML = '';
             addAnalystToTask();
         }
-        document.getElementById('taskClient').required = false;
+        clientSel.required = false;
         document.getElementById('taskBudget').required  = false;
         document.getElementById('taskDaysReport').required = false;
         // Ocultar campo planta en ausencias
@@ -3294,7 +3304,7 @@ function onTaskServiceTypeChange() {
 
     } else if(isAdminContract) {
         // Metro Administrativo: solo cliente y presupuesto — sin analista, días ni equipo
-        document.getElementById('taskClient').required    = true;
+        clientSel.required = true;
         document.getElementById('taskBudget').required    = true;
         document.getElementById('taskDaysField').required = false;
         document.getElementById('taskDaysReport').required = false;
@@ -3310,9 +3320,47 @@ function onTaskServiceTypeChange() {
         container.dataset.clientPreferences = '[]';
         container.innerHTML = '';
 
+    } else if(isThirdParty) {
+        // Metro Terceros: cliente auto-fijado en "Metro Terceros", sin analista, sin días
+        // El campo planta funciona como "detalle del servicio" (certificación, filtros, etc.)
+        clientSel.required = true;
+        document.getElementById('taskBudget').required    = true;
+        document.getElementById('taskDaysField').required = false;
+        document.getElementById('taskDaysReport').required = false;
+
+        // Auto-seleccionar cliente "Metro Terceros" y bloquear
+        const metroTercerosClient = dbClients.find(c =>
+            (c.company_name || '').trim().toLowerCase() === 'metro terceros'
+        );
+        if(metroTercerosClient) {
+            clientSel.value = metroTercerosClient.id;
+            clientSel.disabled = true;
+            // Poblar plantas del cliente Metro Terceros y mostrar el campo.
+            // Preservar la planta ya seleccionada si estamos editando una gestión.
+            const gp = document.getElementById('group-plant');
+            if(gp) gp.style.display = 'block';
+            const existingPlantSel  = document.getElementById('taskPlant');
+            const existingPlantFree = document.getElementById('taskPlantFree');
+            const preservePlantId   = existingPlantSel?.value || '';
+            const preservePlantFree = existingPlantFree?.value || '';
+            _populatePlantField(metroTercerosClient.id, preservePlantId, preservePlantFree);
+        } else {
+            alert('No existe un cliente llamado "Metro Terceros". Créalo primero en Admin de Datos.');
+        }
+
+        // Ocultar analistas, días y equipo (el campo planta SÍ se mantiene visible como detalle)
+        ['group-analysts', 'group-days', 'group-equipment'].forEach(id => {
+            const el = document.getElementById(id);
+            if(el) el.style.display = 'none';
+        });
+
+        clientAnalystPreferences = [];
+        container.dataset.clientPreferences = '[]';
+        container.innerHTML = '';
+
     } else {
         // Servicio normal: restaurar todos los campos
-        document.getElementById('taskClient').required    = true;
+        clientSel.required = true;
         document.getElementById('taskBudget').required    = true;
         document.getElementById('taskDaysField').required = true;
         document.getElementById('taskDaysReport').required = true;
@@ -4220,6 +4268,7 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
 
         const isAbsence       = (serviceType === 'Vacaciones' || serviceType === 'Incapacidad' || serviceType === 'Compensatorio' || serviceType === 'Entrenamiento o Curso');
         const isAdminContract = (serviceType === 'Metro Administrativo');
+        const isThirdParty    = (serviceType === 'Metro Terceros');
         const finalClientName = isAbsence ? `AUSENCIA: ${serviceType}` : clientName;
 
         // Planta / Sede: dropdown (con ID) o texto libre
@@ -4254,17 +4303,17 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
             }
         });
 
-        if(!isAbsence && !isAdminContract && analystsAssignment.length > 0 && Math.abs(totalPercentage - 100) > 0.01) {
+        if(!isAbsence && !isAdminContract && !isThirdParty && analystsAssignment.length > 0 && Math.abs(totalPercentage - 100) > 0.01) {
             alert("El porcentaje financiero total debe sumar exactamente 100%. Actualmente suma " + totalPercentage + "%.");
             return;
         }
 
         const mainAnalyst = analystsAssignment.length > 0
             ? (analystsAssignment.find(a => a.isTitular) || analystsAssignment[0]).name
-            : (isAdminContract ? 'Administrativo' : '');
+            : (isAdminContract ? 'Administrativo' : (isThirdParty ? 'Terceros' : ''));
         let displayAnalyst = analystsAssignment.length > 0
             ? analystsAssignment.map(a => `${a.name} (${a.percentage}%)`).join(', ')
-            : (isAdminContract ? 'Administrativo' : '');
+            : (isAdminContract ? 'Administrativo' : (isThirdParty ? 'Terceros' : ''));
         if(analystsAssignment.length === 1) displayAnalyst = mainAnalyst;
 
 
@@ -4307,7 +4356,7 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
                 plantId:   plantId   || null,
                 plantName: plantName || '',
                 scheduledDays: [],
-                status: isAdminContract ? 'facturada' : 'proyectada',
+                status: isAdminContract ? 'facturada' : (isThirdParty ? 'programada' : 'proyectada'),
                 period: document.getElementById('taskPeriodMonth')?.value || formatPeriod(),
                 mesFacturacion: document.getElementById('taskBillingMonth').value
             };
@@ -4902,6 +4951,7 @@ function getCsatTableData() {
     let data = tasks.filter(t =>
         !t.isAbsence &&
         t.serviceType !== 'Metro Administrativo' &&
+        t.serviceType !== 'Metro Terceros' &&
         (t.status === 'ejecutada' || t.status === 'facturada')
     );
     if(reportFilters.analyst) {
