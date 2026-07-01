@@ -1545,9 +1545,9 @@ function renderAnalystGauges(analystStats) {
                     const badge = qualityBadge(e.avg);
                     const initial = (e.name[0] || '?').toUpperCase();
                     return `
-                    <div class="gauge-card" style="border-top:3px solid ${color}; background:#fff; border-radius:12px; padding:0.85rem 0.6rem 0.85rem; box-shadow:0 1px 3px rgba(0,0,0,0.04); position:relative;">
+                    <div class="gauge-card" style="border-top:3px solid ${color}; background:#fff; border-radius:12px; padding:0.55rem 0.5rem 0.65rem; box-shadow:0 1px 3px rgba(0,0,0,0.04); position:relative;">
                         <div class="gauge-avatar" style="position:absolute; top:-14px; left:50%; transform:translateX(-50%); width:28px; height:28px; border-radius:50%; background:${color}; color:#fff; font-weight:800; font-size:0.8rem; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,0.15);">${initial}</div>
-                        <canvas id="gauge-${e.name.replace(/\s+/g,'_')}" width="160" height="90"></canvas>
+                        <div class="gauge-card-canvas-wrap"><canvas id="gauge-${e.name.replace(/\s+/g,'_')}"></canvas></div>
                         <div class="gauge-value" style="color:${color};">
                             ${e.avg !== null ? e.avg.toFixed(1) : '—'}
                             <span class="gauge-max">/5</span>
@@ -1592,7 +1592,8 @@ function renderAnalystGauges(analystStats) {
                 rotation: -90,
                 circumference: 180,
                 cutout: '68%',
-                responsive: false,
+                responsive: true,
+                maintainAspectRatio: false,
                 plugins: {
                     legend: { display: false },
                     tooltip: {

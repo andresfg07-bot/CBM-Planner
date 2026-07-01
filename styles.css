@@ -2323,19 +2323,25 @@ body.role-assistant .calendar-task-pill:active {
     align-items: center;
     min-width: 0;
 }
+.gauge-card-canvas-wrap {
+    width: 100%;
+    aspect-ratio: 2 / 1;
+    margin-bottom: -1.5rem; /* colapsa la mitad inferior vacía del semicírculo */
+}
 .gauge-card canvas {
+    display: block;
     max-width: 100%;
-    height: auto;
 }
 /* En pantallas más angostas, dos filas de 4 */
 @media (max-width: 1100px) {
     .gauges-grid { grid-template-columns: repeat(4, 1fr); }
 }
 .gauge-value {
-    font-size: 1.6rem;
+    font-size: 1.45rem;
     font-weight: 800;
-    margin-top: -0.5rem;
+    margin-top: 0;
     line-height: 1;
+    text-align: center;
 }
 .gauge-max {
     font-size: 0.85rem;
@@ -2343,17 +2349,19 @@ body.role-assistant .calendar-task-pill:active {
     opacity: 0.6;
 }
 .gauge-name {
-    font-size: 0.78rem;
+    font-size: 0.75rem;
     font-weight: 700;
     color: var(--text-primary);
-    margin-top: 0.35rem;
+    margin-top: 0.2rem;
     text-align: center;
+    line-height: 1.15;
 }
 .gauge-sub {
-    font-size: 0.68rem;
+    font-size: 0.65rem;
     color: var(--text-secondary);
     text-align: center;
-    margin-top: 0.15rem;
+    margin-top: 0.1rem;
+    line-height: 1.2;
 }
 
 /* Estado vacío */
