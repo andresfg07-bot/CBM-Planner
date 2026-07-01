@@ -3309,6 +3309,18 @@ function onTaskServiceTypeChange() {
         document.getElementById('taskDaysField').required = false;
         document.getElementById('taskDaysReport').required = false;
 
+        // Auto-seleccionar cliente "Metro Administrativo" (o "Metro Admin") y bloquear
+        const metroAdminClient = dbClients.find(c => {
+            const n = (c.company_name || '').trim().toLowerCase();
+            return n === 'metro administrativo' || n === 'metro admin';
+        });
+        if(metroAdminClient) {
+            clientSel.value = metroAdminClient.id;
+            clientSel.disabled = true;
+        } else {
+            alert('No existe un cliente llamado "Metro Administrativo" (o "Metro Admin"). Créalo primero en Admin de Datos.');
+        }
+
         // Ocultar analistas, días, equipo y planta
         ['group-analysts', 'group-days', 'group-equipment', 'group-plant'].forEach(id => {
             const el = document.getElementById(id);
