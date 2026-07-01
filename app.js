@@ -774,6 +774,13 @@ function getClientDisplayName(c) {
     return `${company} - ${plant}`;
 }
 
+/** Nombre base de la empresa a partir de "Empresa - Planta" (o solo "Empresa").
+ *  Sirve para comparar clientes en filtros sin que la planta arruine el match. */
+function getClientCompanyBase(str) {
+    if (!str) return '';
+    return String(str).split(' - ')[0].trim().toLowerCase();
+}
+
 // Clean up stored client name strings like "Alico - Alico" → "Alico"
 function cleanClientName(name) {
     if (!name) return '';
@@ -1048,7 +1055,7 @@ function renderTasksTable(container) {
     let filteredTasks = tasks.slice().filter(t => !t.isAbsence && isTaskInCurrentPeriod(t));
 
     if(dashboardFilters.analyst) filteredTasks = filteredTasks.filter(t => t.analyst === dashboardFilters.analyst);
-    if(dashboardFilters.client) filteredTasks = filteredTasks.filter(t => t.client === dashboardFilters.client);
+    if(dashboardFilters.client) { const _base = getClientCompanyBase(dashboardFilters.client); filteredTasks = filteredTasks.filter(t => getClientCompanyBase(t.client) === _base); }
     if(dashboardFilters.status) filteredTasks = filteredTasks.filter(t => t.status === dashboardFilters.status);
 
     // Asistente: ve ejecutadas (para facturar) + facturadas (historial + Metro Administrativo)
@@ -1342,7 +1349,8 @@ function renderDashboardStats() {
     }
 
     if(dashboardFilters.client) {
-        gestionesFiltradas = gestionesFiltradas.filter(t => t.client === dashboardFilters.client);
+        const _base = getClientCompanyBase(dashboardFilters.client);
+        gestionesFiltradas = gestionesFiltradas.filter(t => getClientCompanyBase(t.client) === _base);
     }
 
     const totalGestiones = gestionesFiltradas.length;
@@ -1707,7 +1715,8 @@ function renderDashboardCharts() {
         });
     }
     if (dashboardFilters.client) {
-        chartData = chartData.filter(t => t.client === dashboardFilters.client);
+        const _base = getClientCompanyBase(dashboardFilters.client);
+        chartData = chartData.filter(t => getClientCompanyBase(t.client) === _base);
     }
     if (dashboardFilters.status) {
         chartData = chartData.filter(t => t.status === dashboardFilters.status);
@@ -1995,7 +2004,7 @@ function renderPlanningSidebar() {
     );
 
     if(dashboardFilters.analyst) filteredTasks = filteredTasks.filter(t => t.analyst === dashboardFilters.analyst);
-    if(dashboardFilters.client) filteredTasks = filteredTasks.filter(t => t.client === dashboardFilters.client);
+    if(dashboardFilters.client) { const _base = getClientCompanyBase(dashboardFilters.client); filteredTasks = filteredTasks.filter(t => getClientCompanyBase(t.client) === _base); }
 
     if (filteredTasks.length === 0) {
         sidebarContainer.innerHTML = '<div style="text-align:center; padding:1rem; font-size:0.8rem; color:var(--text-secondary)">No hay gestiones proyectadas</div>';
