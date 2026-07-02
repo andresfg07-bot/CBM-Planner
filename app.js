@@ -410,6 +410,183 @@ document.addEventListener('click', (e) => {
     if(!wrap.contains(e.target)) panel.style.display = 'none';
 });
 
+// ══════════════════════════════════════════════════════════════════════════════
+// FASE 2: Generadores de notificaciones específicas
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** Devuelve los user_id (auth.users.id) cuyo profile.analyst_name coincide. */
+function getUserIdsByAnalystName(analystName) {
+    if(!analystName || !Array.isArray(dbProfiles)) return [];
+    const target = analystName.trim().toLowerCase();
+    return dbProfiles
+        .filter(p => (p.analyst_name || '').trim().toLowerCase() === target)
+        .map(p => p.id);
+}
+
+/** Devuelve los user_id de todos los usuarios con un rol dado. */
+function getUserIdsByRole(role) {
+    if(!role || !Array.isArray(dbProfiles)) return [];
+    return dbProfiles.filter(p => p.role === role).map(p => p.id);
+}
+
+/** Crea una notificación solo si no existe otra activa del mismo tipo y task_id
+ *  para ese usuario. Evita duplicados por re-ejecución del mismo evento. */
+async function notifyOncePerTaskAndType({ user_id, task_id, type, title, body = '', is_urgent = false, extraData = {} }) {
+    if(!supabaseClient || !user_id) return;
+    try {
+        const filter = task_id ? { task_id } : extraData;
+        const { data, error } = await supabaseClient
+            .from('notifications')
+            .select('id')
+            .eq('user_id', user_id)
+            .eq('type', type)
+            .contains('data', filter)
+            .is('resolved_at', null)
+            .limit(1);
+        if(error) { console.error('Error verificando duplicado:', error); return; }
+        if(data && data.length > 0) return; // ya existe una activa
+        await createNotification({
+            user_id, type, title, body, is_urgent,
+            data: task_id ? { task_id, ...extraData } : extraData
+        });
+    } catch(e) {
+        console.error('Excepción en notifyOncePerTaskAndType:', e);
+    }
+}
+
+const _clientLabelForNotif = (t) => t?.plantName ? `${t.client} · ${t.plantName}` : (t?.client || '—');
+
+/** Notifica a cada analista asignado sobre una nueva gestión. */
+async function notifyNewTaskToAnalysts(task) {
+    if(!task) return;
+    const assignments = task.analysts_assignment || [];
+    if(assignments.length === 0) return;
+    const label = _clientLabelForNotif(task);
+    for(const a of assignments) {
+        for(const uid of getUserIdsByAnalystName(a.name)) {
+            await notifyOncePerTaskAndType({
+                user_id: uid, task_id: task.id, type: 'nueva_gestion',
+                title: `Nueva gestión asignada: ${label}`,
+                body: `Servicio: ${task.serviceType || '—'} · Mes de gestión: ${task.period || '—'}.`,
+                is_urgent: false
+            });
+        }
+    }
+}
+
+/** Al pasar a ejecutada: notifica al asistente ("lista para facturar") y a comerciales. */
+async function notifyTaskExecuted(task) {
+    if(!task) return;
+    const label = _clientLabelForNotif(task);
+    for(const uid of getUserIdsByRole('assistant')) {
+        await notifyOncePerTaskAndType({
+            user_id: uid, task_id: task.id, type: 'lista_facturar',
+            title: `Lista para facturar: ${label}`,
+            body: `Servicio: ${task.serviceType || '—'} · Valor: $${(task.budget || 0).toLocaleString('es-CO')}.`,
+            is_urgent: false
+        });
+    }
+    for(const uid of getUserIdsByRole('commercial')) {
+        await notifyOncePerTaskAndType({
+            user_id: uid, task_id: task.id, type: 'gestion_ejecutada',
+            title: `Gestión ejecutada: ${label}`,
+            body: `Servicio: ${task.serviceType || '—'}.`,
+            is_urgent: false
+        });
+    }
+}
+
+/** Al guardar detalles del servicio: notifica a los comerciales. */
+async function notifyServiceDetailsUpdated(task) {
+    if(!task || !task.serviceDetails) return;
+    const label = _clientLabelForNotif(task);
+    const preview = task.serviceDetails.length > 120 ? task.serviceDetails.substring(0, 120) + '…' : task.serviceDetails;
+    for(const uid of getUserIdsByRole('commercial')) {
+        await notifyOncePerTaskAndType({
+            user_id: uid, task_id: task.id, type: 'nuevos_detalles',
+            title: `Nuevos detalles: ${label}`,
+            body: preview,
+            is_urgent: false
+        });
+    }
+}
+
+/** Calcula el resumen del mes indicado (formato YYYY-MM) para el admin. */
+function computeMonthlySummary(period) {
+    const monthTasks   = tasks.filter(t => (t.mesFacturacion || t.period) === period && !t.isAbsence);
+    const absenceTasks = tasks.filter(t => t.isAbsence && (t.scheduledDays || []).some(sd => (sd.date || '').startsWith(period)));
+    const executed     = monthTasks.filter(t => t.status === 'ejecutada' || t.status === 'facturada').length;
+    const totalBilled  = monthTasks.filter(t => t.status === 'facturada').reduce((s, t) => s + (parseFloat(t.budget) || 0), 0);
+    const csatScores   = monthTasks.filter(t => t.csatScore && !t.clientNoResponse).map(t => parseFloat(t.csatScore));
+    const avgCsat      = csatScores.length > 0 ? (csatScores.reduce((s, v) => s + v, 0) / csatScores.length).toFixed(2) : '—';
+    const absences     = absenceTasks.reduce((s, t) => s + (t.scheduledDays?.length || 0), 0);
+    const [y, m]       = period.split('-');
+    const monthLabel   = `${monthNames[parseInt(m) - 1] || m} ${y}`;
+    return { totalBilled, avgCsat, executed, absences, monthLabel };
+}
+
+/** Chequeo al abrir la app: CSAT vencidos (analista), CSAT >15d (admin), resumen mensual. */
+async function runNotificationsCheck() {
+    if(!supabaseClient || !currentUserProfile || !currentUser?.id) return;
+    const role = currentUserProfile.role;
+
+    // Analista → CSAT vencidos suyos (>=7 días)
+    if(role === 'analyst' && currentUserProfile.analyst_name) {
+        const overdue = typeof getCsatOverdueTasks === 'function'
+            ? getCsatOverdueTasks(currentUserProfile.analyst_name) : [];
+        for(const t of overdue) {
+            await notifyOncePerTaskAndType({
+                user_id: currentUser.id, task_id: t.id, type: 'csat_vencido',
+                title: `CSAT vencido: ${_clientLabelForNotif(t)}`,
+                body: 'Recuerda registrar la encuesta o marcar "cliente no respondió".',
+                is_urgent: true
+            });
+        }
+    }
+
+    // Admin → lista de CSAT vencidos hace >=15 días (agrupada por día)
+    if(role === 'admin') {
+        const today = Date.now();
+        const veryOverdue = tasks.filter(t => {
+            if(t.isAbsence || t.serviceType === 'Metro Administrativo' || t.serviceType === 'Metro Terceros') return false;
+            if(t.status !== 'ejecutada') return false;
+            if(t.csatScore || t.clientNoResponse) return false;
+            const lastReport = (t.scheduledDays || []).filter(d => d.type === 'report').map(d => d.date).sort().pop();
+            if(!lastReport) return false;
+            const diff = Math.floor((today - new Date(lastReport).getTime()) / 86400000);
+            return diff >= 15;
+        });
+        if(veryOverdue.length > 0) {
+            const todayIso = new Date().toISOString().substring(0, 10);
+            const list = veryOverdue.slice(0, 5).map(t => _clientLabelForNotif(t)).join(', ');
+            const suffix = veryOverdue.length > 5 ? `, y ${veryOverdue.length - 5} más.` : '.';
+            await notifyOncePerTaskAndType({
+                user_id: currentUser.id, task_id: null, type: 'csat_admin_vencidos',
+                title: `${veryOverdue.length} CSAT vencidos hace más de 15 días`,
+                body: list + suffix,
+                is_urgent: true,
+                extraData: { day: todayIso, count: veryOverdue.length }
+            });
+        }
+
+        // Resumen mensual: solo el día 1 de cada mes
+        const now = new Date();
+        if(now.getDate() === 1) {
+            const prevMonth  = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
+            const prevYear   = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+            const prevPeriod = `${prevYear}-${String(prevMonth + 1).padStart(2, '0')}`;
+            const summary    = computeMonthlySummary(prevPeriod);
+            await notifyOncePerTaskAndType({
+                user_id: currentUser.id, task_id: null, type: 'resumen_mensual',
+                title: `Resumen de ${summary.monthLabel}`,
+                body: `Facturado: $${summary.totalBilled.toLocaleString('es-CO')} · CSAT promedio: ${summary.avgCsat} · ${summary.executed} gestiones ejecutadas · ${summary.absences} días de ausencia.`,
+                is_urgent: false,
+                extraData: { period: prevPeriod }
+            });
+        }
+    }
+}
+
 function updateCsatBadge() {
     const badge = document.getElementById('csat-badge');
     if(!badge) return;
@@ -718,6 +895,8 @@ async function saveServiceDetails() {
     if(typeof renderMyWorkView === 'function') renderMyWorkView();
     renderTasksView();
     await saveTaskToSupabase(task);
+    // Notif: nuevos detalles del servicio → a los comerciales
+    notifyServiceDetailsUpdated(task).catch(() => {});
     showToast('Detalles del servicio guardados.', 'success');
 }
 
@@ -1385,6 +1564,10 @@ async function updateTaskStatus(taskId, newStatus) {
     }
     
     saveTasks();
+    // Notif: al pasar a ejecutada por primera vez
+    if(oldStatus !== 'ejecutada' && newStatus === 'ejecutada') {
+        notifyTaskExecuted(task).catch(() => {});
+    }
     if(typeof postDropSync === 'function') {
         postDropSync();
     } else {
@@ -4540,8 +4723,10 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
             };
             tasks.push(newTask);
 
-            
+
             await saveTaskToSupabase(newTask);
+            // Notif: nueva gestión → a cada analista asignado
+            notifyNewTaskToAnalysts(newTask).catch(() => {});
         }
         
         saveTasks();
@@ -4740,6 +4925,7 @@ document.getElementById('csatForm').addEventListener('submit', async e => {
 
         if(submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Guardar Registro de Cierre'; }
 
+        const prevStatus = tasks[taskIndex].status;
         tasks[taskIndex].status           = targetStatus;
         tasks[taskIndex].csatScore        = score;
         tasks[taskIndex].csatObservations = observations;
@@ -4749,6 +4935,10 @@ document.getElementById('csatForm').addEventListener('submit', async e => {
         tasks[taskIndex].evidenceFiles    = allFiles;
 
         saveTasks();
+        // Notif: al pasar a ejecutada por primera vez desde el CSAT modal
+        if(prevStatus !== 'ejecutada' && targetStatus === 'ejecutada') {
+            notifyTaskExecuted(tasks[taskIndex]).catch(() => {});
+        }
         await saveTaskToSupabase(tasks[taskIndex]);
 
         renderBoard();
@@ -6370,8 +6560,10 @@ async function initializeApp() {
                 loadUserProfile(currentUser?.id)
             ]);
             currentUserProfile = profileData;
-            // Cargar notificaciones del usuario (independiente, no bloquea el arranque)
-            loadMyNotifications().catch(() => {});
+            // Cargar perfiles de todos los usuarios (necesario para dirigir notifs a otros usuarios)
+            loadAllProfiles().catch(() => {});
+            // Cargar notificaciones propias y correr los chequeos (CSAT vencidos, resumen mensual)
+            loadMyNotifications().then(() => runNotificationsCheck()).catch(() => {});
         }
     } catch (err) {
         console.error("Error cargando datos iniciales:", err);
