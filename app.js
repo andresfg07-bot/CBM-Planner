@@ -265,6 +265,151 @@ function getCsatOverdueTasks(analystName) {
 }
 
 /** Actualiza el badge rojo en el menú de Mis Gestiones */
+// ══════════════════════════════════════════════════════════════════════════════
+// SISTEMA DE NOTIFICACIONES IN-APP (Fase 1: infraestructura)
+// ══════════════════════════════════════════════════════════════════════════════
+
+let myNotifications = []; // cache local de notificaciones del usuario actual
+
+/** Trae las últimas 100 notificaciones del usuario logueado (para el panel). */
+async function loadMyNotifications() {
+    if(!supabaseClient || !currentUser?.id) return;
+    try {
+        const { data, error } = await supabaseClient
+            .from('notifications')
+            .select('*')
+            .eq('user_id', currentUser.id)
+            .order('created_at', { ascending: false })
+            .limit(100);
+        if(error) { console.error('Error cargando notificaciones:', error); return; }
+        myNotifications = data || [];
+        updateNotificationBadge();
+        renderNotificationsPanel();
+    } catch(e) {
+        console.error('Excepción cargando notificaciones:', e);
+    }
+}
+
+/** Crea una notificación dirigida a un usuario (por su user_id).
+ *  Uso: createNotification({ user_id, type, title, body, data, is_urgent }) */
+async function createNotification({ user_id, type, title, body = '', data = {}, is_urgent = false }) {
+    if(!supabaseClient || !user_id) return;
+    try {
+        const { error } = await supabaseClient
+            .from('notifications')
+            .insert({ user_id, type, title, body, data, is_urgent });
+        if(error) console.error('Error creando notificación:', error);
+    } catch(e) {
+        console.error('Excepción creando notificación:', e);
+    }
+}
+
+/** Marca una notificación como leída. */
+async function markNotificationAsRead(notifId) {
+    if(!supabaseClient) return;
+    const local = myNotifications.find(n => n.id === notifId);
+    if(local && local.read_at) return; // ya leída, no repetir
+    try {
+        const nowIso = new Date().toISOString();
+        const { error } = await supabaseClient
+            .from('notifications')
+            .update({ read_at: nowIso })
+            .eq('id', notifId);
+        if(error) { console.error('Error marcando como leída:', error); return; }
+        if(local) local.read_at = nowIso;
+        updateNotificationBadge();
+        renderNotificationsPanel();
+    } catch(e) {
+        console.error('Excepción marcando leída:', e);
+    }
+}
+
+/** Marca todas las no leídas del usuario como leídas. */
+async function markAllNotificationsAsRead() {
+    if(!supabaseClient || !currentUser?.id) return;
+    try {
+        const nowIso = new Date().toISOString();
+        const { error } = await supabaseClient
+            .from('notifications')
+            .update({ read_at: nowIso })
+            .eq('user_id', currentUser.id)
+            .is('read_at', null);
+        if(error) { console.error('Error marcando todas leídas:', error); return; }
+        myNotifications.forEach(n => { if(!n.read_at) n.read_at = nowIso; });
+        updateNotificationBadge();
+        renderNotificationsPanel();
+    } catch(e) {
+        console.error('Excepción marcando todas leídas:', e);
+    }
+}
+
+/** Actualiza el número del badge rojo en la campanita. */
+function updateNotificationBadge() {
+    const badge = document.getElementById('notifBadge');
+    if(!badge) return;
+    const unread = myNotifications.filter(n => !n.read_at && !n.resolved_at).length;
+    badge.textContent = unread;
+    badge.style.display = unread > 0 ? 'inline-block' : 'none';
+}
+
+/** Renderiza el contenido del panel desplegable de notificaciones. */
+function renderNotificationsPanel() {
+    const list = document.getElementById('notifList');
+    if(!list) return;
+
+    if(myNotifications.length === 0) {
+        list.innerHTML = `<div style="padding:2rem 1rem; text-align:center; color:#94a3b8; font-size:0.85rem;">Sin notificaciones por ahora.</div>`;
+        return;
+    }
+
+    const timeAgo = (iso) => {
+        const diffMs = Date.now() - new Date(iso).getTime();
+        const min = Math.round(diffMs / 60000);
+        if(min < 1)    return 'ahora';
+        if(min < 60)   return `hace ${min} min`;
+        const h = Math.round(min / 60);
+        if(h < 24)     return `hace ${h} h`;
+        const d = Math.round(h / 24);
+        if(d < 30)     return `hace ${d} d`;
+        return new Date(iso).toLocaleDateString('es-CO', { day:'numeric', month:'short' });
+    };
+
+    list.innerHTML = myNotifications.map(n => {
+        const isRead    = !!n.read_at;
+        const resolved  = !!n.resolved_at;
+        const leftColor = resolved ? '#16a34a' : (n.is_urgent ? '#ef4444' : '#3b82f6');
+        const bg        = isRead ? '#ffffff' : '#eff6ff';
+        const icon      = resolved ? '✅' : (n.is_urgent ? '🔴' : '🔵');
+        return `
+        <div onclick="markNotificationAsRead('${n.id}')" style="display:flex; gap:0.6rem; padding:0.6rem 0.75rem; border-left:3px solid ${leftColor}; background:${bg}; border-radius:6px; margin-bottom:4px; cursor:pointer; transition:background 0.15s;"
+             onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='${bg}'">
+            <div style="font-size:0.85rem;">${icon}</div>
+            <div style="flex:1; min-width:0;">
+                <div style="font-size:0.82rem; font-weight:${isRead ? 500 : 700}; color:#0f172a; line-height:1.3;">${n.title || ''}</div>
+                ${n.body ? `<div style="font-size:0.72rem; color:#64748b; margin-top:2px; line-height:1.35;">${n.body}</div>` : ''}
+                <div style="font-size:0.65rem; color:#94a3b8; margin-top:3px;">${timeAgo(n.created_at)}</div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+/** Abre o cierra el panel de notificaciones. */
+function toggleNotificationsPanel() {
+    const panel = document.getElementById('notifPanel');
+    if(!panel) return;
+    const isOpen = panel.style.display === 'block';
+    panel.style.display = isOpen ? 'none' : 'block';
+    if(!isOpen) loadMyNotifications(); // refresh al abrir
+}
+
+// Cerrar el panel al hacer clic fuera
+document.addEventListener('click', (e) => {
+    const panel = document.getElementById('notifPanel');
+    const wrap  = document.querySelector('.notif-bell-wrap');
+    if(!panel || !wrap || panel.style.display !== 'block') return;
+    if(!wrap.contains(e.target)) panel.style.display = 'none';
+});
+
 function updateCsatBadge() {
     const badge = document.getElementById('csat-badge');
     if(!badge) return;
@@ -6225,6 +6370,8 @@ async function initializeApp() {
                 loadUserProfile(currentUser?.id)
             ]);
             currentUserProfile = profileData;
+            // Cargar notificaciones del usuario (independiente, no bloquea el arranque)
+            loadMyNotifications().catch(() => {});
         }
     } catch (err) {
         console.error("Error cargando datos iniciales:", err);
