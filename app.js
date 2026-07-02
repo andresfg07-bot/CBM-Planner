@@ -2006,8 +2006,26 @@ function renderPlanningSidebar() {
     if(dashboardFilters.analyst) filteredTasks = filteredTasks.filter(t => t.analyst === dashboardFilters.analyst);
     if(dashboardFilters.client) { const _base = getClientCompanyBase(dashboardFilters.client); filteredTasks = filteredTasks.filter(t => getClientCompanyBase(t.client) === _base); }
 
+    // Buscador rápido: filtra por cliente + tipo de servicio + sede
+    const searchInput = document.getElementById('unassignedSearch');
+    const searchTerm  = (searchInput?.value || '').trim().toLowerCase();
+    if(searchTerm) {
+        filteredTasks = filteredTasks.filter(t => {
+            const haystack = `${t.client || ''} ${t.serviceType || ''} ${t.plantName || ''}`.toLowerCase();
+            return haystack.includes(searchTerm);
+        });
+    }
+
+    // Contador visible en el header
+    const countEl = document.getElementById('unassignedCount');
+    if(countEl) countEl.textContent = String(filteredTasks.length);
+
+    // Aplicar el layout correcto según la altura actual de la barra
+    if(typeof _updateUnassignedLayoutForHeight === 'function') _updateUnassignedLayoutForHeight();
+
     if (filteredTasks.length === 0) {
-        sidebarContainer.innerHTML = '<div style="text-align:center; padding:1rem; font-size:0.8rem; color:var(--text-secondary)">No hay gestiones proyectadas</div>';
+        const msg = searchTerm ? 'Sin coincidencias para tu búsqueda' : 'No hay gestiones proyectadas';
+        sidebarContainer.innerHTML = `<div style="text-align:center; padding:1rem; font-size:0.8rem; color:var(--text-secondary)">${msg}</div>`;
         return;
     }
 
@@ -6320,7 +6338,80 @@ function populatePeriodMonthSelect() {
 
 document.addEventListener('DOMContentLoaded', async () => {
     await checkSession();
+    initUnassignedResizer();
 });
+
+/** Ajusta el layout interno del backlog según la altura actual:
+ *  - Barra baja  → una fila con scroll horizontal (como estaba)
+ *  - Barra alta  → varias filas con scroll vertical */
+function _updateUnassignedLayoutForHeight() {
+    const bar   = document.getElementById('unassignedSidebar');
+    const items = document.getElementById('planning-sidebar-items');
+    if(!bar || !items) return;
+    // Prioriza el height inline (más confiable si la vista no está renderizada aún)
+    const h = parseInt(bar.style.height, 10) || bar.getBoundingClientRect().height || 180;
+    if(h > 200) {
+        items.style.flexWrap  = 'wrap';
+        items.style.overflowX = 'hidden';
+        items.style.overflowY = 'auto';
+    } else {
+        items.style.flexWrap  = 'nowrap';
+        items.style.overflowX = 'auto';
+        items.style.overflowY = 'hidden';
+    }
+}
+
+/** Divisor arrastrable en la parte superior del backlog "Por Programar":
+ *  permite al usuario expandir o contraer la altura de la barra. */
+function initUnassignedResizer() {
+    const bar     = document.getElementById('unassignedSidebar');
+    const resizer = document.getElementById('unassignedResizer');
+    if(!bar || !resizer) return;
+
+    // Restaurar altura persistida en localStorage
+    const savedH = parseInt(localStorage.getItem('unassignedBarHeight') || '', 10);
+    if(!isNaN(savedH) && savedH >= 90) bar.style.height = savedH + 'px';
+    _updateUnassignedLayoutForHeight();
+
+    let startY = 0, startH = 0, dragging = false;
+    const MIN = 90, MAX_FRACTION = 0.6; // hasta 60% del viewport
+
+    const onMove = (e) => {
+        if(!dragging) return;
+        const y = e.touches ? e.touches[0].clientY : e.clientY;
+        const delta = startY - y; // arrastrar hacia ARRIBA aumenta altura
+        const maxH  = Math.round(window.innerHeight * MAX_FRACTION);
+        const newH  = Math.max(MIN, Math.min(maxH, startH + delta));
+        bar.style.height = newH + 'px';
+        _updateUnassignedLayoutForHeight();
+    };
+    const onUp = () => {
+        if(!dragging) return;
+        dragging = false;
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+        localStorage.setItem('unassignedBarHeight', parseInt(bar.style.height, 10));
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup',   onUp);
+        document.removeEventListener('touchmove', onMove);
+        document.removeEventListener('touchend',  onUp);
+    };
+    const onDown = (e) => {
+        dragging = true;
+        startY = e.touches ? e.touches[0].clientY : e.clientY;
+        startH = bar.getBoundingClientRect().height;
+        document.body.style.userSelect = 'none';
+        document.body.style.cursor = 'ns-resize';
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup',   onUp);
+        document.addEventListener('touchmove', onMove, { passive: false });
+        document.addEventListener('touchend',  onUp);
+        e.preventDefault();
+    };
+
+    resizer.addEventListener('mousedown',  onDown);
+    resizer.addEventListener('touchstart', onDown, { passive: false });
+}
 
 // Helper Function
 
