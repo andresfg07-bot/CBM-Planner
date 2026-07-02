@@ -3917,25 +3917,19 @@ async function loadTasksFromSupabase() {
             }));
 
             // 1. Merge remote into local
+            // La nube es la fuente de verdad. Como saveTaskToSupabase se ejecuta con
+            // await y muestra toast rojo si falla, el estado remoto es autoritativo
+            // en todos los campos. Esto evita el bug asimétrico donde un revert a
+            // proyectada en otro dispositivo no se propagaba (la heurística previa
+            // preservaba localmente el estado "programada").
             remoteTasks.forEach(remote => {
                 const localIdx = tasks.findIndex(l => l.id === remote.id || l.supabaseId === remote.id);
                 if (localIdx === -1) {
                     tasks.push(remote);
                 } else {
-                    const localTask = tasks[localIdx];
-                    // HEURISTIC: If local task is 'programada' but remote is 'proyectada', 
-                    // it's likely a pending sync. Keep local status.
-                    const finalStatus = (localTask.status === 'programada' && remote.status === 'proyectada') 
-                                        ? 'programada' : remote.status;
-                    const finalDays = (localTask.status === 'programada' && remote.status === 'proyectada')
-                                        ? (localTask.scheduledDays.length > 0 ? localTask.scheduledDays : remote.scheduledDays)
-                                        : remote.scheduledDays;
-
-                    tasks[localIdx] = { 
-                        ...localTask, 
-                        ...remote, 
-                        status: finalStatus,
-                        scheduledDays: finalDays,
+                    tasks[localIdx] = {
+                        ...tasks[localIdx],
+                        ...remote,
                         id: remote.id // Always prefer the real UUID as primary ID
                     };
                 }
