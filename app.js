@@ -1769,6 +1769,14 @@ async function updateTaskStatus(taskId, newStatus) {
     }
     
     saveTasks();
+    // Notif: al pasar a programada por primera vez → notificar a los analistas
+    if(oldStatus !== 'programada' && newStatus === 'programada') {
+        notifyNewTaskToAnalysts(task).catch(() => {});
+    }
+    // Auto-cierre: si se devuelve a proyectada, cierra la notif de "Nueva gestión"
+    if(oldStatus === 'programada' && newStatus === 'proyectada') {
+        resolveNotifsForTask({ task_id: taskId, type: 'nueva_gestion' }).catch(() => {});
+    }
     // Notif: al pasar a ejecutada por primera vez
     if(oldStatus !== 'ejecutada' && newStatus === 'ejecutada') {
         notifyTaskExecuted(task).catch(() => {});
@@ -3446,7 +3454,13 @@ async function handleCalendarDrop(cell, dragInfo) {
     }
 
     // Unconditional status update - if it's on the calendar, it's programmed
+    const _prevStatus = task.status;
     task.status = 'programada';
+
+    // Notif: al pasar a programada por primera vez → notificar a los analistas
+    if(_prevStatus !== 'programada') {
+        notifyNewTaskToAnalysts(task).catch(() => {});
+    }
 
     postDropSync();
 
@@ -3508,12 +3522,18 @@ async function handleSidebarDrop(e) {
     if (task && task.status !== 'proyectada') {
         console.log("Found task for sidebar drop:", task.client);
         logActivity(`🔄 La gestión <strong>${task.client}</strong> se ha devuelto al estado <strong>PROYECTADA</strong>.`, 'status');
-        
+
+        const _prevStatus = task.status;
         task.status = 'proyectada';
         task.scheduledDays = []; // Limpiar programación al volver al backlog
-        
+
         postDropSync();
-        
+
+        // Auto-cierre: si venía de 'programada', cierra la notif de "Nueva gestión"
+        if(_prevStatus === 'programada') {
+            resolveNotifsForTask({ task_id: task.id, type: 'nueva_gestion' }).catch(() => {});
+        }
+
         try {
             await saveTaskToSupabase(task);
             console.log("Task saved to Supabase as proyectada");
@@ -4935,8 +4955,9 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
 
 
             await saveTaskToSupabase(newTask);
-            // Notif: nueva gestión → a cada analista asignado
-            notifyNewTaskToAnalysts(newTask).catch(() => {});
+            // Notif de "Nueva gestión asignada" NO se dispara aquí. Solo se emite
+            // cuando la gestión pasa efectivamente a estado 'programada', porque
+            // en 'proyectada' el analista aún puede cambiar.
         }
         
         saveTasks();
