@@ -352,12 +352,24 @@ function updateNotificationBadge() {
     badge.style.display = unread > 0 ? 'inline-block' : 'none';
 }
 
-/** Renderiza el contenido del panel desplegable de notificaciones. */
+/** Grupos expandidos por tipo (agrupación en el panel principal). */
+const _notifGroupExpanded = new Set();
+
+function _toggleNotifGroup(type) {
+    if(_notifGroupExpanded.has(type)) _notifGroupExpanded.delete(type);
+    else _notifGroupExpanded.add(type);
+    renderNotificationsPanel();
+}
+
+/** Renderiza el panel desplegable con agrupación por tipo y retenciones. */
 function renderNotificationsPanel() {
     const list = document.getElementById('notifList');
     if(!list) return;
 
-    if(myNotifications.length === 0) {
+    // Aplicar retenciones (leídas <30d, resueltas <15d, no leídas siempre)
+    const visible = myNotifications.filter(_shouldShowInPanel);
+
+    if(visible.length === 0) {
         list.innerHTML = `<div style="padding:2rem 1rem; text-align:center; color:#94a3b8; font-size:0.85rem;">Sin notificaciones por ahora.</div>`;
         return;
     }
@@ -374,23 +386,79 @@ function renderNotificationsPanel() {
         return new Date(iso).toLocaleDateString('es-CO', { day:'numeric', month:'short' });
     };
 
-    list.innerHTML = myNotifications.map(n => {
+    const renderItem = (n, indented = false) => {
         const isRead    = !!n.read_at;
         const resolved  = !!n.resolved_at;
         const leftColor = resolved ? '#16a34a' : (n.is_urgent ? '#ef4444' : '#3b82f6');
         const bg        = isRead ? '#ffffff' : '#eff6ff';
         const icon      = resolved ? '✅' : (n.is_urgent ? '🔴' : '🔵');
+        const marginLeft = indented ? '1.5rem' : '0';
         return `
-        <div onclick="markNotificationAsRead('${n.id}')" style="display:flex; gap:0.6rem; padding:0.6rem 0.75rem; border-left:3px solid ${leftColor}; background:${bg}; border-radius:6px; margin-bottom:4px; cursor:pointer; transition:background 0.15s;"
-             onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='${bg}'">
-            <div style="font-size:0.85rem;">${icon}</div>
+        <div onclick="markNotificationAsRead('${n.id}')" style="display:flex; gap:0.6rem; padding:0.55rem 0.7rem; border-left:3px solid ${leftColor}; background:${bg}; border-radius:6px; margin:0 0 4px ${marginLeft}; cursor:pointer;">
+            <div style="font-size:0.82rem;">${icon}</div>
             <div style="flex:1; min-width:0;">
-                <div style="font-size:0.82rem; font-weight:${isRead ? 500 : 700}; color:#0f172a; line-height:1.3;">${n.title || ''}</div>
-                ${n.body ? `<div style="font-size:0.72rem; color:#64748b; margin-top:2px; line-height:1.35;">${n.body}</div>` : ''}
-                <div style="font-size:0.65rem; color:#94a3b8; margin-top:3px;">${timeAgo(n.created_at)}</div>
+                <div style="font-size:0.8rem; font-weight:${isRead ? 500 : 700}; color:#0f172a; line-height:1.3;">${n.title || ''}</div>
+                ${n.body ? `<div style="font-size:0.7rem; color:#64748b; margin-top:2px; line-height:1.35;">${n.body}</div>` : ''}
+                <div style="font-size:0.63rem; color:#94a3b8; margin-top:3px;">${timeAgo(n.created_at)}</div>
             </div>
         </div>`;
-    }).join('');
+    };
+
+    // Agrupar por tipo entre las ACTIVAS no resueltas y no leídas.
+    // Solo agrupamos si hay >=2 del mismo tipo activas.
+    const activesByType = {};
+    const others = [];
+    visible.forEach(n => {
+        if(!n.read_at && !n.resolved_at) {
+            (activesByType[n.type] = activesByType[n.type] || []).push(n);
+        } else {
+            others.push(n);
+        }
+    });
+
+    const groupLabels = {
+        'nueva_gestion':       { s:'Nueva gestión asignada',      p:'gestiones asignadas' },
+        'csat_vencido':        { s:'CSAT te está esperando',      p:'CSAT te están esperando' },
+        'lista_facturar':      { s:'Gestión lista para facturar', p:'gestiones listas para facturar' },
+        'gestion_ejecutada':   { s:'Gestión ejecutada',           p:'gestiones ejecutadas' },
+        'nuevos_detalles':     { s:'Nuevos detalles del servicio', p:'nuevos detalles del servicio' },
+        'csat_admin_vencidos': { s:'Lista de CSAT vencidos',      p:'listas de CSAT vencidos' },
+        'resumen_mensual':     { s:'Resumen mensual',             p:'resúmenes mensuales' }
+    };
+
+    let html = '';
+    // Renderiza grupos + individuales activos
+    Object.entries(activesByType).forEach(([type, items]) => {
+        if(items.length === 1) {
+            html += renderItem(items[0]);
+            return;
+        }
+        const isUrgent = items[0].is_urgent;
+        const leftColor = isUrgent ? '#ef4444' : '#3b82f6';
+        const icon = isUrgent ? '🔴' : '🔵';
+        const labels = groupLabels[type] || { s:type, p:type };
+        const expanded = _notifGroupExpanded.has(type);
+        html += `
+            <div onclick="_toggleNotifGroup('${type}')" style="display:flex; align-items:center; gap:0.6rem; padding:0.55rem 0.7rem; border-left:3px solid ${leftColor}; background:#eff6ff; border-radius:6px; margin-bottom:4px; cursor:pointer; font-weight:700;">
+                <div style="font-size:0.82rem;">${icon}</div>
+                <div style="flex:1; min-width:0; font-size:0.8rem; color:#0f172a;">
+                    <span style="background:${leftColor}; color:#fff; padding:1px 8px; border-radius:99px; font-size:0.7rem; margin-right:6px;">${items.length}</span>
+                    ${labels.p}
+                </div>
+                <div style="font-size:0.85rem; color:#64748b;">${expanded ? '▲' : '▼'}</div>
+            </div>`;
+        if(expanded) {
+            items.forEach(n => { html += renderItem(n, true); });
+        }
+    });
+
+    // Renderiza leídas/resueltas (no agrupadas)
+    if(others.length > 0) {
+        if(html) html += `<div style="margin-top:0.5rem; padding:0.25rem 0.5rem; font-size:0.62rem; text-transform:uppercase; font-weight:700; color:#94a3b8;">Recientes</div>`;
+        others.forEach(n => { html += renderItem(n); });
+    }
+
+    list.innerHTML = html;
 }
 
 /** Abre o cierra el panel de notificaciones. */
@@ -585,6 +653,143 @@ async function runNotificationsCheck() {
             });
         }
     }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FASE 3 + 4: Historial, agrupación, auto-cierre y retenciones
+// ══════════════════════════════════════════════════════════════════════════════
+
+let notifHistoryCache = [];
+
+/** Marca como resueltas todas las notificaciones activas de un tipo asociadas a
+ *  un task_id (para cualquier usuario). Útil para auto-cierre. */
+async function resolveNotifsForTask({ task_id, type }) {
+    if(!supabaseClient || !task_id || !type) return;
+    try {
+        const nowIso = new Date().toISOString();
+        const { error } = await supabaseClient
+            .from('notifications')
+            .update({ resolved_at: nowIso, read_at: nowIso })
+            .eq('type', type)
+            .contains('data', { task_id })
+            .is('resolved_at', null);
+        if(error) { console.error('Error resolviendo notifs:', error); return; }
+        // Reflejar en cache local
+        myNotifications.forEach(n => {
+            if(n.type === type && n.data?.task_id === task_id && !n.resolved_at) {
+                n.resolved_at = nowIso;
+                n.read_at = nowIso;
+            }
+        });
+        updateNotificationBadge();
+        renderNotificationsPanel();
+    } catch(e) {
+        console.error('Excepción resolviendo notifs:', e);
+    }
+}
+
+/** Reglas de retención para el panel principal (las viejas no aparecen ahí). */
+function _shouldShowInPanel(n) {
+    const now = Date.now();
+    if(!n.read_at && !n.resolved_at) return true; // no leídas siempre
+    if(n.resolved_at) {
+        const d = Math.floor((now - new Date(n.resolved_at).getTime()) / 86400000);
+        return d < 15;
+    }
+    if(n.read_at) {
+        const d = Math.floor((now - new Date(n.read_at).getTime()) / 86400000);
+        return d < 30;
+    }
+    return true;
+}
+
+/** Abre el modal del historial completo. Carga hasta 500 notifs históricas. */
+async function openNotificationsHistory() {
+    document.getElementById('notifPanel').style.display = 'none';
+    const modal = document.getElementById('notifHistoryModal');
+    if(!modal) return;
+    modal.classList.add('active');
+    document.getElementById('notifHistoryList').innerHTML = '<div style="text-align:center; padding:2rem; color:#94a3b8;">Cargando…</div>';
+    if(!supabaseClient || !currentUser?.id) return;
+    try {
+        const { data, error } = await supabaseClient
+            .from('notifications')
+            .select('*')
+            .eq('user_id', currentUser.id)
+            .order('created_at', { ascending: false })
+            .limit(500);
+        if(error) { console.error('Error cargando historial:', error); return; }
+        notifHistoryCache = data || [];
+        renderNotificationsHistory();
+    } catch(e) {
+        console.error('Excepción cargando historial:', e);
+    }
+}
+
+function clearNotifHistoryFilters() {
+    ['notifHistFilterType','notifHistFilterState','notifHistFilterFrom','notifHistFilterTo','notifHistFilterQ']
+        .forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+    renderNotificationsHistory();
+}
+
+function renderNotificationsHistory() {
+    const list = document.getElementById('notifHistoryList');
+    const countEl = document.getElementById('notifHistoryCount');
+    if(!list) return;
+
+    const type  = document.getElementById('notifHistFilterType')?.value  || '';
+    const state = document.getElementById('notifHistFilterState')?.value || '';
+    const from  = document.getElementById('notifHistFilterFrom')?.value  || '';
+    const to    = document.getElementById('notifHistFilterTo')?.value    || '';
+    const q     = (document.getElementById('notifHistFilterQ')?.value || '').trim().toLowerCase();
+
+    let data = notifHistoryCache.slice();
+    if(type)  data = data.filter(n => n.type === type);
+    if(state === 'unread')   data = data.filter(n => !n.read_at && !n.resolved_at);
+    if(state === 'read')     data = data.filter(n => n.read_at && !n.resolved_at);
+    if(state === 'resolved') data = data.filter(n => n.resolved_at);
+    if(from) data = data.filter(n => (n.created_at || '') >= from);
+    if(to)   data = data.filter(n => (n.created_at || '').substring(0,10) <= to);
+    if(q)    data = data.filter(n => `${n.title||''} ${n.body||''}`.toLowerCase().includes(q));
+
+    if(countEl) countEl.textContent = `${data.length} ${data.length === 1 ? 'notificación' : 'notificaciones'}`;
+
+    if(data.length === 0) {
+        list.innerHTML = '<div style="text-align:center; padding:2rem; color:#94a3b8; font-size:0.85rem;">Sin resultados con los filtros aplicados.</div>';
+        return;
+    }
+
+    list.innerHTML = `
+        <table class="data-table" style="font-size:0.78rem; width:100%;">
+            <thead>
+                <tr>
+                    <th style="width:22px;"></th>
+                    <th>Título</th>
+                    <th style="min-width:110px;">Tipo</th>
+                    <th style="min-width:80px;">Estado</th>
+                    <th style="min-width:130px;">Fecha</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${data.map(n => {
+                    const resolved = !!n.resolved_at;
+                    const read     = !!n.read_at;
+                    const stateLbl = resolved ? '✅ Resuelta' : (read ? 'Leída' : (n.is_urgent ? '🔴 Urgente' : '🔵 Nueva'));
+                    const created  = new Date(n.created_at).toLocaleString('es-CO', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+                    const bg       = read || resolved ? '#fff' : '#eff6ff';
+                    return `<tr style="background:${bg};">
+                        <td>${resolved ? '✅' : (n.is_urgent ? '🔴' : '🔵')}</td>
+                        <td>
+                            <div style="font-weight:${read || resolved ? 500 : 700}; color:#0f172a;">${n.title || ''}</div>
+                            ${n.body ? `<div style="font-size:0.7rem; color:#64748b; margin-top:2px; line-height:1.35;">${n.body}</div>` : ''}
+                        </td>
+                        <td style="color:#64748b;">${n.type}</td>
+                        <td>${stateLbl}</td>
+                        <td style="color:#64748b;">${created}</td>
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table>`;
 }
 
 function updateCsatBadge() {
@@ -1567,6 +1772,11 @@ async function updateTaskStatus(taskId, newStatus) {
     // Notif: al pasar a ejecutada por primera vez
     if(oldStatus !== 'ejecutada' && newStatus === 'ejecutada') {
         notifyTaskExecuted(task).catch(() => {});
+    }
+    // Auto-cierre: al facturar, cierra "lista para facturar" y "gestión ejecutada"
+    if(newStatus === 'facturada' && oldStatus !== 'facturada') {
+        resolveNotifsForTask({ task_id: taskId, type: 'lista_facturar' }).catch(() => {});
+        resolveNotifsForTask({ task_id: taskId, type: 'gestion_ejecutada' }).catch(() => {});
     }
     if(typeof postDropSync === 'function') {
         postDropSync();
@@ -4938,6 +5148,10 @@ document.getElementById('csatForm').addEventListener('submit', async e => {
         // Notif: al pasar a ejecutada por primera vez desde el CSAT modal
         if(prevStatus !== 'ejecutada' && targetStatus === 'ejecutada') {
             notifyTaskExecuted(tasks[taskIndex]).catch(() => {});
+        }
+        // Auto-cierre: si se registró CSAT o "no respondió", cerrar la notif de CSAT vencido
+        if(score || noResponse) {
+            resolveNotifsForTask({ task_id: taskId, type: 'csat_vencido' }).catch(() => {});
         }
         await saveTaskToSupabase(tasks[taskIndex]);
 

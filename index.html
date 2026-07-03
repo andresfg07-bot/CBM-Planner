@@ -177,6 +177,60 @@
                                 </button>
                             </div>
                             <div id="notifList" style="max-height:60vh; overflow-y:auto; padding:0.5rem;"></div>
+                            <div style="border-top:1px solid #e2e8f0; padding:0.5rem 1rem; text-align:center;">
+                                <button onclick="openNotificationsHistory()"
+                                        style="background:none; border:none; color:var(--clr-blue); font-size:0.75rem; font-weight:600; cursor:pointer;">
+                                    Ver todo el historial →
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Modal Historial Completo de Notificaciones -->
+                    <div id="notifHistoryModal" class="modal">
+                        <div class="modal-content" style="max-width:820px;">
+                            <span class="close-btn" onclick="closeModal('notifHistoryModal')">&times;</span>
+                            <h2 style="margin-bottom:1rem;">Historial de Notificaciones</h2>
+                            <!-- Filtros -->
+                            <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom:1rem; padding:0.75rem; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0;">
+                                <div style="flex:1; min-width:140px;">
+                                    <label style="font-size:0.62rem; font-weight:700; color:#64748b; text-transform:uppercase;">Tipo</label>
+                                    <select id="notifHistFilterType" onchange="renderNotificationsHistory()" style="width:100%; padding:0.35rem; font-size:0.78rem; border:1px solid #cbd5e1; border-radius:4px;">
+                                        <option value="">Todos</option>
+                                        <option value="nueva_gestion">Nueva gestión</option>
+                                        <option value="csat_vencido">CSAT vencido</option>
+                                        <option value="lista_facturar">Lista para facturar</option>
+                                        <option value="gestion_ejecutada">Gestión ejecutada</option>
+                                        <option value="nuevos_detalles">Nuevos detalles</option>
+                                        <option value="csat_admin_vencidos">CSAT vencidos (admin)</option>
+                                        <option value="resumen_mensual">Resumen mensual</option>
+                                    </select>
+                                </div>
+                                <div style="flex:1; min-width:140px;">
+                                    <label style="font-size:0.62rem; font-weight:700; color:#64748b; text-transform:uppercase;">Estado</label>
+                                    <select id="notifHistFilterState" onchange="renderNotificationsHistory()" style="width:100%; padding:0.35rem; font-size:0.78rem; border:1px solid #cbd5e1; border-radius:4px;">
+                                        <option value="">Todos</option>
+                                        <option value="unread">No leídas</option>
+                                        <option value="read">Leídas</option>
+                                        <option value="resolved">Resueltas</option>
+                                    </select>
+                                </div>
+                                <div style="flex:1; min-width:130px;">
+                                    <label style="font-size:0.62rem; font-weight:700; color:#64748b; text-transform:uppercase;">Desde</label>
+                                    <input type="date" id="notifHistFilterFrom" onchange="renderNotificationsHistory()" style="width:100%; padding:0.35rem; font-size:0.78rem; border:1px solid #cbd5e1; border-radius:4px;">
+                                </div>
+                                <div style="flex:1; min-width:130px;">
+                                    <label style="font-size:0.62rem; font-weight:700; color:#64748b; text-transform:uppercase;">Hasta</label>
+                                    <input type="date" id="notifHistFilterTo" onchange="renderNotificationsHistory()" style="width:100%; padding:0.35rem; font-size:0.78rem; border:1px solid #cbd5e1; border-radius:4px;">
+                                </div>
+                                <div style="flex:2; min-width:180px;">
+                                    <label style="font-size:0.62rem; font-weight:700; color:#64748b; text-transform:uppercase;">Buscar texto</label>
+                                    <input type="search" id="notifHistFilterQ" oninput="renderNotificationsHistory()" placeholder="Cliente, servicio…" style="width:100%; padding:0.35rem; font-size:0.78rem; border:1px solid #cbd5e1; border-radius:4px;">
+                                </div>
+                                <button onclick="clearNotifHistoryFilters()" style="align-self:flex-end; height:30px; padding:0 0.75rem; background:#fff5f5; border:1px solid #fca5a5; color:#dc2626; border-radius:6px; font-weight:600; cursor:pointer; font-size:0.72rem;">✕ Limpiar</button>
+                            </div>
+                            <div id="notifHistoryCount" style="font-size:0.72rem; color:#64748b; margin-bottom:0.5rem;"></div>
+                            <div id="notifHistoryList" style="max-height:55vh; overflow-y:auto;"></div>
                         </div>
                     </div>
 
