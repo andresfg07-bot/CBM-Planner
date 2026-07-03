@@ -661,6 +661,27 @@ async function runNotificationsCheck() {
 
 let notifHistoryCache = [];
 
+/** Borra por completo las notificaciones de un tipo asociadas a un task_id
+ *  (para todos los usuarios). Se usa cuando la notif deja de ser relevante y
+ *  no aporta valor histórico (ej. gestión que se devuelve a proyectada). */
+async function deleteNotifsForTask({ task_id, type }) {
+    if(!supabaseClient || !task_id || !type) return;
+    try {
+        const { error } = await supabaseClient
+            .from('notifications')
+            .delete()
+            .eq('type', type)
+            .contains('data', { task_id });
+        if(error) { console.error('Error borrando notifs:', error); return; }
+        // Reflejar en cache local
+        myNotifications = myNotifications.filter(n => !(n.type === type && n.data?.task_id === task_id));
+        updateNotificationBadge();
+        renderNotificationsPanel();
+    } catch(e) {
+        console.error('Excepción borrando notifs:', e);
+    }
+}
+
 /** Marca como resueltas todas las notificaciones activas de un tipo asociadas a
  *  un task_id (para cualquier usuario). Útil para auto-cierre. */
 async function resolveNotifsForTask({ task_id, type }) {
@@ -1773,9 +1794,9 @@ async function updateTaskStatus(taskId, newStatus) {
     if(oldStatus !== 'programada' && newStatus === 'programada') {
         notifyNewTaskToAnalysts(task).catch(() => {});
     }
-    // Auto-cierre: si se devuelve a proyectada, cierra la notif de "Nueva gestión"
+    // Auto-borrado: si se devuelve a proyectada, la notif de "Nueva gestión" ya no aplica
     if(oldStatus === 'programada' && newStatus === 'proyectada') {
-        resolveNotifsForTask({ task_id: taskId, type: 'nueva_gestion' }).catch(() => {});
+        deleteNotifsForTask({ task_id: taskId, type: 'nueva_gestion' }).catch(() => {});
     }
     // Notif: al pasar a ejecutada por primera vez
     if(oldStatus !== 'ejecutada' && newStatus === 'ejecutada') {
@@ -3529,9 +3550,9 @@ async function handleSidebarDrop(e) {
 
         postDropSync();
 
-        // Auto-cierre: si venía de 'programada', cierra la notif de "Nueva gestión"
+        // Auto-borrado: si venía de 'programada', la notif de "Nueva gestión" ya no aplica
         if(_prevStatus === 'programada') {
-            resolveNotifsForTask({ task_id: task.id, type: 'nueva_gestion' }).catch(() => {});
+            deleteNotifsForTask({ task_id: task.id, type: 'nueva_gestion' }).catch(() => {});
         }
 
         try {
