@@ -5948,6 +5948,21 @@ function formatReportPeriod(period) {
     return `${monthNames[parseInt(m)-1] || m} ${y}`;
 }
 
+function getExecutionMonths(task) {
+    if(!task.scheduledDays || task.scheduledDays.length === 0) return '—';
+    const months = new Set();
+    task.scheduledDays
+        .filter(d => d.type === 'field' && d.date)
+        .forEach(d => months.add(d.date.slice(0, 7)));
+    if(months.size === 0)
+        task.scheduledDays.filter(d => d.date).forEach(d => months.add(d.date.slice(0, 7)));
+    if(months.size === 0) return '—';
+    return [...months].sort().map(ym => {
+        const [y, m] = ym.split('-');
+        return `${monthNames[parseInt(m)-1]} ${y}`;
+    }).join(', ');
+}
+
 function formatAnalystDisplay(t) {
     if(t.analysts_assignment && t.analysts_assignment.length > 1) {
         return t.analysts_assignment.map(a => `${a.name} (${a.percentage}%)`).join(', ');
@@ -5970,7 +5985,7 @@ function sortReportBy(column) {
 function renderReportsTable() {
     const container = document.getElementById('reports-table-container');
     if(!container) return;
-    if (tasks.length === 0) { renderSkeletonTable(container, 6, 5); return; }
+    if (tasks.length === 0) { renderSkeletonTable(container, 7, 5); return; }
     let data = getReportData();
     const total = data.reduce((sum, t) => sum + (t.budget || 0), 0);
 
@@ -6013,7 +6028,8 @@ function renderReportsTable() {
         <table class="data-table" style="font-size:0.8rem; width:100%;">
             <thead>
                 <tr>
-                    ${thSort('period',  'Fecha / Período',      'min-width:110px')}
+                    ${thSort('period',    'Facturación',          'min-width:110px')}
+                    <th style="min-width:110px">Mes Ejecutado</th>
                     ${thSort('client',  'Cliente (Planta)',     'min-width:160px')}
                     ${thSort('budget',  'Monto ($)',            'min-width:110px; text-align:right')}
                     ${thSort('analyst', 'Analistas',            'min-width:200px')}
@@ -6031,6 +6047,7 @@ function renderReportsTable() {
                     return `
                     <tr>
                         <td>${formatReportPeriod(t.mesFacturacion || t.period)}</td>
+                        <td style="font-size:0.75rem; color:var(--text-secondary);">${getExecutionMonths(t)}</td>
                         <td><strong>${t.client}</strong>${t.plantName ? `<br><span style="font-size:0.72rem;color:var(--clr-blue);font-weight:600;">📍 ${t.plantName}</span>` : ''}</td>
                         <td style="text-align:right; color:var(--clr-green); font-weight:700;">$${(t.budget||0).toLocaleString('es-CO')}</td>
                         <td style="font-size:0.75rem">${formatAnalystDisplay(t)}</td>
@@ -6042,7 +6059,7 @@ function renderReportsTable() {
             </tbody>
             <tfoot>
                 <tr style="background: #f0f9ff; font-weight:800; border-top: 2px solid var(--clr-blue);">
-                    <td colspan="2" style="padding: 0.75rem; font-size:0.85rem; color:var(--clr-blue)">TOTAL (${data.length} gestiones)</td>
+                    <td colspan="3" style="padding: 0.75rem; font-size:0.85rem; color:var(--clr-blue)">TOTAL (${data.length} gestiones)</td>
                     <td style="text-align:right; color:var(--clr-green); font-size:1rem; padding:0.75rem;">$${total.toLocaleString('es-CO')}</td>
                     <td colspan="4"></td>
                 </tr>
@@ -6055,9 +6072,10 @@ function exportReportCSV() {
     const data = getReportData();
     if(data.length === 0) { alert('No hay datos para exportar.'); return; }
 
-    const headers = ['Fecha/Período','Cliente (Planta)','Monto ($)','Analistas','Servicio Realizado','Estado','Detalle p/Comercial'];
+    const headers = ['Facturación','Mes Ejecutado','Cliente (Planta)','Monto ($)','Analistas','Servicio Realizado','Estado','Detalle p/Comercial'];
     const rows = data.map(t => [
         formatReportPeriod(t.mesFacturacion || t.period),
+        getExecutionMonths(t),
         t.plantName ? `${t.client} - ${t.plantName}` : t.client,
         t.budget || 0,
         formatAnalystDisplay(t),
@@ -6066,7 +6084,7 @@ function exportReportCSV() {
         t.serviceDetails || ''
     ]);
     const total = data.reduce((s, t) => s + (t.budget || 0), 0);
-    rows.push(['TOTAL', '', total, '', '', '', '']);
+    rows.push(['TOTAL', '', '', total, '', '', '', '']);
 
     const csvContent = [headers, ...rows]
         .map(r => r.map(cell => `"${String(cell).replace(/"/g,'""')}"`).join(','))
@@ -6182,28 +6200,30 @@ async function exportReportPDF() {
 
     const tableData = data.map(t => [
         formatReportPeriod(t.mesFacturacion || t.period),
+        getExecutionMonths(t),
         t.plantName ? `${t.client}\n${t.plantName}` : t.client,
         '$' + (t.budget||0).toLocaleString('es-CO'),
         formatAnalystDisplay(t),
         t.serviceType || '-',
         t.status.toUpperCase()
     ]);
-    tableData.push([`TOTAL (${data.length} gestiones)`, '', '$' + total.toLocaleString('es-CO'), '', '', '']);
+    tableData.push([`TOTAL (${data.length} gestiones)`, '', '', '$' + total.toLocaleString('es-CO'), '', '', '']);
 
     doc.autoTable({
         startY,
-        head: [['Fecha / Período','Cliente (Planta)','Monto ($)','Analistas','Tipo de Servicio','Estado']],
+        head: [['Facturación','Mes Ejecutado','Cliente (Planta)','Monto ($)','Analistas','Tipo de Servicio','Estado']],
         body: tableData,
-        styles: { fontSize: 8, cellPadding: 2.5, font:'helvetica' },
-        headStyles: { fillColor: BLUE, textColor: 255, fontStyle:'bold', fontSize: 8 },
+        styles: { fontSize: 7.5, cellPadding: 2.5, font:'helvetica' },
+        headStyles: { fillColor: BLUE, textColor: 255, fontStyle:'bold', fontSize: 7.5 },
         alternateRowStyles: { fillColor: [245, 248, 255] },
         columnStyles: {
-            0: { cellWidth: 28 },
-            1: { cellWidth: 58 },
-            2: { cellWidth: 30, halign:'right' },
-            3: { cellWidth: 72 },
-            4: { cellWidth: 38 },
-            5: { cellWidth: 22, halign:'center' }
+            0: { cellWidth: 26 },
+            1: { cellWidth: 26 },
+            2: { cellWidth: 52 },
+            3: { cellWidth: 28, halign:'right' },
+            4: { cellWidth: 62 },
+            5: { cellWidth: 34 },
+            6: { cellWidth: 21, halign:'center' }
         },
         margin: { left: mX, right: mX, bottom: 26 },
         didDrawPage: function(d) {
@@ -6217,7 +6237,7 @@ async function exportReportPDF() {
                 d.cell.styles.textColor = BLUE;
             }
             // Color por estado
-            if(d.column.index === 5 && d.row.section === 'body' && d.row.index < tableData.length - 1) {
+            if(d.column.index === 6 && d.row.section === 'body' && d.row.index < tableData.length - 1) {
                 const s = (d.cell.raw || '').toLowerCase();
                 if(s === 'facturada')  d.cell.styles.textColor = [22, 163, 74];
                 else if(s === 'ejecutada')  d.cell.styles.textColor = [234, 88, 12];
