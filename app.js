@@ -1,6 +1,7 @@
 // Supabase Config
-const supabaseUrl = 'https://gvjemehvtrxwsokmyyby.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2amVtZWh2dHJ4d3Nva215eWJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4NTkxOTMsImV4cCI6MjA4OTQzNTE5M30.TSVtuYnGI2j9JymCJbjKsXlbs1hG2EpaHHuEksJuAqE';
+// Si env.staging.js se cargó antes, window._stagingConfig sobreescribe las credenciales.
+const supabaseUrl = (window._stagingConfig && window._stagingConfig.url) || 'https://gvjemehvtrxwsokmyyby.supabase.co';
+const supabaseKey = (window._stagingConfig && window._stagingConfig.key) || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2amVtZWh2dHJ4d3Nva215eWJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4NTkxOTMsImV4cCI6MjA4OTQzNTE5M30.TSVtuYnGI2j9JymCJbjKsXlbs1hG2EpaHHuEksJuAqE';
 let supabaseClient = null;
 
 try {
@@ -9,6 +10,25 @@ try {
     }
 } catch (e) {
     console.error("Error initializing Supabase", e);
+}
+
+// Banner de ambiente de pruebas
+if (window.IS_STAGING) {
+    document.addEventListener('DOMContentLoaded', () => {
+        const banner = document.createElement('div');
+        banner.id = 'staging-banner';
+        banner.textContent = '⚠️  AMBIENTE DE PRUEBAS — Los datos aquí NO son los de producción  ⚠️';
+        Object.assign(banner.style, {
+            position: 'fixed', top: '0', left: '0', right: '0', zIndex: '99999',
+            background: '#f59e0b', color: '#1c1917', textAlign: 'center',
+            fontWeight: '700', fontSize: '0.8rem', padding: '6px 0',
+            letterSpacing: '0.05em', pointerEvents: 'none',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.3)'
+        });
+        document.body.prepend(banner);
+        // Empujar el contenido hacia abajo para que el banner no tape la nav
+        document.body.style.paddingTop = '30px';
+    });
 }
 
 let dbClients = [];
