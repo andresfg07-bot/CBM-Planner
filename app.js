@@ -6005,8 +6005,9 @@ function renderReportsTable() {
                 case 'analyst': return (formatAnalystDisplay(t) || '').toLowerCase();
                 case 'service': return (t.serviceType || '').toLowerCase();
                 case 'status':  return statusOrder[t.status] ?? 99;
-                case 'details': return (t.serviceDetails || '').toLowerCase();
-                default:        return '';
+                case 'details':   return (t.serviceDetails || '').toLowerCase();
+                case 'executed':  return getExecutionMonths(t);
+                default:          return '';
             }
         };
         const dir = reportSortState.dir === 'asc' ? 1 : -1;
@@ -6029,7 +6030,7 @@ function renderReportsTable() {
             <thead>
                 <tr>
                     ${thSort('period',    'Facturación',          'min-width:110px')}
-                    <th style="min-width:110px">Mes Ejecutado</th>
+                    ${thSort('executed', 'Mes Ejecutado',        'min-width:110px')}
                     ${thSort('client',  'Cliente (Planta)',     'min-width:160px')}
                     ${thSort('budget',  'Monto ($)',            'min-width:110px; text-align:right')}
                     ${thSort('analyst', 'Analistas',            'min-width:200px')}
