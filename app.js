@@ -3437,7 +3437,10 @@ async function handleCalendarDrop(cell, dragInfo) {
             if (found) {
                 found.isTitular = true;
             } else {
-                task.analysts_assignment.push({ name: targetAnalyst, isTitular: true, makesReport: false, percentage: 0 });
+                // El analista de la fila destino NO estaba asignado: era un prospecto.
+                // Al programar desde el backlog, el analista real REEMPLAZA la asignación
+                // previa (evita la división accidental entre prospecto y analista final).
+                task.analysts_assignment = [{ name: targetAnalyst, isTitular: true, makesReport: true, percentage: 100 }];
             }
         }
         if (!task.scheduledDays || task.scheduledDays.length === 0) {
@@ -3746,7 +3749,7 @@ function addAnalystToTask(existingData = null) {
     const pctValue = existingData ? existingData.percentage : (container.children.length === 0 ? 100 : 0);
 
     row.innerHTML = `
-        <select class="analyst-select" style="flex: 2; padding: 0.3rem 0.25rem; font-size: 0.72rem; border: 1px solid #cbd5e1; border-radius: 4px;" required>
+        <select class="analyst-select" style="flex: 2; padding: 0.3rem 0.25rem; font-size: 0.72rem; border: 1px solid #cbd5e1; border-radius: 4px;">
             <option value="">Analista...</option>
             ${(dbAnalysts || []).map(a => `<option value="${a.name}" ${analystName === a.name ? 'selected' : ''}>${a.name}</option>`).join('')}
         </select>
@@ -4774,7 +4777,6 @@ function addAnalystToTask(analystData = null) {
     // Select Analista
     const select = document.createElement('select');
     select.className = 'analyst-select';
-    select.required = true;
     select.style.flex = '2';
     select.style.padding = '0.4rem';
     
