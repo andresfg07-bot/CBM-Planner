@@ -7,7 +7,7 @@
 //     en la rama feature/control-kits o entornos de staging.
 // =============================================================
 window._stagingConfig = {
-    url: 'REEMPLAZAR_CON_URL_DE_STAGING',       // ej. https://xxxx.supabase.co
-    key: 'REEMPLAZAR_CON_ANON_KEY_DE_STAGING'   // anon key del proyecto staging
+    url: 'https://vppwlsoyweyzlqalaspy.supabase.co',
+    key: 'sb_publishable_mGmInFHtFQh9NoPBwMUidw_h4wT23nJ'   // anon key del proyecto staging
 };
 window.IS_STAGING = true;
