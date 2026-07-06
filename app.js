@@ -6896,12 +6896,14 @@ async function initializeApp() {
 
 }
 
-function populateBillingMonthSelect() {
-    const select = document.getElementById('taskBillingMonth');
+/** Rango común para los selects de mes: 6 meses atrás y 18 adelante
+ *  (cubre planeación anual completa + margen para facturación rezagada). */
+function _populateMonthSelect(selectId) {
+    const select = document.getElementById(selectId);
     if(!select) return;
     select.innerHTML = '';
     const now = new Date();
-    for(let i = -3; i <= 6; i++) {
+    for(let i = -6; i <= 18; i++) {
         const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
         const y = d.getFullYear();
         const m = d.getMonth() + 1;
@@ -6911,20 +6913,12 @@ function populateBillingMonthSelect() {
     }
 }
 
+function populateBillingMonthSelect() {
+    _populateMonthSelect('taskBillingMonth');
+}
+
 function populatePeriodMonthSelect() {
-    const select = document.getElementById('taskPeriodMonth');
-    if(!select) return;
-    select.innerHTML = '';
-    const now = new Date();
-    // Mes de gestión: permite planear hasta 12 meses adelante (planeación anual)
-    for(let i = -3; i <= 12; i++) {
-        const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-        const y = d.getFullYear();
-        const m = d.getMonth() + 1;
-        const val = `${y}-${String(m).padStart(2, '0')}`;
-        const label = `${monthNames[m-1]} ${y}`;
-        select.innerHTML += `<option value="${val}">${label}</option>`;
-    }
+    _populateMonthSelect('taskPeriodMonth');
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
