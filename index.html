@@ -8,6 +8,8 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
@@ -121,6 +123,10 @@
                 <a href="#" class="nav-item" id="nav-admin" data-view="admin" onclick="switchView('admin')">
                     <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8.5" r="2.3"/><path d="M8 3.9v1.3M8 11.8v1.3M3.4 8.5h1.3M11.3 8.5h1.3M4.8 5.3l.9.9M10.3 10.8l.9.9M4.8 11.7l.9-.9M10.3 6.2l.9-.9"/><path d="M20.5 13.2a3 3 0 0 1-3.9 3.9l-3.4 3.4a1.4 1.4 0 0 1-2-2l3.4-3.4a3 3 0 0 1 3.9-3.9l-1.9 1.9.3 1.7 1.7.3z"/></svg></span>
                     <span class="nav-text">Admin de Datos</span>
+                </a>
+                <a href="#" class="nav-item" id="nav-inventory" data-view="inventory" onclick="switchView('inventory')">
+                    <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14M5 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm14 0a2 2 0 1 0 4 0 2 2 0 0 0-4 0ZM3 8v8a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8M10 12h4"/></svg></span>
+                    <span class="nav-text">Inventario</span>
                 </a>
                 <a href="#" class="nav-item nav-logout" onclick="handleLogout()" style="margin-top: auto; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem; color: var(--clr-pink);">
                     <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span>
@@ -887,6 +893,94 @@
                 <button class="btn-primary" onclick="closeModal('textViewerModal')" style="width:100%;">Cerrar</button>
             </div>
         </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- MODAL: Agregar / Editar ítem de inventario -->
+    <!-- ══════════════════════════════════════════ -->
+    <div id="inventoryItemModal" class="modal-overlay" style="display:none;">
+        <div class="modal-content" style="max-width:480px;">
+            <span class="close-btn" onclick="closeModal('inventoryItemModal')">&times;</span>
+            <h2 id="invItemModalTitle" style="margin-bottom:1.25rem;">Agregar Ítem</h2>
+            <div style="display:flex; flex-direction:column; gap:0.85rem;">
+                <div>
+                    <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Nombre *</label>
+                    <input id="invItem_name" type="text" placeholder="Ej: Colector de Vibraciones SKF" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;">
+                </div>
+                <div>
+                    <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Categoría</label>
+                    <select id="invItem_category" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;">
+                        <option value="vibraciones">Análisis de Vibraciones</option>
+                        <option value="alineacion">Alineación</option>
+                        <option value="rotodinamico">Rotodinámica</option>
+                        <option value="general">General</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Serial / Referencia</label>
+                    <input id="invItem_serial" type="text" placeholder="Número de serie o referencia interna" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;">
+                </div>
+                <div>
+                    <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Descripción / Notas</label>
+                    <textarea id="invItem_description" rows="2" placeholder="Detalles adicionales..." style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;resize:vertical;"></textarea>
+                </div>
+                <div style="display:flex;align-items:center;gap:0.5rem;">
+                    <input type="checkbox" id="invItem_permanent" onchange="toggleAnalystAssign()" style="width:16px;height:16px;accent-color:var(--clr-blue);">
+                    <label for="invItem_permanent" style="font-size:0.85rem;cursor:pointer;">Asignado permanentemente a un analista</label>
+                </div>
+                <div id="invItem_analystRow" style="display:none;">
+                    <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Analista asignado</label>
+                    <select id="invItem_analyst" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;"></select>
+                </div>
+                <div style="display:flex;gap:0.75rem;margin-top:0.5rem;">
+                    <button class="btn-secondary" onclick="closeModal('inventoryItemModal')" style="flex:1;">Cancelar</button>
+                    <button class="btn-primary" onclick="saveInventoryItem()" style="flex:2;">Guardar</button>
+                </div>
+            </div>
+            <input type="hidden" id="invItem_editId">
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- MODAL: Ver QR de un ítem                  -->
+    <!-- ══════════════════════════════════════════ -->
+    <div id="inventoryQRModal" class="modal-overlay" style="display:none;">
+        <div class="modal-content" style="max-width:360px; text-align:center;">
+            <span class="close-btn" onclick="closeModal('inventoryQRModal')">&times;</span>
+            <h3 id="invQR_itemName" style="margin-bottom:0.25rem;"></h3>
+            <p id="invQR_itemSerial" style="font-size:0.75rem;color:#64748b;margin-bottom:1rem;"></p>
+            <canvas id="invQR_canvas" style="border:1px solid #e2e8f0;border-radius:8px;max-width:220px;"></canvas>
+            <p style="font-size:0.72rem;color:#94a3b8;margin:0.75rem 0;">Imprime este QR y pégalo en el equipo</p>
+            <button class="btn-primary" onclick="printInventoryQR()" style="width:100%;">🖨️ Imprimir QR</button>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- MODAL: Escáner QR (analista / admin)       -->
+    <!-- ══════════════════════════════════════════ -->
+    <div id="inventoryScanModal" class="modal-overlay" style="display:none;">
+        <div class="modal-content" style="max-width:420px;">
+            <span class="close-btn" onclick="closeInventoryScanner()">&times;</span>
+            <h3 style="margin-bottom:0.75rem;">📷 Escanear Código QR</h3>
+            <!-- Estado: escaneando -->
+            <div id="invScan_scannerBox">
+                <div id="inv-qr-reader" style="width:100%;border-radius:8px;overflow:hidden;"></div>
+                <p style="font-size:0.8rem;color:#64748b;text-align:center;margin-top:0.75rem;">Apunta la cámara al código QR del equipo</p>
+            </div>
+            <!-- Estado: ítem detectado -->
+            <div id="invScan_result" style="display:none;">
+                <div id="invScan_itemCard" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:1.25rem;margin-bottom:1rem;"></div>
+                <div style="display:flex;gap:0.75rem;">
+                    <button class="btn-secondary" onclick="resetInventoryScanner()" style="flex:1;">← Escanear otro</button>
+                    <button id="invScan_actionBtn" class="btn-primary" style="flex:2;" onclick="confirmInventoryAction()"></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- INVENTORY VIEW -->
+    <div id="view-inventory" class="view-section" style="padding-top:2rem; display:none;">
+        <div id="inventory-view-container"></div>
     </div>
 
     <!-- Supabase & SheetJS -->
