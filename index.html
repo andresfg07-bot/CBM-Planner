@@ -8,7 +8,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
@@ -903,7 +903,7 @@
     <!-- ══════════════════════════════════════════ -->
     <!-- MODAL: Agregar / Editar ítem de inventario -->
     <!-- ══════════════════════════════════════════ -->
-    <div id="inventoryItemModal" class="modal-overlay" style="display:none;">
+    <div id="inventoryItemModal" class="modal">
         <div class="modal-content" style="max-width:480px;">
             <span class="close-btn" onclick="closeModal('inventoryItemModal')">&times;</span>
             <h2 id="invItemModalTitle" style="margin-bottom:1.25rem;">Agregar Ítem</h2>
@@ -949,12 +949,12 @@
     <!-- ══════════════════════════════════════════ -->
     <!-- MODAL: Ver QR de un ítem                  -->
     <!-- ══════════════════════════════════════════ -->
-    <div id="inventoryQRModal" class="modal-overlay" style="display:none;">
+    <div id="inventoryQRModal" class="modal">
         <div class="modal-content" style="max-width:360px; text-align:center;">
             <span class="close-btn" onclick="closeModal('inventoryQRModal')">&times;</span>
             <h3 id="invQR_itemName" style="margin-bottom:0.25rem;"></h3>
             <p id="invQR_itemSerial" style="font-size:0.75rem;color:#64748b;margin-bottom:1rem;"></p>
-            <canvas id="invQR_canvas" style="border:1px solid #e2e8f0;border-radius:8px;max-width:220px;"></canvas>
+            <div id="invQR_canvas" style="display:inline-block;border:1px solid #e2e8f0;border-radius:8px;padding:8px;min-height:236px;min-width:236px;"></div>
             <p style="font-size:0.72rem;color:#94a3b8;margin:0.75rem 0;">Imprime este QR y pégalo en el equipo</p>
             <button class="btn-primary" onclick="printInventoryQR()" style="width:100%;">🖨️ Imprimir QR</button>
         </div>
@@ -963,7 +963,7 @@
     <!-- ══════════════════════════════════════════ -->
     <!-- MODAL: Escáner QR (analista / admin)       -->
     <!-- ══════════════════════════════════════════ -->
-    <div id="inventoryScanModal" class="modal-overlay" style="display:none;">
+    <div id="inventoryScanModal" class="modal">
         <div class="modal-content" style="max-width:420px;">
             <span class="close-btn" onclick="closeInventoryScanner()">&times;</span>
             <h3 style="margin-bottom:0.75rem;">📷 Escanear Código QR</h3>

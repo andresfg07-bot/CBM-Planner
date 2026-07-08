@@ -6590,7 +6590,7 @@ function openAddInventoryItemModal() {
     document.getElementById('invItem_permanent').checked = false;
     document.getElementById('invItem_analystRow').style.display = 'none';
     _populateInvAnalystSelect();
-    document.getElementById('inventoryItemModal').style.display = 'flex';
+    document.getElementById('inventoryItemModal').classList.add('active');
 }
 
 function openEditInventoryItemModal(itemId) {
@@ -6609,7 +6609,7 @@ function openEditInventoryItemModal(itemId) {
         const sel = document.getElementById('invItem_analyst');
         if(sel) sel.value = item.assigned_analyst;
     }
-    document.getElementById('inventoryItemModal').style.display = 'flex';
+    document.getElementById('inventoryItemModal').classList.add('active');
 }
 
 async function saveInventoryItem() {
@@ -6660,21 +6660,22 @@ function showInventoryQR(itemId) {
     if(!item) return;
     document.getElementById('invQR_itemName').textContent = item.name;
     document.getElementById('invQR_itemSerial').textContent = item.serial_number ? `Serial: ${item.serial_number}` : '';
-    document.getElementById('inventoryQRModal').style.display = 'flex';
+    document.getElementById('inventoryQRModal').classList.add('active');
     document.getElementById('inventoryQRModal').dataset.itemId = itemId;
+    const box = document.getElementById('invQR_canvas');
+    box.innerHTML = '';
     setTimeout(() => {
-        const canvas = document.getElementById('invQR_canvas');
-        QRCode.toCanvas(canvas, itemId, { width: 220, margin: 2 }, err => {
-            if(err) console.error('QR error:', err);
-        });
-    }, 100);
+        new QRCode(box, { text: itemId, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
+    }, 50);
 }
 
 function printInventoryQR() {
-    const itemId  = document.getElementById('inventoryQRModal').dataset.itemId;
-    const item    = dbInventoryItems.find(i => i.id === itemId);
-    const canvas  = document.getElementById('invQR_canvas');
-    const dataUrl = canvas.toDataURL('image/png');
+    const itemId   = document.getElementById('inventoryQRModal').dataset.itemId;
+    const item     = dbInventoryItems.find(i => i.id === itemId);
+    const box      = document.getElementById('invQR_canvas');
+    const canvasEl = box.querySelector('canvas');
+    const imgEl    = box.querySelector('img');
+    const dataUrl  = canvasEl ? canvasEl.toDataURL('image/png') : (imgEl ? imgEl.src : '');
     const win = window.open('', '_blank');
     win.document.write(`
         <html><head><title>QR ${item?.name}</title>
@@ -6692,7 +6693,7 @@ function printInventoryQR() {
 // ── Escáner QR ────────────────────────────────────────────────────────────────
 
 function openInventoryScannerModal() {
-    document.getElementById('inventoryScanModal').style.display = 'flex';
+    document.getElementById('inventoryScanModal').classList.add('active');
     document.getElementById('invScan_scannerBox').style.display = 'block';
     document.getElementById('invScan_result').style.display = 'none';
     _invScanAction = null;
