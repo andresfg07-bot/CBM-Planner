@@ -5239,6 +5239,10 @@ function switchView(viewName) {
         targetView.classList.add('active-view');
     }
 
+    // Evita que el scroll heredado de la vista anterior deje el contenido nuevo fuera de pantalla
+    const mainContent = document.getElementById('main-content');
+    if(mainContent) mainContent.scrollTop = 0;
+
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
     const targetNav = document.getElementById(`nav-${viewName}`);
     if(targetNav) {
