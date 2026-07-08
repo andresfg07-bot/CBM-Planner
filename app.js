@@ -6721,8 +6721,16 @@ function openInventoryScannerModal() {
 
 function closeInventoryScanner() {
     if(_invHtml5Scanner) {
-        _invHtml5Scanner.stop().catch(() => {});
-        _invHtml5Scanner.clear().catch(() => {});
+        try {
+            const scanner = _invHtml5Scanner;
+            // stop()/clear() lanzan sincrónicamente si el escáner nunca llegó a iniciar
+            // (ej: cámara denegada). Deben quedar aislados para no bloquear el cierre del modal.
+            Promise.resolve()
+                .then(() => scanner.stop())
+                .catch(() => {})
+                .then(() => scanner.clear())
+                .catch(() => {});
+        } catch(e) { /* ignorar: el escáner nunca llegó a iniciar */ }
         _invHtml5Scanner = null;
     }
     closeModal('inventoryScanModal');
