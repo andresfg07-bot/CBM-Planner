@@ -6292,7 +6292,12 @@ let _inventoryTab    = 'catalogo'; // 'catalogo' | 'encampo' | 'historial'
 let _invScanAction   = null; // { type: 'checkout'|'checkin', itemId, loanId }
 let _invHtml5Scanner = null;
 
-const _invCatLabel = { vibraciones:'Vibraciones', alineacion:'Alineación', rotodinamico:'Rotodinámica', general:'General' };
+const _invCategories = ['Vibraciones', 'Termografía', 'Ultrasonido', 'Balanceo', 'Alineación', 'Rotodinámico', 'Capacitación', 'General'];
+const _invCatLabel = {
+    Vibraciones: '〰️ Vibraciones', Termografía: '🌡️ Termografía', Ultrasonido: '🔊 Ultrasonido',
+    Balanceo: '⚖️ Balanceo', Alineación: '📐 Alineación', Rotodinámico: '⚙️ Rotodinámico',
+    Capacitación: '📚 Capacitación', General: '🔧 General'
+};
 const _invStatusLabel = { disponible:'Disponible', prestado:'En Campo', dañado:'Dañado', perdido:'Perdido' };
 const _invStatusColor = { disponible:'#16a34a', prestado:'#d97706', dañado:'#dc2626', perdido:'#7f1d1d' };
 const _invStatusBg    = { disponible:'#f0fdf4', prestado:'#fffbeb', dañado:'#fef2f2', perdido:'#fef2f2' };
@@ -6408,7 +6413,7 @@ function renderInventoryCatalog() {
     const el = document.getElementById('inv-tab-content');
     if(!el) return;
 
-    const categories = ['vibraciones','alineacion','rotodinamico','general'];
+    const categories = _invCategories;
 
     el.innerHTML = `
         <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
@@ -6584,7 +6589,7 @@ function openAddInventoryItemModal() {
     document.getElementById('invItemModalTitle').textContent = 'Agregar Ítem';
     document.getElementById('invItem_editId').value = '';
     document.getElementById('invItem_name').value = '';
-    document.getElementById('invItem_category').value = 'vibraciones';
+    document.getElementById('invItem_category').value = 'Vibraciones';
     document.getElementById('invItem_serial').value = '';
     document.getElementById('invItem_description').value = '';
     document.getElementById('invItem_permanent').checked = false;
@@ -6599,7 +6604,7 @@ function openEditInventoryItemModal(itemId) {
     document.getElementById('invItemModalTitle').textContent = 'Editar Ítem';
     document.getElementById('invItem_editId').value = itemId;
     document.getElementById('invItem_name').value = item.name || '';
-    document.getElementById('invItem_category').value = item.category || 'general';
+    document.getElementById('invItem_category').value = item.category || 'General';
     document.getElementById('invItem_serial').value = item.serial_number || '';
     document.getElementById('invItem_description').value = item.description || '';
     document.getElementById('invItem_permanent').checked = !!item.is_permanently_assigned;

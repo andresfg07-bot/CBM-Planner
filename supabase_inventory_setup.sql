@@ -7,8 +7,8 @@
 CREATE TABLE IF NOT EXISTS public.inventory_items (
     id                      UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
     name                    TEXT        NOT NULL,
-    category                TEXT        DEFAULT 'general'
-                                CHECK (category IN ('vibraciones','alineacion','rotodinamico','general')),
+    category                TEXT        DEFAULT 'General'
+                                CHECK (category IN ('Vibraciones','Termografía','Ultrasonido','Balanceo','Alineación','Rotodinámico','Capacitación','General')),
     serial_number           TEXT,
     description             TEXT,
     is_permanently_assigned BOOLEAN     DEFAULT FALSE,
