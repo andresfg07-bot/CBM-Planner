@@ -6441,7 +6441,8 @@ function renderInventoryCatalog() {
     const categories = _invCategories;
 
     el.innerHTML = `
-        <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
+        <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-bottom:1rem;">
+            <button class="btn-secondary" onclick="printAllInventoryQRs()" ${dbInventoryItems.length===0?'disabled':''}>🖨️ Imprimir todos los QR</button>
             <button class="btn-primary" onclick="openAddInventoryItemModal()">+ Agregar ítem</button>
         </div>
         ${categories.map(cat => {
@@ -6942,6 +6943,74 @@ function printInventoryQR() {
             <p style="font-size:0.65rem;color:#cbd5e1;margin-top:1rem;">${itemId}</p>
         </body></html>`);
     win.document.close();
+}
+
+/** Genera un PDF con el QR de cada ítem del inventario en grilla, 15x15mm cada uno, listos para imprimir y pegar. */
+async function printAllInventoryQRs() {
+    if(dbInventoryItems.length === 0) { showToast('No hay ítems en el inventario', 'error'); return; }
+    if(typeof window.jspdf === 'undefined' && typeof jsPDF === 'undefined') {
+        showToast('La librería PDF está cargando. Intenta en unos segundos.', 'error'); return;
+    }
+    showToast('Generando PDF…', 'success');
+
+    // Contenedor oculto: qrcodejs necesita un elemento real en el DOM para dibujar el canvas.
+    const hiddenContainer = document.createElement('div');
+    hiddenContainer.style.position = 'fixed';
+    hiddenContainer.style.left = '-9999px';
+    document.body.appendChild(hiddenContainer);
+
+    const QR_RENDER_PX = 180; // resolución del canvas para que 15mm se vea nítido al imprimir
+    const qrData = dbInventoryItems.map(item => {
+        const box = document.createElement('div');
+        hiddenContainer.appendChild(box);
+        new QRCode(box, { text: item.id, width: QR_RENDER_PX, height: QR_RENDER_PX, correctLevel: QRCode.CorrectLevel.M });
+        const canvasEl = box.querySelector('canvas');
+        const imgEl    = box.querySelector('img');
+        const dataUrl  = canvasEl ? canvasEl.toDataURL('image/png') : (imgEl ? imgEl.src : '');
+        return { item, dataUrl };
+    });
+    document.body.removeChild(hiddenContainer);
+
+    const { jsPDF: JSPDF } = window.jspdf || {};
+    const doc = JSPDF ? new JSPDF({ unit: 'mm', format: 'letter' }) : new jsPDF({ unit: 'mm', format: 'letter' });
+
+    const pageW = 215.9, pageH = 279.4;
+    const marginX = 12, marginY = 14;
+    const qrSize = 15;      // mm, tamaño solicitado para que no sea invasivo
+    const cellW  = qrSize + 6;
+    const cellH  = qrSize + 9; // espacio extra abajo para nombre + serial
+
+    const cols = Math.max(1, Math.floor((pageW - marginX * 2) / cellW));
+    const rows = Math.max(1, Math.floor((pageH - marginY * 2) / cellH));
+    const perPage = cols * rows;
+
+    doc.setFont('helvetica', 'normal');
+
+    qrData.forEach(({ item, dataUrl }, idx) => {
+        const idxInPage = idx % perPage;
+        if(idx > 0 && idxInPage === 0) doc.addPage();
+
+        const col = idxInPage % cols;
+        const row = Math.floor(idxInPage / cols);
+        const x = marginX + col * cellW;
+        const y = marginY + row * cellH;
+
+        doc.addImage(dataUrl, 'PNG', x, y, qrSize, qrSize);
+
+        const centerX = x + qrSize / 2;
+        const name = item.name.length > 18 ? item.name.slice(0, 18) + '…' : item.name;
+        doc.setFontSize(6.5);
+        doc.setTextColor(30);
+        doc.text(name, centerX, y + qrSize + 3, { align: 'center' });
+
+        if(item.serial_number) {
+            doc.setFontSize(5.5);
+            doc.setTextColor(130);
+            doc.text(item.serial_number, centerX, y + qrSize + 5.5, { align: 'center' });
+        }
+    });
+
+    doc.save(`QR_Inventario_CBM_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
 // ── Escáner QR ────────────────────────────────────────────────────────────────
