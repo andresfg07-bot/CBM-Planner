@@ -6346,8 +6346,13 @@ function renderInventoryView() {
     if(!container) return;
     const role = currentUserProfile?.role || 'viewer';
 
-    if(role !== 'admin') {
+    if(role === 'analyst') {
         renderAnalystInventory(container);
+        return;
+    }
+
+    if(role !== 'admin') {
+        container.innerHTML = '<div style="text-align:center;padding:3rem;color:#94a3b8;">No tienes permiso para ver esta sección.</div>';
         return;
     }
 
