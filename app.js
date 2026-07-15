@@ -6288,6 +6288,7 @@ async function exportReportPDF() {
 
 let dbInventoryItems = [];
 let dbInventoryLoans = []; // préstamos activos (checked_in_at IS NULL)
+let dbInventoryIncidents = []; // incidentes abiertos (resolved_at IS NULL)
 let _inventoryTab    = 'catalogo'; // 'catalogo' | 'encampo' | 'historial'
 let _invScanAction   = null; // { type: 'checkout'|'checkin', itemId, loanId }
 let _invHtml5Scanner = null;
@@ -6304,12 +6305,31 @@ const _invStatusBg    = { disponible:'#f0fdf4', prestado:'#fffbeb', dañado:'#fe
 
 async function loadInventoryData() {
     if(!supabaseClient) return;
-    const [{ data: items }, { data: loans }] = await Promise.all([
+    const [{ data: items }, { data: loans }, { data: incidents }] = await Promise.all([
         supabaseClient.from('inventory_items').select('*').order('category').order('name'),
-        supabaseClient.from('inventory_loans').select('*').is('checked_in_at', null).order('checked_out_at', { ascending: false })
+        supabaseClient.from('inventory_loans').select('*').is('checked_in_at', null).order('checked_out_at', { ascending: false }),
+        supabaseClient.from('inventory_incidents').select('*').is('resolved_at', null).order('created_at', { ascending: false })
     ]);
     if(items) dbInventoryItems = items;
     if(loans) dbInventoryLoans = loans;
+    if(incidents) dbInventoryIncidents = incidents;
+}
+
+function _invOpenIncident(itemId) {
+    return dbInventoryIncidents.find(i => i.item_id === itemId);
+}
+
+function _invCalibrationStatus(item) {
+    if(!item.requires_calibration) return null;
+    if(!item.last_calibration_date) return { label: 'Sin calibrar', color: '#dc2626', bg: '#fef2f2' };
+    const last = new Date(item.last_calibration_date);
+    const next = new Date(last);
+    next.setDate(next.getDate() + (item.calibration_interval_days || 365));
+    const daysLeft = Math.ceil((next - new Date()) / 86400000);
+    const nextStr = next.toLocaleDateString('es-CO', { day:'numeric', month:'short', year:'numeric' });
+    if(daysLeft < 0)  return { label: `Vencida hace ${Math.abs(daysLeft)}d`, color:'#dc2626', bg:'#fef2f2' };
+    if(daysLeft <= 30) return { label: `Vence en ${daysLeft}d (${nextStr})`, color:'#d97706', bg:'#fffbeb' };
+    return { label: `Vigente hasta ${nextStr}`, color:'#16a34a', bg:'#f0fdf4' };
 }
 
 function initInventoryView() {
@@ -6433,8 +6453,9 @@ function renderInventoryCatalog() {
                                 <th>Nombre</th>
                                 <th>Serial</th>
                                 <th>Estado</th>
+                                <th>Calibración</th>
                                 <th>Asignado a</th>
-                                <th style="width:90px;text-align:center;">Acciones</th>
+                                <th style="width:120px;text-align:center;">Acciones</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -6442,6 +6463,9 @@ function renderInventoryCatalog() {
                                 const sc = _invStatusColor[item.status] || '#64748b';
                                 const sb = _invStatusBg[item.status] || '#f8fafc';
                                 const activeLoan = dbInventoryLoans.find(l => l.item_id === item.id);
+                                const openIncident = _invOpenIncident(item.id);
+                                const isTrouble = item.status === 'dañado' || item.status === 'perdido';
+                                const calib = _invCalibrationStatus(item);
                                 return `
                                 <tr>
                                     <td style="text-align:center;">
@@ -6451,6 +6475,7 @@ function renderInventoryCatalog() {
                                         <strong>${item.name}</strong>
                                         ${item.equipment_id ? '<span title="Vinculado a un equipo de gestiones" style="font-size:0.68rem;background:#eef2ff;color:#4f46e5;border:1px solid #4f46e533;padding:1px 6px;border-radius:99px;margin-left:6px;">🔗 Equipo</span>' : ''}
                                         ${item.description ? `<div style="font-size:0.72rem;color:#94a3b8;">${item.description}</div>` : ''}
+                                        ${isTrouble && openIncident ? `<div style="font-size:0.72rem;color:#dc2626;margin-top:2px;">⚠️ ${openIncident.note} <span style="color:#94a3b8;">— ${openIncident.reported_by}</span></div>` : ''}
                                     </td>
                                     <td style="color:#64748b;">${item.serial_number || '—'}</td>
                                     <td>
@@ -6459,12 +6484,19 @@ function renderInventoryCatalog() {
                                         </span>
                                         ${activeLoan ? `<div style="font-size:0.7rem;color:#d97706;margin-top:2px;">→ ${activeLoan.analyst_name}</div>` : ''}
                                     </td>
+                                    <td>
+                                        ${calib ? `<span style="background:${calib.bg};color:${calib.color};border:1px solid ${calib.color}33;font-size:0.7rem;font-weight:600;padding:2px 8px;border-radius:99px;white-space:nowrap;">${calib.label}</span>` : '<span style="color:#cbd5e1;">—</span>'}
+                                    </td>
                                     <td style="font-size:0.78rem;color:#64748b;">
                                         ${item.is_permanently_assigned ? `📌 ${item.assigned_analyst||'—'}` : '—'}
                                     </td>
-                                    <td style="text-align:center;">
+                                    <td style="text-align:center;white-space:nowrap;">
                                         <button onclick="openEditInventoryItemModal('${item.id}')" title="Editar" style="background:none;border:none;cursor:pointer;color:#3b82f6;font-size:1rem;">✏️</button>
                                         <button onclick="deleteInventoryItem('${item.id}')" title="Eliminar" style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:1rem;">🗑️</button>
+                                        ${item.requires_calibration ? `<button onclick="registerCalibrationToday('${item.id}')" title="Registrar calibración hoy" style="background:none;border:none;cursor:pointer;font-size:1rem;">📅</button>` : ''}
+                                        ${isTrouble
+                                            ? `<button onclick="openResolveIncidentModal('${item.id}')" title="Marcar como disponible" style="background:none;border:none;cursor:pointer;color:#16a34a;font-size:1rem;">✅</button>`
+                                            : `<button onclick="openReportIncidentModal('${item.id}')" title="Reportar daño/pérdida" style="background:none;border:none;cursor:pointer;color:#d97706;font-size:1rem;">⚠️</button>`}
                                     </td>
                                 </tr>`;
                             }).join('')}
@@ -6671,6 +6703,12 @@ function toggleAnalystAssign() {
     if(row) row.style.display = checked ? 'block' : 'none';
 }
 
+function toggleCalibrationFields() {
+    const checked = document.getElementById('invItem_requiresCalibration')?.checked;
+    const row = document.getElementById('invItem_calibrationRow');
+    if(row) row.style.display = checked ? 'flex' : 'none';
+}
+
 function _populateInvAnalystSelect() {
     const sel = document.getElementById('invItem_analyst');
     if(!sel) return;
@@ -6711,6 +6749,10 @@ function openAddInventoryItemModal() {
     document.getElementById('invItem_description').value = '';
     document.getElementById('invItem_permanent').checked = false;
     document.getElementById('invItem_analystRow').style.display = 'none';
+    document.getElementById('invItem_requiresCalibration').checked = false;
+    document.getElementById('invItem_calibrationRow').style.display = 'none';
+    document.getElementById('invItem_lastCalibration').value = '';
+    document.getElementById('invItem_calibrationInterval').value = '365';
     _populateInvAnalystSelect();
     _populateInvEquipmentSelect();
     document.getElementById('invItem_equipment').value = '';
@@ -6728,6 +6770,10 @@ function openEditInventoryItemModal(itemId) {
     document.getElementById('invItem_description').value = item.description || '';
     document.getElementById('invItem_permanent').checked = !!item.is_permanently_assigned;
     document.getElementById('invItem_analystRow').style.display = item.is_permanently_assigned ? 'block' : 'none';
+    document.getElementById('invItem_requiresCalibration').checked = !!item.requires_calibration;
+    document.getElementById('invItem_calibrationRow').style.display = item.requires_calibration ? 'flex' : 'none';
+    document.getElementById('invItem_lastCalibration').value = item.last_calibration_date || '';
+    document.getElementById('invItem_calibrationInterval').value = item.calibration_interval_days || 365;
     _populateInvAnalystSelect();
     _populateInvEquipmentSelect();
     document.getElementById('invItem_equipment').value = item.equipment_id || '';
@@ -6743,6 +6789,7 @@ async function saveInventoryItem() {
     if(!name) { showToast('El nombre es obligatorio', 'error'); return; }
 
     const isPermanent = document.getElementById('invItem_permanent').checked;
+    const requiresCalibration = document.getElementById('invItem_requiresCalibration').checked;
     const payload = {
         name,
         category:               document.getElementById('invItem_category').value,
@@ -6751,6 +6798,9 @@ async function saveInventoryItem() {
         is_permanently_assigned: isPermanent,
         assigned_analyst:       isPermanent ? document.getElementById('invItem_analyst').value : null,
         equipment_id:           document.getElementById('invItem_equipment').value || null,
+        requires_calibration:      requiresCalibration,
+        last_calibration_date:     requiresCalibration ? (document.getElementById('invItem_lastCalibration').value || null) : null,
+        calibration_interval_days: requiresCalibration ? (parseInt(document.getElementById('invItem_calibrationInterval').value) || 365) : null,
         status:                 'disponible'
     };
 
@@ -6776,6 +6826,78 @@ async function deleteInventoryItem(itemId) {
     const { error } = await supabaseClient.from('inventory_items').delete().eq('id', itemId);
     if(error) { showToast('Error eliminando: ' + error.message, 'error'); return; }
     showToast('Ítem eliminado', 'success');
+    await loadInventoryData();
+    renderInventoryView();
+}
+
+async function registerCalibrationToday(itemId) {
+    const item = dbInventoryItems.find(i => i.id === itemId);
+    if(!confirm(`¿Registrar calibración de "${item?.name}" con fecha de hoy?`)) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const { error } = await supabaseClient.from('inventory_items').update({ last_calibration_date: today }).eq('id', itemId);
+    if(error) { showToast('Error registrando calibración: ' + error.message, 'error'); return; }
+    showToast('Calibración registrada', 'success');
+    await loadInventoryData();
+    renderInventoryView();
+}
+
+// ── Incidentes (daño / pérdida) ─────────────────────────────────────────────────
+
+function openReportIncidentModal(itemId) {
+    const item = dbInventoryItems.find(i => i.id === itemId);
+    if(!item) return;
+    document.getElementById('invIncidentModalTitle').textContent = `Reportar incidente — ${item.name}`;
+    document.getElementById('invIncident_mode').value = 'report';
+    document.getElementById('invIncident_itemId').value = itemId;
+    document.getElementById('invIncident_typeRow').style.display = 'block';
+    document.getElementById('invIncident_type').value = 'dañado';
+    document.getElementById('invIncident_note').value = '';
+    document.getElementById('invIncident_note').placeholder = 'Describe qué pasó (obligatorio)...';
+    document.getElementById('invIncident_submitBtn').textContent = 'Reportar';
+    document.getElementById('inventoryIncidentModal').classList.add('active');
+}
+
+function openResolveIncidentModal(itemId) {
+    const item = dbInventoryItems.find(i => i.id === itemId);
+    if(!item) return;
+    document.getElementById('invIncidentModalTitle').textContent = `Resolver incidente — ${item.name}`;
+    document.getElementById('invIncident_mode').value = 'resolve';
+    document.getElementById('invIncident_itemId').value = itemId;
+    document.getElementById('invIncident_typeRow').style.display = 'none';
+    document.getElementById('invIncident_note').value = '';
+    document.getElementById('invIncident_note').placeholder = 'Nota de resolución (opcional)...';
+    document.getElementById('invIncident_submitBtn').textContent = 'Marcar como Disponible';
+    document.getElementById('inventoryIncidentModal').classList.add('active');
+}
+
+async function submitInventoryIncident() {
+    const mode   = document.getElementById('invIncident_mode').value;
+    const itemId = document.getElementById('invIncident_itemId').value;
+    const note   = document.getElementById('invIncident_note').value.trim();
+    const reportedBy = currentUserProfile?.analyst_name || currentUserProfile?.display_name || currentUser?.email || 'Desconocido';
+
+    if(mode === 'report') {
+        if(!note) { showToast('La nota es obligatoria para reportar un incidente', 'error'); return; }
+        const type = document.getElementById('invIncident_type').value;
+        const { error: e1 } = await supabaseClient.from('inventory_incidents').insert({
+            item_id: itemId, type, note, reported_by: reportedBy
+        });
+        const { error: e2 } = await supabaseClient.from('inventory_items').update({ status: type }).eq('id', itemId);
+        if(e1 || e2) { showToast('Error reportando incidente', 'error'); return; }
+        showToast('Incidente reportado', 'success');
+    } else {
+        const incident = _invOpenIncident(itemId);
+        if(incident) {
+            await supabaseClient.from('inventory_incidents').update({
+                resolved_at: new Date().toISOString(), resolution_note: note || null
+            }).eq('id', incident.id);
+        }
+        const { error } = await supabaseClient.from('inventory_items').update({ status: 'disponible' }).eq('id', itemId);
+        if(error) { showToast('Error resolviendo incidente', 'error'); return; }
+        showToast('Ítem marcado como disponible', 'success');
+    }
+
+    closeModal('inventoryIncidentModal');
     await loadInventoryData();
     renderInventoryView();
 }

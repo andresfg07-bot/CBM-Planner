@@ -948,12 +948,55 @@
                     <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Analista asignado</label>
                     <select id="invItem_analyst" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;"></select>
                 </div>
+                <div style="display:flex;align-items:center;gap:0.5rem;">
+                    <input type="checkbox" id="invItem_requiresCalibration" onchange="toggleCalibrationFields()" style="width:16px;height:16px;accent-color:var(--clr-blue);">
+                    <label for="invItem_requiresCalibration" style="font-size:0.85rem;cursor:pointer;">Requiere calibración periódica</label>
+                </div>
+                <div id="invItem_calibrationRow" style="display:none;gap:0.75rem;">
+                    <div style="flex:1;">
+                        <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Última calibración</label>
+                        <input id="invItem_lastCalibration" type="date" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;">
+                    </div>
+                    <div style="flex:1;">
+                        <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Intervalo (días)</label>
+                        <input id="invItem_calibrationInterval" type="number" min="1" value="365" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;">
+                    </div>
+                </div>
                 <div style="display:flex;gap:0.75rem;margin-top:0.5rem;">
                     <button class="btn-secondary" onclick="closeModal('inventoryItemModal')" style="flex:1;">Cancelar</button>
                     <button class="btn-primary" onclick="saveInventoryItem()" style="flex:2;">Guardar</button>
                 </div>
             </div>
             <input type="hidden" id="invItem_editId">
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- MODAL: Reportar / Resolver incidente       -->
+    <!-- ══════════════════════════════════════════ -->
+    <div id="inventoryIncidentModal" class="modal">
+        <div class="modal-content" style="max-width:420px;">
+            <span class="close-btn" onclick="closeModal('inventoryIncidentModal')">&times;</span>
+            <h2 id="invIncidentModalTitle" style="margin-bottom:1.25rem;font-size:1.1rem;">Reportar Incidente</h2>
+            <div style="display:flex;flex-direction:column;gap:0.85rem;">
+                <div id="invIncident_typeRow">
+                    <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Tipo</label>
+                    <select id="invIncident_type" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;">
+                        <option value="dañado">🔧 Dañado</option>
+                        <option value="perdido">❓ Perdido</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Nota</label>
+                    <textarea id="invIncident_note" rows="3" placeholder="Describe qué pasó (obligatorio)..." style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;resize:vertical;"></textarea>
+                </div>
+                <div style="display:flex;gap:0.75rem;margin-top:0.5rem;">
+                    <button class="btn-secondary" onclick="closeModal('inventoryIncidentModal')" style="flex:1;">Cancelar</button>
+                    <button id="invIncident_submitBtn" class="btn-primary" onclick="submitInventoryIncident()" style="flex:2;">Reportar</button>
+                </div>
+            </div>
+            <input type="hidden" id="invIncident_mode">
+            <input type="hidden" id="invIncident_itemId">
         </div>
     </div>
 

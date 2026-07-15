@@ -16,10 +16,28 @@ CREATE TABLE IF NOT EXISTS public.inventory_items (
     status                  TEXT        DEFAULT 'disponible'
                                 CHECK (status IN ('disponible','prestado','dañado','perdido')),
     equipment_id            UUID        REFERENCES public.equipment(id) ON DELETE SET NULL,
+    requires_calibration      BOOLEAN DEFAULT FALSE,
+    last_calibration_date     DATE,
+    calibration_interval_days INTEGER DEFAULT 365,
     created_at              TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_inventory_items_equipment_id ON public.inventory_items(equipment_id);
+
+-- Auditoría de daño/pérdida: nota obligatoria, quién lo reportó, si ya se resolvió
+CREATE TABLE IF NOT EXISTS public.inventory_incidents (
+    id               UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+    item_id          UUID        NOT NULL REFERENCES public.inventory_items(id) ON DELETE CASCADE,
+    type             TEXT        NOT NULL CHECK (type IN ('dañado','perdido')),
+    note             TEXT        NOT NULL,
+    reported_by      TEXT        NOT NULL,
+    created_at       TIMESTAMPTZ DEFAULT NOW(),
+    resolved_at      TIMESTAMPTZ,
+    resolution_note  TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_incidents_item ON public.inventory_incidents(item_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_incidents_open ON public.inventory_incidents(item_id) WHERE resolved_at IS NULL;
 
 -- ── 2. Tabla de préstamos (movimientos de salida/entrada) ─────────────────────────────
 CREATE TABLE IF NOT EXISTS public.inventory_loans (
@@ -43,11 +61,42 @@ DROP POLICY IF EXISTS "Auth lee inventory_items"  ON public.inventory_items;
 CREATE POLICY "Auth lee inventory_items"
     ON public.inventory_items FOR SELECT TO authenticated USING (true);
 
-DROP POLICY IF EXISTS "Admin escribe inventory_items" ON public.inventory_items;
-CREATE POLICY "Admin escribe inventory_items"
-    ON public.inventory_items FOR ALL TO authenticated
-    USING    ((auth.jwt() ->> 'email') = 'agonzalez@a-maq.com')
+-- INSERT/DELETE controlan el catálogo (solo admin). UPDATE se abre a cualquier
+-- autenticado porque el flujo de escaneo QR y el reporte de incidentes los
+-- ejecuta el analista, no el admin.
+DROP POLICY IF EXISTS "Admin inserta inventory_items" ON public.inventory_items;
+CREATE POLICY "Admin inserta inventory_items"
+    ON public.inventory_items FOR INSERT TO authenticated
     WITH CHECK ((auth.jwt() ->> 'email') = 'agonzalez@a-maq.com');
+
+DROP POLICY IF EXISTS "Auth actualiza inventory_items" ON public.inventory_items;
+CREATE POLICY "Auth actualiza inventory_items"
+    ON public.inventory_items FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Admin borra inventory_items" ON public.inventory_items;
+CREATE POLICY "Admin borra inventory_items"
+    ON public.inventory_items FOR DELETE TO authenticated
+    USING ((auth.jwt() ->> 'email') = 'agonzalez@a-maq.com');
+
+-- ── 3b. RLS: inventory_incidents ──────────────────────────────────────────────────────
+ALTER TABLE public.inventory_incidents ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Auth lee inventory_incidents" ON public.inventory_incidents;
+CREATE POLICY "Auth lee inventory_incidents"
+    ON public.inventory_incidents FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS "Auth reporta inventory_incidents" ON public.inventory_incidents;
+CREATE POLICY "Auth reporta inventory_incidents"
+    ON public.inventory_incidents FOR INSERT TO authenticated WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Auth resuelve inventory_incidents" ON public.inventory_incidents;
+CREATE POLICY "Auth resuelve inventory_incidents"
+    ON public.inventory_incidents FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Admin borra inventory_incidents" ON public.inventory_incidents;
+CREATE POLICY "Admin borra inventory_incidents"
+    ON public.inventory_incidents FOR DELETE TO authenticated
+    USING ((auth.jwt() ->> 'email') = 'agonzalez@a-maq.com');
 
 -- ── 4. RLS: inventory_loans ───────────────────────────────────────────────────────────
 ALTER TABLE public.inventory_loans ENABLE ROW LEVEL SECURITY;
