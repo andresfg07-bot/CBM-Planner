@@ -6449,6 +6449,7 @@ function renderInventoryCatalog() {
                                     </td>
                                     <td>
                                         <strong>${item.name}</strong>
+                                        ${item.equipment_id ? '<span title="Vinculado a un equipo de gestiones" style="font-size:0.68rem;background:#eef2ff;color:#4f46e5;border:1px solid #4f46e533;padding:1px 6px;border-radius:99px;margin-left:6px;">🔗 Equipo</span>' : ''}
                                         ${item.description ? `<div style="font-size:0.72rem;color:#94a3b8;">${item.description}</div>` : ''}
                                     </td>
                                     <td style="color:#64748b;">${item.serial_number || '—'}</td>
@@ -6585,6 +6586,29 @@ function _populateInvAnalystSelect() {
     ).join('');
 }
 
+function _populateInvEquipmentSelect() {
+    const sel = document.getElementById('invItem_equipment');
+    if(!sel) return;
+    sel.innerHTML = '<option value="">— No es un equipo de gestión —</option>' +
+        dbEquipment.filter(e => e.is_active !== false).map(e =>
+            `<option value="${e.id}">${e.name}${e.serial_number ? ' · '+e.serial_number : ''}</option>`
+        ).join('');
+}
+
+function onInvItemEquipmentChange() {
+    const equipId = document.getElementById('invItem_equipment').value;
+    if(!equipId) return;
+    const equip = dbEquipment.find(e => e.id === equipId);
+    if(!equip) return;
+    // Autocompleta nombre/serial desde equipment para no duplicar el dato manualmente
+    if(!document.getElementById('invItem_name').value.trim()) {
+        document.getElementById('invItem_name').value = equip.name || '';
+    }
+    if(!document.getElementById('invItem_serial').value.trim()) {
+        document.getElementById('invItem_serial').value = equip.serial_number || '';
+    }
+}
+
 function openAddInventoryItemModal() {
     document.getElementById('invItemModalTitle').textContent = 'Agregar Ítem';
     document.getElementById('invItem_editId').value = '';
@@ -6595,6 +6619,8 @@ function openAddInventoryItemModal() {
     document.getElementById('invItem_permanent').checked = false;
     document.getElementById('invItem_analystRow').style.display = 'none';
     _populateInvAnalystSelect();
+    _populateInvEquipmentSelect();
+    document.getElementById('invItem_equipment').value = '';
     document.getElementById('inventoryItemModal').classList.add('active');
 }
 
@@ -6610,6 +6636,8 @@ function openEditInventoryItemModal(itemId) {
     document.getElementById('invItem_permanent').checked = !!item.is_permanently_assigned;
     document.getElementById('invItem_analystRow').style.display = item.is_permanently_assigned ? 'block' : 'none';
     _populateInvAnalystSelect();
+    _populateInvEquipmentSelect();
+    document.getElementById('invItem_equipment').value = item.equipment_id || '';
     if(item.assigned_analyst) {
         const sel = document.getElementById('invItem_analyst');
         if(sel) sel.value = item.assigned_analyst;
@@ -6629,6 +6657,7 @@ async function saveInventoryItem() {
         description:            document.getElementById('invItem_description').value.trim() || null,
         is_permanently_assigned: isPermanent,
         assigned_analyst:       isPermanent ? document.getElementById('invItem_analyst').value : null,
+        equipment_id:           document.getElementById('invItem_equipment').value || null,
         status:                 'disponible'
     };
 

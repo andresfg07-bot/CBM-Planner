@@ -930,6 +930,13 @@
                     <input id="invItem_serial" type="text" placeholder="Número de serie o referencia interna" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;">
                 </div>
                 <div>
+                    <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Vincular a equipo de gestiones (opcional)</label>
+                    <select id="invItem_equipment" onchange="onInvItemEquipmentChange()" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;">
+                        <option value="">— No es un equipo de gestión —</option>
+                    </select>
+                    <p style="font-size:0.7rem;color:#94a3b8;margin-top:4px;">Úsalo solo si este ítem también aparece en el selector de equipo al crear una gestión.</p>
+                </div>
+                <div>
                     <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Descripción / Notas</label>
                     <textarea id="invItem_description" rows="2" placeholder="Detalles adicionales..." style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;resize:vertical;"></textarea>
                 </div>

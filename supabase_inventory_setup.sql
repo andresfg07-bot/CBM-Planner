@@ -15,8 +15,11 @@ CREATE TABLE IF NOT EXISTS public.inventory_items (
     assigned_analyst        TEXT,       -- solo cuando is_permanently_assigned = TRUE
     status                  TEXT        DEFAULT 'disponible'
                                 CHECK (status IN ('disponible','prestado','dañado','perdido')),
+    equipment_id            UUID        REFERENCES public.equipment(id) ON DELETE SET NULL,
     created_at              TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_inventory_items_equipment_id ON public.inventory_items(equipment_id);
 
 -- ── 2. Tabla de préstamos (movimientos de salida/entrada) ─────────────────────────────
 CREATE TABLE IF NOT EXISTS public.inventory_loans (
