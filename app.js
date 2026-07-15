@@ -6442,7 +6442,9 @@ function renderInventoryCatalog() {
 
     el.innerHTML = `
         <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-bottom:1rem;">
-            <button class="btn-secondary" onclick="printAllInventoryQRs()" ${dbInventoryItems.length===0?'disabled':''}>🖨️ Imprimir todos los QR</button>
+            <button onclick="printAllInventoryQRs()" title="Imprimir todos los QR" ${dbInventoryItems.length===0?'disabled':''} style="background:none;border:1px solid #cbd5e1;border-radius:6px;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;color:#64748b;cursor:pointer;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+            </button>
             <button class="btn-primary" onclick="openAddInventoryItemModal()">+ Agregar ítem</button>
         </div>
         ${categories.map(cat => {
@@ -6561,6 +6563,12 @@ function renderInventoryEnCampo() {
 
 let _invHistorialCache = [];
 let _invHistorialFilters = { analyst: '', item: '', dateFrom: '', dateTo: '' };
+let _invShowUsageRanking = false;
+
+function toggleInvUsageRanking() {
+    _invShowUsageRanking = !_invShowUsageRanking;
+    _renderInventoryHistorialFiltered();
+}
 
 async function renderInventoryHistorial() {
     const el = document.getElementById('inv-tab-content');
@@ -6621,7 +6629,14 @@ function _renderInventoryHistorialFiltered() {
         .sort((a, b) => b.count - a.count);
     const maxCount = Math.max(1, ...ranking.map(r => r.count));
 
-    const rankingHTML = ranking.length === 0 ? '' : `
+    const rankingToggleHTML = ranking.length === 0 ? '' : `
+        <div style="margin-bottom:1.25rem;">
+            <button onclick="toggleInvUsageRanking()" style="background:none;border:1px solid #cbd5e1;border-radius:6px;padding:6px 12px;font-size:0.78rem;color:#475569;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+                📊 ${_invShowUsageRanking ? 'Ocultar' : 'Ver'} frecuencia de uso por ítem
+            </button>
+        </div>`;
+
+    const rankingHTML = (!_invShowUsageRanking || ranking.length === 0) ? '' : `
         <div style="background:#fff;border:1px solid #e2e8f0;border-radius:var(--radius-lg);padding:1.25rem;margin-bottom:1.5rem;">
             <h4 style="margin:0 0 1rem;font-size:0.85rem;color:var(--clr-blue);">📊 Frecuencia de uso por ítem</h4>
             ${ranking.map(r => `
@@ -6665,7 +6680,7 @@ function _renderInventoryHistorialFiltered() {
         </div>`;
 
     if(data.length === 0) {
-        el.innerHTML = rankingHTML + filtersHTML + '<div style="text-align:center;padding:3rem;color:#94a3b8;">No hay movimientos con estos filtros.</div>';
+        el.innerHTML = rankingToggleHTML + rankingHTML + filtersHTML + '<div style="text-align:center;padding:3rem;color:#94a3b8;">No hay movimientos con estos filtros.</div>';
         return;
     }
 
@@ -6684,7 +6699,7 @@ function _renderInventoryHistorialFiltered() {
         </tr>`;
     }).join('');
 
-    el.innerHTML = rankingHTML + filtersHTML + `
+    el.innerHTML = rankingToggleHTML + rankingHTML + filtersHTML + `
         <div style="background:#fff;border:1px solid #e2e8f0;border-radius:var(--radius-lg);overflow:hidden;">
             <table class="data-table" style="font-size:0.82rem;">
                 <thead>
