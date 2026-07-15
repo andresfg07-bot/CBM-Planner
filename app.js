@@ -6521,6 +6521,9 @@ function renderInventoryEnCampo() {
         </div>`;
 }
 
+let _invHistorialCache = [];
+let _invHistorialFilters = { analyst: '', item: '', dateFrom: '', dateTo: '' };
+
 async function renderInventoryHistorial() {
     const el = document.getElementById('inv-tab-content');
     if(!el) return;
@@ -6531,14 +6534,104 @@ async function renderInventoryHistorial() {
         .select('*')
         .not('checked_in_at', 'is', null)
         .order('checked_out_at', { ascending: false })
-        .limit(300);
+        .limit(500);
 
-    if(error || !allLoans || allLoans.length === 0) {
+    if(error) {
+        el.innerHTML = '<div style="text-align:center;padding:3rem;color:#dc2626;">Error cargando historial.</div>';
+        return;
+    }
+    _invHistorialCache = allLoans || [];
+    _renderInventoryHistorialFiltered();
+}
+
+function clearInvHistorialFilters() {
+    _invHistorialFilters = { analyst: '', item: '', dateFrom: '', dateTo: '' };
+    _renderInventoryHistorialFiltered();
+}
+
+function applyInvHistorialFilters() {
+    _invHistorialFilters.analyst  = document.getElementById('invHist_filterAnalyst')?.value || '';
+    _invHistorialFilters.item     = document.getElementById('invHist_filterItem')?.value || '';
+    _invHistorialFilters.dateFrom = document.getElementById('invHist_filterFrom')?.value || '';
+    _invHistorialFilters.dateTo   = document.getElementById('invHist_filterTo')?.value || '';
+    _renderInventoryHistorialFiltered();
+}
+
+function _renderInventoryHistorialFiltered() {
+    const el = document.getElementById('inv-tab-content');
+    if(!el) return;
+
+    if(_invHistorialCache.length === 0 && dbInventoryLoans.length === 0) {
         el.innerHTML = '<div style="text-align:center;padding:3rem;color:#94a3b8;">No hay movimientos históricos todavía.</div>';
         return;
     }
 
-    const rows = allLoans.map(loan => {
+    const f = _invHistorialFilters;
+    const data = _invHistorialCache.filter(loan => {
+        if(f.analyst && loan.analyst_name !== f.analyst) return false;
+        if(f.item && loan.item_id !== f.item) return false;
+        if(f.dateFrom && loan.checked_out_at < f.dateFrom) return false;
+        if(f.dateTo && loan.checked_out_at > f.dateTo + 'T23:59:59') return false;
+        return true;
+    });
+
+    // ── Ranking de frecuencia de uso (salidas históricas + préstamos activos) ──
+    const usageCount = {};
+    _invHistorialCache.forEach(l => { usageCount[l.item_id] = (usageCount[l.item_id]||0) + 1; });
+    dbInventoryLoans.forEach(l => { usageCount[l.item_id] = (usageCount[l.item_id]||0) + 1; });
+    const ranking = dbInventoryItems.map(item => ({ item, count: usageCount[item.id] || 0 }))
+        .sort((a, b) => b.count - a.count);
+    const maxCount = Math.max(1, ...ranking.map(r => r.count));
+
+    const rankingHTML = ranking.length === 0 ? '' : `
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:var(--radius-lg);padding:1.25rem;margin-bottom:1.5rem;">
+            <h4 style="margin:0 0 1rem;font-size:0.85rem;color:var(--clr-blue);">📊 Frecuencia de uso por ítem</h4>
+            ${ranking.map(r => `
+                <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">
+                    <div style="flex:0 0 180px;font-size:0.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.item.name}">${r.item.name}</div>
+                    <div style="flex:1;background:#f1f5f9;border-radius:4px;height:14px;overflow:hidden;">
+                        <div style="width:${(r.count/maxCount*100).toFixed(0)}%;background:${r.count===0?'#cbd5e1':'var(--clr-blue)'};height:100%;"></div>
+                    </div>
+                    <div style="flex:0 0 70px;text-align:right;font-size:0.75rem;color:#64748b;">${r.count} salida${r.count!==1?'s':''}</div>
+                </div>
+            `).join('')}
+        </div>`;
+
+    // ── Filtros ─────────────────────────────────────────────────────────────
+    const analystOptions = [...new Set(_invHistorialCache.map(l => l.analyst_name))].sort();
+    const filtersHTML = `
+        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:flex-end;background:#fff;padding:1rem;border-radius:var(--radius-lg);border:1px solid #e2e8f0;margin-bottom:1.25rem;">
+            <div style="flex:1;min-width:150px;">
+                <label style="font-size:0.65rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Analista</label>
+                <select id="invHist_filterAnalyst" onchange="applyInvHistorialFilters()" style="width:100%;padding:0.45rem;font-size:0.8rem;border:1px solid #cbd5e1;border-radius:4px;">
+                    <option value="">Todos</option>
+                    ${analystOptions.map(a => `<option value="${a}" ${f.analyst===a?'selected':''}>${a}</option>`).join('')}
+                </select>
+            </div>
+            <div style="flex:1;min-width:150px;">
+                <label style="font-size:0.65rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Ítem</label>
+                <select id="invHist_filterItem" onchange="applyInvHistorialFilters()" style="width:100%;padding:0.45rem;font-size:0.8rem;border:1px solid #cbd5e1;border-radius:4px;">
+                    <option value="">Todos</option>
+                    ${dbInventoryItems.map(i => `<option value="${i.id}" ${f.item===i.id?'selected':''}>${i.name}</option>`).join('')}
+                </select>
+            </div>
+            <div style="min-width:130px;">
+                <label style="font-size:0.65rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Desde</label>
+                <input type="date" id="invHist_filterFrom" value="${f.dateFrom}" onchange="applyInvHistorialFilters()" style="width:100%;padding:0.42rem;font-size:0.8rem;border:1px solid #cbd5e1;border-radius:4px;">
+            </div>
+            <div style="min-width:130px;">
+                <label style="font-size:0.65rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Hasta</label>
+                <input type="date" id="invHist_filterTo" value="${f.dateTo}" onchange="applyInvHistorialFilters()" style="width:100%;padding:0.42rem;font-size:0.8rem;border:1px solid #cbd5e1;border-radius:4px;">
+            </div>
+            <button class="btn-secondary" onclick="clearInvHistorialFilters()" style="font-size:0.8rem;">Limpiar filtros</button>
+        </div>`;
+
+    if(data.length === 0) {
+        el.innerHTML = rankingHTML + filtersHTML + '<div style="text-align:center;padding:3rem;color:#94a3b8;">No hay movimientos con estos filtros.</div>';
+        return;
+    }
+
+    const rows = data.map(loan => {
         const item = dbInventoryItems.find(i => i.id === loan.item_id);
         const out  = new Date(loan.checked_out_at).toLocaleDateString('es-CO', { day:'numeric', month:'short', year:'numeric' });
         const inn  = new Date(loan.checked_in_at).toLocaleDateString('es-CO', { day:'numeric', month:'short', year:'numeric' });
@@ -6553,7 +6646,7 @@ async function renderInventoryHistorial() {
         </tr>`;
     }).join('');
 
-    el.innerHTML = `
+    el.innerHTML = rankingHTML + filtersHTML + `
         <div style="background:#fff;border:1px solid #e2e8f0;border-radius:var(--radius-lg);overflow:hidden;">
             <table class="data-table" style="font-size:0.82rem;">
                 <thead>
