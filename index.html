@@ -198,10 +198,14 @@
                             <span class="close-btn" onclick="closeModal('notifHistoryModal')">&times;</span>
                             <h2 style="margin-bottom:1rem;">Historial de Notificaciones</h2>
                             <!-- Filtros -->
-                            <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom:1rem; padding:0.75rem; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0;">
+                            <div class="filter-toolbar" style="padding:0.75rem; margin-bottom:1rem;">
+                                <div class="filter-search-wrap" style="flex:2; min-width:180px;">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                                    <input type="search" id="notifHistFilterQ" oninput="renderNotificationsHistory()" placeholder="Cliente, servicio…">
+                                </div>
                                 <div style="flex:1; min-width:140px;">
-                                    <label style="font-size:0.62rem; font-weight:700; color:#64748b; text-transform:uppercase;">Tipo</label>
-                                    <select id="notifHistFilterType" onchange="renderNotificationsHistory()" style="width:100%; padding:0.35rem; font-size:0.78rem; border:1px solid #cbd5e1; border-radius:4px;">
+                                    <label class="filter-label">Tipo</label>
+                                    <select id="notifHistFilterType" onchange="renderNotificationsHistory()" class="filter-select" style="width:100%; margin-top:4px;">
                                         <option value="">Todos</option>
                                         <option value="nueva_gestion">Nueva gestión</option>
                                         <option value="csat_vencido">CSAT vencido</option>
@@ -213,8 +217,8 @@
                                     </select>
                                 </div>
                                 <div style="flex:1; min-width:140px;">
-                                    <label style="font-size:0.62rem; font-weight:700; color:#64748b; text-transform:uppercase;">Estado</label>
-                                    <select id="notifHistFilterState" onchange="renderNotificationsHistory()" style="width:100%; padding:0.35rem; font-size:0.78rem; border:1px solid #cbd5e1; border-radius:4px;">
+                                    <label class="filter-label">Estado</label>
+                                    <select id="notifHistFilterState" onchange="renderNotificationsHistory()" class="filter-select" style="width:100%; margin-top:4px;">
                                         <option value="">Todos</option>
                                         <option value="unread">No leídas</option>
                                         <option value="read">Leídas</option>
@@ -222,18 +226,14 @@
                                     </select>
                                 </div>
                                 <div style="flex:1; min-width:130px;">
-                                    <label style="font-size:0.62rem; font-weight:700; color:#64748b; text-transform:uppercase;">Desde</label>
-                                    <input type="date" id="notifHistFilterFrom" onchange="renderNotificationsHistory()" style="width:100%; padding:0.35rem; font-size:0.78rem; border:1px solid #cbd5e1; border-radius:4px;">
+                                    <label class="filter-label">Desde</label>
+                                    <input type="date" id="notifHistFilterFrom" onchange="renderNotificationsHistory()" class="filter-select" style="width:100%; margin-top:4px;">
                                 </div>
                                 <div style="flex:1; min-width:130px;">
-                                    <label style="font-size:0.62rem; font-weight:700; color:#64748b; text-transform:uppercase;">Hasta</label>
-                                    <input type="date" id="notifHistFilterTo" onchange="renderNotificationsHistory()" style="width:100%; padding:0.35rem; font-size:0.78rem; border:1px solid #cbd5e1; border-radius:4px;">
+                                    <label class="filter-label">Hasta</label>
+                                    <input type="date" id="notifHistFilterTo" onchange="renderNotificationsHistory()" class="filter-select" style="width:100%; margin-top:4px;">
                                 </div>
-                                <div style="flex:2; min-width:180px;">
-                                    <label style="font-size:0.62rem; font-weight:700; color:#64748b; text-transform:uppercase;">Buscar texto</label>
-                                    <input type="search" id="notifHistFilterQ" oninput="renderNotificationsHistory()" placeholder="Cliente, servicio…" style="width:100%; padding:0.35rem; font-size:0.78rem; border:1px solid #cbd5e1; border-radius:4px;">
-                                </div>
-                                <button onclick="clearNotifHistoryFilters()" style="align-self:flex-end; height:30px; padding:0 0.75rem; background:#fff5f5; border:1px solid #fca5a5; color:#dc2626; border-radius:6px; font-weight:600; cursor:pointer; font-size:0.72rem;">✕ Limpiar</button>
+                                <button onclick="clearNotifHistoryFilters()" class="filter-clear-btn">✕ Limpiar</button>
                             </div>
                             <div id="notifHistoryCount" style="font-size:0.72rem; color:#64748b; margin-bottom:0.5rem;"></div>
                             <div id="notifHistoryList" style="max-height:55vh; overflow-y:auto;"></div>
@@ -347,7 +347,10 @@
                          <h3 style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; font-weight: 700; margin: 0; white-space: nowrap;">Por Programar</h3>
                          <span id="unassignedCount" style="font-size:0.7rem; font-weight:700; color:var(--clr-blue); background:#eff6ff; padding:2px 8px; border-radius:999px; white-space:nowrap;">0</span>
                          <div class="column-line bg-blue" style="flex:1; height: 2px; border-radius: 3px; opacity: 1;"></div>
-                         <input type="search" id="unassignedSearch" placeholder="🔎 Buscar cliente o servicio..." oninput="renderPlanningSidebar()" style="padding:0.35rem 0.6rem; font-size:0.75rem; border:1px solid #cbd5e1; border-radius:6px; width:220px; max-width:35vw;">
+                         <div class="filter-search-wrap" style="flex:0 0 220px; max-width:35vw;">
+                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                             <input type="search" id="unassignedSearch" placeholder="Buscar cliente o servicio..." oninput="renderPlanningSidebar()" style="padding:0.4rem 0.7rem 0.4rem 2.1rem; font-size:0.75rem;">
+                         </div>
                          <span class="subtitle" style="font-size: 0.7rem; white-space: nowrap;">Arrastra al cronograma</span>
                      </div>
                      <!-- Drop zone horizontal -->
@@ -366,34 +369,29 @@
                 </div>
 
                 <!-- Filtros de Gestiones -->
-                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; background: #fff; padding: 1rem; border-radius: 8px; border: 1px solid #e2e8f0; box-shadow: var(--shadow-sm); margin-bottom: 2rem;">
-                    <!-- Smart filter now dynamically matches calendar view, manual range removed -->
-                    <div style="display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 150px;">
-                        <label style="font-size: 0.6rem; font-weight: 700; color: #64748b; padding-left: 0.2rem;">ANALISTA</label>
-                        <select id="filter-tasks-analyst" onchange="updateGlobalFilter('analyst', this.value)" style="padding: 0.4rem; font-size: 0.8rem; border: 1px solid #cbd5e1; border-radius: 4px; width: 100%;">
+                <div class="filter-toolbar">
+                    <div style="flex:1; min-width:150px;">
+                        <label class="filter-label">Analista</label><br>
+                        <select id="filter-tasks-analyst" onchange="updateGlobalFilter('analyst', this.value)" class="filter-select" style="width:100%; margin-top:4px;">
                             <option value="">Todos los Analistas</option>
-                            <!-- Opciones pobladas por JS o estáticas si se prefiere, pero el JS las manejará -->
                         </select>
                     </div>
-                    <div style="display: flex; flex-direction: column; gap: 2px; flex: 1.5; min-width: 200px;">
-                        <label style="font-size: 0.6rem; font-weight: 700; color: #64748b; padding-left: 0.2rem;">CLIENTE</label>
-                        <select id="filter-tasks-client" onchange="updateGlobalFilter('client', this.value)" style="padding: 0.4rem; font-size: 0.8rem; border: 1px solid #cbd5e1; border-radius: 4px; width: 100%;">
+                    <div style="flex:1.5; min-width:200px;">
+                        <label class="filter-label">Cliente</label><br>
+                        <select id="filter-tasks-client" onchange="updateGlobalFilter('client', this.value)" class="filter-select" style="width:100%; margin-top:4px;">
                             <option value="">Todos los Clientes</option>
                         </select>
                     </div>
-                    <div style="display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 120px;">
-                        <label style="font-size: 0.6rem; font-weight: 700; color: #64748b; padding-left: 0.2rem;">ESTADO</label>
-                        <select id="filter-tasks-status" onchange="updateGlobalFilter('status', this.value)" style="padding: 0.4rem; font-size: 0.8rem; border: 1px solid #cbd5e1; border-radius: 4px; width: 100%;">
-                            <option value="">Todos</option>
-                            <option value="proyectada">Proyectada</option>
-                            <option value="programada">Programada</option>
-                            <option value="ejecutada">Ejecutada</option>
-                            <option value="facturada">Facturada</option>
-                        </select>
+                    <div>
+                        <label class="filter-label">Estado</label><br>
+                        <div class="filter-tag-group" id="filter-tasks-status-tags" style="margin-top:6px;">
+                            <button type="button" class="filter-tag" data-status="proyectada" onclick="toggleTaskStatusFilter('proyectada')" style="background:#eff6ff;color:#2563eb;">Proyectada</button>
+                            <button type="button" class="filter-tag" data-status="programada" onclick="toggleTaskStatusFilter('programada')" style="background:#f5f3ff;color:#7c3aed;">Programada</button>
+                            <button type="button" class="filter-tag" data-status="ejecutada" onclick="toggleTaskStatusFilter('ejecutada')" style="background:#fff1f2;color:#e11d48;">Ejecutada</button>
+                            <button type="button" class="filter-tag" data-status="facturada" onclick="toggleTaskStatusFilter('facturada')" style="background:#f0fdf4;color:#16a34a;">Facturada</button>
+                        </div>
                     </div>
-                    <button class="btn-secondary" onclick="resetGlobalFilters()" style="margin-top: 15px; padding: 0.4rem 1rem; font-size: 0.8rem; border: 1px solid #ef4444; color: #ef4444; background: white; border-radius: 4px; font-weight: 600; cursor: pointer;">
-                        ✕ Limpiar
-                    </button>
+                    <button class="filter-clear-btn" onclick="resetGlobalFilters()" style="margin-left:auto;">✕ Limpiar</button>
                 </div>
 
                 <div class="stats-card">
@@ -412,19 +410,19 @@
                     </div>
                 </div>
                 
-                <div id="finance-filters" style="display: flex; gap: 1rem; align-items: flex-end; background: white; padding: 1.25rem; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); margin-bottom: 2rem; border: 1px solid #e2e8f0;">
+                <div id="finance-filters" class="filter-toolbar" style="align-items:flex-end;">
                     <div style="flex: 1; min-width: 200px;">
-                        <label style="font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase;">Período de Facturación (Analíticos)</label>
-                        <select id="finance-period-type" onchange="toggleFinancePeriodInputs()" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.85rem; margin-top: 4px;">
+                        <label class="filter-label">Período de Facturación (Analíticos)</label>
+                        <select id="finance-period-type" onchange="toggleFinancePeriodInputs()" class="filter-select" style="width: 100%; margin-top: 4px;">
                             <option value="single">Un solo mes (Actual)</option>
                             <option value="multiple">Selección Múltiple</option>
                             <option value="year">Todo el presente año</option>
                         </select>
                     </div>
-                    
+
                     <div style="flex: 1; min-width: 200px;">
-                        <label style="font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase;">Analista (Filtro Cruzado)</label>
-                        <select id="finance-analyst-filter" onchange="renderFinanceView()" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.85rem; margin-top: 4px;">
+                        <label class="filter-label">Analista (Filtro Cruzado)</label>
+                        <select id="finance-analyst-filter" onchange="renderFinanceView()" class="filter-select" style="width: 100%; margin-top: 4px;">
                             <option value="">Todos los analistas</option>
                             <!-- JS poblará este select con dbAnalysts -->
                         </select>
@@ -531,23 +529,23 @@
                 </div>
 
                 <!-- Filtros comunes -->
-                <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end; background:#fff; padding:1.25rem; border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); margin-bottom:1.5rem; border:1px solid #e2e8f0;">
+                <div class="filter-toolbar" style="align-items:flex-end;">
                     <div style="flex:1; min-width:160px;">
-                        <label style="font-size:0.65rem; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;">Analista</label>
-                        <select id="report-filter-analyst" onchange="applyReportFilters()" style="width:100%; padding:0.45rem; font-size:0.82rem; border:1px solid #cbd5e1; border-radius:4px;">
+                        <label class="filter-label">Analista</label><br>
+                        <select id="report-filter-analyst" onchange="applyReportFilters()" class="filter-select" style="width:100%; margin-top:4px;">
                             <option value="">Todos los Analistas</option>
                         </select>
                     </div>
                     <div style="flex:1.5; min-width:200px;">
-                        <label style="font-size:0.65rem; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;">Planta / Cliente</label>
-                        <select id="report-filter-client" onchange="applyReportFilters()" style="width:100%; padding:0.45rem; font-size:0.82rem; border:1px solid #cbd5e1; border-radius:4px;">
+                        <label class="filter-label">Planta / Cliente</label><br>
+                        <select id="report-filter-client" onchange="applyReportFilters()" class="filter-select" style="width:100%; margin-top:4px;">
                             <option value="">Todas las Plantas</option>
                         </select>
                     </div>
                     <!-- Filtro Tipo de Servicio (solo en pestaña Gestiones) -->
                     <div style="flex:1; min-width:150px;" id="filter-service-wrap">
-                        <label style="font-size:0.65rem; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;">Tipo de Servicio</label>
-                        <select id="report-filter-service" onchange="applyReportFilters()" style="width:100%; padding:0.45rem; font-size:0.82rem; border:1px solid #cbd5e1; border-radius:4px;">
+                        <label class="filter-label">Tipo de Servicio</label><br>
+                        <select id="report-filter-service" onchange="applyReportFilters()" class="filter-select" style="width:100%; margin-top:4px;">
                             <option value="">Todos los Servicios</option>
                             <option value="Balanceo">⚖️ Balanceo</option>
                             <option value="Alineación">📐 Alineación</option>
@@ -561,8 +559,8 @@
                     </div>
                     <!-- Filtro Estado Cierre (solo en pestaña CSAT) -->
                     <div style="flex:1; min-width:150px; display:none;" id="filter-csat-status-wrap">
-                        <label style="font-size:0.65rem; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;">Estado Cierre</label>
-                        <select id="report-filter-csat-status" onchange="applyReportFilters()" style="width:100%; padding:0.45rem; font-size:0.82rem; border:1px solid #cbd5e1; border-radius:4px;">
+                        <label class="filter-label">Estado Cierre</label><br>
+                        <select id="report-filter-csat-status" onchange="applyReportFilters()" class="filter-select" style="width:100%; margin-top:4px;">
                             <option value="">Todos</option>
                             <option value="con-csat">⭐ Con CSAT</option>
                             <option value="sin-respuesta">⚠️ Sin respuesta del cliente</option>
@@ -570,14 +568,14 @@
                         </select>
                     </div>
                     <div style="flex:1; min-width:150px;">
-                        <label style="font-size:0.65rem; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;">Desde (mes)</label>
-                        <input type="month" id="report-filter-from" onchange="applyReportFilters()" style="width:100%; padding:0.45rem; font-size:0.82rem; border:1px solid #cbd5e1; border-radius:4px;">
+                        <label class="filter-label">Desde (mes)</label><br>
+                        <input type="month" id="report-filter-from" onchange="applyReportFilters()" class="filter-select" style="width:100%; margin-top:4px;">
                     </div>
                     <div style="flex:1; min-width:150px;">
-                        <label style="font-size:0.65rem; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;">Hasta (mes)</label>
-                        <input type="month" id="report-filter-to" onchange="applyReportFilters()" style="width:100%; padding:0.45rem; font-size:0.82rem; border:1px solid #cbd5e1; border-radius:4px;">
+                        <label class="filter-label">Hasta (mes)</label><br>
+                        <input type="month" id="report-filter-to" onchange="applyReportFilters()" class="filter-select" style="width:100%; margin-top:4px;">
                     </div>
-                    <button onclick="clearReportFilters()" style="align-self:flex-end; height:34px; padding:0 0.75rem; background:#fff5f5; border:1px solid #fca5a5; color:#dc2626; border-radius:6px; font-weight:600; cursor:pointer; font-size:0.75rem; white-space:nowrap; transition:background .15s;" onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='#fff5f5'">✕ Limpiar</button>
+                    <button onclick="clearReportFilters()" class="filter-clear-btn">✕ Limpiar</button>
                 </div>
 
                 <!-- Botones de Exportación -->

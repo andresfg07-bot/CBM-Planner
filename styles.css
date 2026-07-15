@@ -1691,6 +1691,115 @@ h1 {
 .status-badge.ejecutada  { background: #fff1f2; color: #e11d48; }
 .status-badge.facturada  { background: #f0fdf4; color: #16a34a; }
 
+/* ══════════════════════════════════════════════════════
+   BARRA DE FILTROS UNIFICADA (buscador + selects tipo pill + tags)
+   ══════════════════════════════════════════════════════ */
+.filter-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: var(--radius-lg);
+    padding: 0.9rem 1.1rem;
+    box-shadow: var(--shadow-sm);
+    margin-bottom: 1.5rem;
+}
+.filter-toolbar-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    width: 100%;
+}
+
+.filter-search-wrap {
+    position: relative;
+    flex: 1 1 220px;
+    min-width: 180px;
+}
+.filter-search-wrap svg {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #94a3b8;
+    pointer-events: none;
+}
+.filter-search-wrap input[type="search"],
+.filter-search-wrap input[type="text"] {
+    width: 100%;
+    padding: 0.6rem 1rem 0.6rem 2.35rem;
+    border: 1px solid #e2e8f0;
+    border-radius: var(--radius-md);
+    font-size: 0.83rem;
+    background: #f8fafc;
+    color: #334155;
+    transition: border-color .15s, background .15s;
+}
+.filter-search-wrap input[type="search"]:focus,
+.filter-search-wrap input[type="text"]:focus {
+    outline: none;
+    border-color: var(--clr-blue);
+    background: #fff;
+}
+
+.filter-select {
+    padding: 0.55rem 0.9rem;
+    border: 1px solid #e2e8f0;
+    border-radius: var(--radius-md);
+    font-size: 0.82rem;
+    background: #fff;
+    color: #334155;
+    cursor: pointer;
+    transition: border-color .15s;
+}
+.filter-select:focus { outline: none; border-color: var(--clr-blue); }
+
+.filter-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: .02em;
+    white-space: nowrap;
+}
+
+.filter-tag-group { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+
+.filter-tag {
+    padding: 0.4rem 0.95rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    border: 1.5px solid transparent;
+    cursor: pointer;
+    background: #f1f5f9;
+    color: #64748b;
+    transition: filter .15s, border-color .15s;
+    white-space: nowrap;
+}
+.filter-tag:hover { filter: brightness(0.97); }
+.filter-tag.active { border-color: currentColor; }
+
+.filter-clear-btn {
+    background: none;
+    border: 1px solid #fca5a5;
+    color: #ef4444;
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 0.5rem 0.9rem;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transition: background .15s;
+    white-space: nowrap;
+}
+.filter-clear-btn:hover { background: #fef2f2; }
+
 /* 6. Iconos SVG de acción — override para quitar font-size de emojis */
 .action-icon svg {
     width: 16px;

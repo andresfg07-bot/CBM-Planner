@@ -1587,24 +1587,22 @@ function renderBoard() {
 
 function getGlobalFiltersHTML() {
     return `
-        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; background: #fff; padding: 0.5rem; border-radius: 8px; border: 1px solid #e2e8f0; box-shadow: var(--shadow-sm);">
-            <div style="display: flex; flex-direction: column; gap: 2px;">
-                <label style="font-size: 0.6rem; font-weight: 700; color: #64748b; padding-left: 0.2rem;">ANALISTA</label>
-                <select onchange="updateGlobalFilter('analyst', this.value)" style="padding: 0.25rem; font-size: 0.75rem; border: 1px solid #cbd5e1; border-radius: 4px; min-width: 110px;">
+        <div class="filter-toolbar" style="padding:0.6rem 0.85rem;">
+            <div>
+                <label class="filter-label">Analista</label><br>
+                <select onchange="updateGlobalFilter('analyst', this.value)" class="filter-select" style="min-width:130px; margin-top:4px;">
                     <option value="">Todos</option>
                     ${dbAnalysts.map(a => `<option value="${a.name}" ${dashboardFilters.analyst === a.name ? 'selected' : ''}>${a.name}</option>`).join('')}
                 </select>
             </div>
-            <div style="display: flex; flex-direction: column; gap: 2px;">
-                <label style="font-size: 0.6rem; font-weight: 700; color: #64748b; padding-left: 0.2rem;">CLIENTE</label>
-                <select onchange="updateGlobalFilter('client', this.value)" style="padding: 0.25rem; font-size: 0.75rem; border: 1px solid #cbd5e1; border-radius: 4px; min-width: 110px;">
+            <div>
+                <label class="filter-label">Cliente</label><br>
+                <select onchange="updateGlobalFilter('client', this.value)" class="filter-select" style="min-width:130px; margin-top:4px;">
                     <option value="">Todos</option>
                     ${dbClients.map(c => getClientDisplayName(c)).map(name => `<option value="${name}" ${dashboardFilters.client === name ? 'selected' : ''}>${name}</option>`).join('')}
                 </select>
             </div>
-            <button onclick="resetGlobalFilters()" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 0.75rem; font-weight: 600; padding: 0.25rem 0.5rem; display: flex; align-items: center; gap: 4px;">
-                ✕ Limpiar
-            </button>
+            <button class="filter-clear-btn" onclick="resetGlobalFilters()">✕ Limpiar</button>
         </div>`;
 }
 
@@ -2211,12 +2209,24 @@ function renderAnalystGauges(analystStats) {
 
 function updateGlobalFilter(type, value) {
     dashboardFilters[type] = value;
-    
+
     // Refresh all relevant views via renderBoard
     renderBoard();
     renderCalendar();
     renderPlanningSidebar();
     populateGlobalFilterDropdowns();
+    if(type === 'status') syncTaskStatusFilterTags();
+}
+
+/** Alterna el filtro de Estado desde los tags de colores (clic de nuevo = quitar filtro). */
+function toggleTaskStatusFilter(status) {
+    updateGlobalFilter('status', dashboardFilters.status === status ? '' : status);
+}
+
+function syncTaskStatusFilterTags() {
+    document.querySelectorAll('#filter-tasks-status-tags .filter-tag').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.status === dashboardFilters.status);
+    });
 }
 
 function resetGlobalFilters() {
@@ -2225,10 +2235,9 @@ function resetGlobalFilters() {
         client: '',
         status: ''
     };
-    
-    const filterTasksStatus = document.getElementById('filter-tasks-status');
-    if(filterTasksStatus) filterTasksStatus.value = '';
-    
+
+    syncTaskStatusFilterTags();
+
     renderBoard();
     renderCalendar();
     renderPlanningSidebar();
@@ -6653,30 +6662,30 @@ function _renderInventoryHistorialFiltered() {
     // ── Filtros ─────────────────────────────────────────────────────────────
     const analystOptions = [...new Set(_invHistorialCache.map(l => l.analyst_name))].sort();
     const filtersHTML = `
-        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:flex-end;background:#fff;padding:1rem;border-radius:var(--radius-lg);border:1px solid #e2e8f0;margin-bottom:1.25rem;">
+        <div class="filter-toolbar" style="align-items:flex-end;">
             <div style="flex:1;min-width:150px;">
-                <label style="font-size:0.65rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Analista</label>
-                <select id="invHist_filterAnalyst" onchange="applyInvHistorialFilters()" style="width:100%;padding:0.45rem;font-size:0.8rem;border:1px solid #cbd5e1;border-radius:4px;">
+                <label class="filter-label">Analista</label><br>
+                <select id="invHist_filterAnalyst" onchange="applyInvHistorialFilters()" class="filter-select" style="width:100%;margin-top:4px;">
                     <option value="">Todos</option>
                     ${analystOptions.map(a => `<option value="${a}" ${f.analyst===a?'selected':''}>${a}</option>`).join('')}
                 </select>
             </div>
             <div style="flex:1;min-width:150px;">
-                <label style="font-size:0.65rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Ítem</label>
-                <select id="invHist_filterItem" onchange="applyInvHistorialFilters()" style="width:100%;padding:0.45rem;font-size:0.8rem;border:1px solid #cbd5e1;border-radius:4px;">
+                <label class="filter-label">Ítem</label><br>
+                <select id="invHist_filterItem" onchange="applyInvHistorialFilters()" class="filter-select" style="width:100%;margin-top:4px;">
                     <option value="">Todos</option>
                     ${dbInventoryItems.map(i => `<option value="${i.id}" ${f.item===i.id?'selected':''}>${i.name}</option>`).join('')}
                 </select>
             </div>
             <div style="min-width:130px;">
-                <label style="font-size:0.65rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Desde</label>
-                <input type="date" id="invHist_filterFrom" value="${f.dateFrom}" onchange="applyInvHistorialFilters()" style="width:100%;padding:0.42rem;font-size:0.8rem;border:1px solid #cbd5e1;border-radius:4px;">
+                <label class="filter-label">Desde</label><br>
+                <input type="date" id="invHist_filterFrom" value="${f.dateFrom}" onchange="applyInvHistorialFilters()" class="filter-select" style="width:100%;margin-top:4px;">
             </div>
             <div style="min-width:130px;">
-                <label style="font-size:0.65rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Hasta</label>
-                <input type="date" id="invHist_filterTo" value="${f.dateTo}" onchange="applyInvHistorialFilters()" style="width:100%;padding:0.42rem;font-size:0.8rem;border:1px solid #cbd5e1;border-radius:4px;">
+                <label class="filter-label">Hasta</label><br>
+                <input type="date" id="invHist_filterTo" value="${f.dateTo}" onchange="applyInvHistorialFilters()" class="filter-select" style="width:100%;margin-top:4px;">
             </div>
-            <button class="btn-secondary" onclick="clearInvHistorialFilters()" style="font-size:0.8rem;">Limpiar filtros</button>
+            <button class="filter-clear-btn" onclick="clearInvHistorialFilters()">✕ Limpiar filtros</button>
         </div>`;
 
     if(data.length === 0) {
