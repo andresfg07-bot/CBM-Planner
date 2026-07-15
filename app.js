@@ -1,6 +1,7 @@
 // Supabase Config
-const supabaseUrl = 'https://gvjemehvtrxwsokmyyby.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2amVtZWh2dHJ4d3Nva215eWJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4NTkxOTMsImV4cCI6MjA4OTQzNTE5M30.TSVtuYnGI2j9JymCJbjKsXlbs1hG2EpaHHuEksJuAqE';
+// Si env.staging.js se cargó antes, window._stagingConfig sobreescribe las credenciales.
+const supabaseUrl = (window._stagingConfig && window._stagingConfig.url) || 'https://gvjemehvtrxwsokmyyby.supabase.co';
+const supabaseKey = (window._stagingConfig && window._stagingConfig.key) || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2amVtZWh2dHJ4d3Nva215eWJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4NTkxOTMsImV4cCI6MjA4OTQzNTE5M30.TSVtuYnGI2j9JymCJbjKsXlbs1hG2EpaHHuEksJuAqE';
 let supabaseClient = null;
 
 try {
@@ -9,6 +10,25 @@ try {
     }
 } catch (e) {
     console.error("Error initializing Supabase", e);
+}
+
+// Banner de ambiente de pruebas
+if (window.IS_STAGING) {
+    document.addEventListener('DOMContentLoaded', () => {
+        const banner = document.createElement('div');
+        banner.id = 'staging-banner';
+        banner.textContent = '⚠️  AMBIENTE DE PRUEBAS — Los datos aquí NO son los de producción  ⚠️';
+        Object.assign(banner.style, {
+            position: 'fixed', top: '0', left: '0', right: '0', zIndex: '99999',
+            background: '#f59e0b', color: '#1c1917', textAlign: 'center',
+            fontWeight: '700', fontSize: '0.8rem', padding: '6px 0',
+            letterSpacing: '0.05em', pointerEvents: 'none',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.3)'
+        });
+        document.body.prepend(banner);
+        // Empujar el contenido hacia abajo para que el banner no tape la nav
+        document.body.style.paddingTop = '30px';
+    });
 }
 
 let dbClients = [];
@@ -119,8 +139,8 @@ function applyRoleUI() {
 
     // Vistas permitidas por rol
     const allowedViews = {
-        admin:      ['dashboard', 'tasks', 'planning', 'finance', 'admin', 'reports'],
-        analyst:    ['mywork', 'planning'],
+        admin:      ['dashboard', 'tasks', 'planning', 'finance', 'admin', 'reports', 'inventory'],
+        analyst:    ['mywork', 'planning', 'inventory'],
         assistant:  ['dashboard', 'tasks', 'planning', 'finance', 'reports'],
         commercial: ['dashboard', 'tasks', 'planning', 'finance', 'reports'],
         viewer:     ['dashboard'],
@@ -5219,6 +5239,14 @@ function switchView(viewName) {
         targetView.classList.add('active-view');
     }
 
+    // Evita que el scroll heredado de la vista anterior deje el contenido nuevo fuera de pantalla.
+    // Hay dos contenedores con scroll independiente (.main-content Y el documento/html), hay que resetear ambos.
+    const mainContent = document.getElementById('main-content');
+    if(mainContent) mainContent.scrollTop = 0;
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
     const targetNav = document.getElementById(`nav-${viewName}`);
     if(targetNav) {
@@ -5244,7 +5272,8 @@ function switchView(viewName) {
             tasks:     'Gestión de Tareas',
             finance:   'Módulo de Finanzas',
             admin:     'Administración de Datos Maestros',
-            reports:   'Reportes Históricos'
+            reports:   'Reportes Históricos',
+            inventory: 'Control de Inventario CBM'
         };
         headerTitle.textContent = titles[viewName] || 'CBM Maestro';
     }
@@ -5265,6 +5294,8 @@ function switchView(viewName) {
         renderUsersAdminSection();
     } else if(viewName === 'reports') {
         initReportsView();
+    } else if(viewName === 'inventory') {
+        initInventoryView();
     } else {
         renderBoard();
     }
@@ -6250,6 +6281,809 @@ async function exportReportPDF() {
 
     doc.save(`Reporte_CBM_${new Date().toISOString().slice(0,10)}.pdf`);
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MÓDULO DE INVENTARIO CBM
+// ══════════════════════════════════════════════════════════════════════════════
+
+let dbInventoryItems = [];
+let dbInventoryLoans = []; // préstamos activos (checked_in_at IS NULL)
+let dbInventoryIncidents = []; // incidentes abiertos (resolved_at IS NULL)
+let _inventoryTab    = 'catalogo'; // 'catalogo' | 'encampo' | 'historial'
+let _invScanAction   = null; // { type: 'checkout'|'checkin', itemId, loanId }
+let _invHtml5Scanner = null;
+
+const _invCategories = ['Vibraciones', 'Termografía', 'Ultrasonido', 'Balanceo', 'Alineación', 'Rotodinámico', 'Capacitación', 'General'];
+const _invCatLabel = {
+    Vibraciones: '〰️ Vibraciones', Termografía: '🌡️ Termografía', Ultrasonido: '🔊 Ultrasonido',
+    Balanceo: '⚖️ Balanceo', Alineación: '📐 Alineación', Rotodinámico: '⚙️ Rotodinámico',
+    Capacitación: '📚 Capacitación', General: '🔧 General'
+};
+const _invStatusLabel = { disponible:'Disponible', prestado:'En Campo', dañado:'Dañado', perdido:'Perdido' };
+const _invStatusColor = { disponible:'#16a34a', prestado:'#d97706', dañado:'#dc2626', perdido:'#7f1d1d' };
+const _invStatusBg    = { disponible:'#f0fdf4', prestado:'#fffbeb', dañado:'#fef2f2', perdido:'#fef2f2' };
+
+async function loadInventoryData() {
+    if(!supabaseClient) return;
+    const [{ data: items }, { data: loans }, { data: incidents }] = await Promise.all([
+        supabaseClient.from('inventory_items').select('*').order('category').order('name'),
+        supabaseClient.from('inventory_loans').select('*').is('checked_in_at', null).order('checked_out_at', { ascending: false }),
+        supabaseClient.from('inventory_incidents').select('*').is('resolved_at', null).order('created_at', { ascending: false })
+    ]);
+    if(items) dbInventoryItems = items;
+    if(loans) dbInventoryLoans = loans;
+    if(incidents) dbInventoryIncidents = incidents;
+}
+
+function _invOpenIncident(itemId) {
+    return dbInventoryIncidents.find(i => i.item_id === itemId);
+}
+
+function _invCalibrationStatus(item) {
+    if(!item.requires_calibration) return null;
+    if(!item.last_calibration_date) return { label: 'Sin calibrar', color: '#dc2626', bg: '#fef2f2' };
+    const last = new Date(item.last_calibration_date);
+    const next = new Date(last);
+    next.setDate(next.getDate() + (item.calibration_interval_days || 365));
+    const daysLeft = Math.ceil((next - new Date()) / 86400000);
+    const nextStr = next.toLocaleDateString('es-CO', { day:'numeric', month:'short', year:'numeric' });
+    if(daysLeft < 0)  return { label: `Vencida hace ${Math.abs(daysLeft)}d`, color:'#dc2626', bg:'#fef2f2' };
+    if(daysLeft <= 30) return { label: `Vence en ${daysLeft}d (${nextStr})`, color:'#d97706', bg:'#fffbeb' };
+    return { label: `Vigente hasta ${nextStr}`, color:'#16a34a', bg:'#f0fdf4' };
+}
+
+function initInventoryView() {
+    loadInventoryData().then(() => renderInventoryView()).catch(e => console.error(e));
+}
+
+function switchInventoryTab(tab) {
+    _inventoryTab = tab;
+    renderInventoryView();
+}
+
+function renderInventoryView() {
+    const container = document.getElementById('inventory-view-container');
+    if(!container) return;
+    const role = currentUserProfile?.role || 'viewer';
+
+    if(role !== 'admin') {
+        renderAnalystInventory(container);
+        return;
+    }
+
+    const tabs = [
+        { id:'catalogo',  label:'📦 Catálogo' },
+        { id:'encampo',   label:'🚚 En Campo' },
+        { id:'historial', label:'📋 Historial' }
+    ];
+
+    container.innerHTML = `
+        <div class="kanban-header" style="margin-bottom:1.5rem;">
+            <div>
+                <h2>Control de Inventario CBM</h2>
+                <p class="subtitle">Gestiona los equipos y herramientas del departamento.</p>
+            </div>
+            <button class="btn-primary" onclick="openInventoryScannerModal()" style="display:flex;align-items:center;gap:0.5rem;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>
+                Escanear QR
+            </button>
+        </div>
+        <div class="view-toggle-group" style="margin-bottom:1.5rem;">
+            ${tabs.map(t => `<button id="invtab-${t.id}" onclick="switchInventoryTab('${t.id}')" ${_inventoryTab===t.id?'class="active"':''}>${t.label}</button>`).join('')}
+        </div>
+        <div id="inv-tab-content"></div>
+    `;
+
+    if(_inventoryTab === 'catalogo')   renderInventoryCatalog();
+    else if(_inventoryTab === 'encampo')   renderInventoryEnCampo();
+    else if(_inventoryTab === 'historial') renderInventoryHistorial();
+}
+
+function renderAnalystInventory(container) {
+    const analystName = currentUserProfile?.analyst_name;
+    const myLoans = dbInventoryLoans.filter(l => l.analyst_name === analystName);
+    const myItems = myLoans.map(l => {
+        const item = dbInventoryItems.find(i => i.id === l.item_id);
+        return { loan: l, item };
+    }).filter(x => x.item);
+
+    const permanentItems = dbInventoryItems.filter(i => i.is_permanently_assigned && i.assigned_analyst === analystName);
+
+    container.innerHTML = `
+        <div class="kanban-header" style="margin-bottom:1.5rem;">
+            <div>
+                <h2>Mis Equipos</h2>
+                <p class="subtitle">Equipos que tenés en tu poder en este momento.</p>
+            </div>
+            <button class="btn-primary" onclick="openInventoryScannerModal()" style="display:flex;align-items:center;gap:0.5rem;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>
+                Escanear QR
+            </button>
+        </div>
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1.25rem;">
+            <h4 style="margin:0 0 1rem;color:var(--clr-blue);">🚚 En mi poder (${myItems.length})</h4>
+            ${myItems.length === 0
+                ? '<p style="color:#94a3b8;font-size:0.85rem;">No tenés equipos registrados actualmente.</p>'
+                : myItems.map(({ loan, item }) => {
+                    const days = Math.floor((Date.now() - new Date(loan.checked_out_at)) / 86400000);
+                    return `
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:0.65rem 0;border-bottom:1px solid #f1f5f9;">
+                        <div>
+                            <div style="font-weight:600;font-size:0.9rem;">${item.name}</div>
+                            <div style="font-size:0.72rem;color:#64748b;">${_invCatLabel[item.category]||item.category} · Desde hace ${days} día${days!==1?'s':''}</div>
+                        </div>
+                    </div>`;
+                }).join('')
+            }
+        </div>
+        ${permanentItems.length > 0 ? `
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:var(--radius-lg);padding:1.5rem;">
+            <h4 style="margin:0 0 1rem;color:#7c3aed;">📌 Asignados permanentemente</h4>
+            ${permanentItems.map(item => `
+                <div style="padding:0.5rem 0;border-bottom:1px solid #f1f5f9;font-size:0.85rem;">
+                    <strong>${item.name}</strong>
+                    ${item.serial_number ? `<span style="color:#64748b;font-size:0.75rem;"> · ${item.serial_number}</span>` : ''}
+                </div>
+            `).join('')}
+        </div>` : ''}
+    `;
+}
+
+function renderInventoryCatalog() {
+    const el = document.getElementById('inv-tab-content');
+    if(!el) return;
+
+    const categories = _invCategories;
+
+    el.innerHTML = `
+        <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
+            <button class="btn-primary" onclick="openAddInventoryItemModal()">+ Agregar ítem</button>
+        </div>
+        ${categories.map(cat => {
+            const items = dbInventoryItems.filter(i => i.category === cat);
+            if(items.length === 0) return '';
+            return `
+            <div style="margin-bottom:1.5rem;">
+                <h4 style="font-size:0.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.5rem;">${_invCatLabel[cat]}</h4>
+                <div style="background:#fff;border:1px solid #e2e8f0;border-radius:var(--radius-lg);overflow:hidden;">
+                    <table class="data-table" style="font-size:0.82rem;">
+                        <thead>
+                            <tr>
+                                <th style="width:44px;">QR</th>
+                                <th>Nombre</th>
+                                <th>Serial</th>
+                                <th>Estado</th>
+                                <th>Calibración</th>
+                                <th>Asignado a</th>
+                                <th style="width:120px;text-align:center;">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${items.map(item => {
+                                const sc = _invStatusColor[item.status] || '#64748b';
+                                const sb = _invStatusBg[item.status] || '#f8fafc';
+                                const activeLoan = dbInventoryLoans.find(l => l.item_id === item.id);
+                                const openIncident = _invOpenIncident(item.id);
+                                const isTrouble = item.status === 'dañado' || item.status === 'perdido';
+                                const calib = _invCalibrationStatus(item);
+                                return `
+                                <tr>
+                                    <td style="text-align:center;">
+                                        <button onclick="showInventoryQR('${item.id}')" title="Ver QR" style="background:none;border:1px solid #cbd5e1;border-radius:4px;padding:3px 6px;cursor:pointer;font-size:0.9rem;">📷</button>
+                                    </td>
+                                    <td>
+                                        <strong>${item.name}</strong>
+                                        ${item.equipment_id ? '<span title="Vinculado a un equipo de gestiones" style="font-size:0.68rem;background:#eef2ff;color:#4f46e5;border:1px solid #4f46e533;padding:1px 6px;border-radius:99px;margin-left:6px;">🔗 Equipo</span>' : ''}
+                                        ${item.description ? `<div style="font-size:0.72rem;color:#94a3b8;">${item.description}</div>` : ''}
+                                        ${isTrouble && openIncident ? `<div style="font-size:0.72rem;color:#dc2626;margin-top:2px;">⚠️ ${openIncident.note} <span style="color:#94a3b8;">— ${openIncident.reported_by}</span></div>` : ''}
+                                    </td>
+                                    <td style="color:#64748b;">${item.serial_number || '—'}</td>
+                                    <td>
+                                        <span style="background:${sb};color:${sc};border:1px solid ${sc}33;font-size:0.72rem;font-weight:700;padding:2px 8px;border-radius:99px;">
+                                            ${_invStatusLabel[item.status]||item.status}
+                                        </span>
+                                        ${activeLoan ? `<div style="font-size:0.7rem;color:#d97706;margin-top:2px;">→ ${activeLoan.analyst_name}</div>` : ''}
+                                    </td>
+                                    <td>
+                                        ${calib ? `<span style="background:${calib.bg};color:${calib.color};border:1px solid ${calib.color}33;font-size:0.7rem;font-weight:600;padding:2px 8px;border-radius:99px;white-space:nowrap;">${calib.label}</span>` : '<span style="color:#cbd5e1;">—</span>'}
+                                    </td>
+                                    <td style="font-size:0.78rem;color:#64748b;">
+                                        ${item.is_permanently_assigned ? `📌 ${item.assigned_analyst||'—'}` : '—'}
+                                    </td>
+                                    <td style="text-align:center;white-space:nowrap;">
+                                        <button onclick="openEditInventoryItemModal('${item.id}')" title="Editar" style="background:none;border:none;cursor:pointer;color:#3b82f6;font-size:1rem;">✏️</button>
+                                        <button onclick="deleteInventoryItem('${item.id}')" title="Eliminar" style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:1rem;">🗑️</button>
+                                        ${item.requires_calibration ? `<button onclick="registerCalibrationToday('${item.id}')" title="Registrar calibración hoy" style="background:none;border:none;cursor:pointer;font-size:1rem;">📅</button>` : ''}
+                                        ${isTrouble
+                                            ? `<button onclick="openResolveIncidentModal('${item.id}')" title="Marcar como disponible" style="background:none;border:none;cursor:pointer;color:#16a34a;font-size:1rem;">✅</button>`
+                                            : `<button onclick="openReportIncidentModal('${item.id}')" title="Reportar daño/pérdida" style="background:none;border:none;cursor:pointer;color:#d97706;font-size:1rem;">⚠️</button>`}
+                                    </td>
+                                </tr>`;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
+        }).join('')}
+        ${dbInventoryItems.length === 0 ? '<div style="text-align:center;padding:3rem;color:#94a3b8;">No hay ítems en el inventario todavía. Agrega el primero.</div>' : ''}
+    `;
+}
+
+function renderInventoryEnCampo() {
+    const el = document.getElementById('inv-tab-content');
+    if(!el) return;
+
+    if(dbInventoryLoans.length === 0) {
+        el.innerHTML = '<div style="text-align:center;padding:3rem;color:#94a3b8;">✅ Todo el inventario está en A-MAQ. No hay ítems en campo.</div>';
+        return;
+    }
+
+    const rows = dbInventoryLoans.map(loan => {
+        const item = dbInventoryItems.find(i => i.id === loan.item_id);
+        if(!item) return '';
+        const days = Math.floor((Date.now() - new Date(loan.checked_out_at)) / 86400000);
+        const since = new Date(loan.checked_out_at).toLocaleDateString('es-CO', { day:'numeric', month:'short' });
+        const alertStyle = days >= 7 ? 'color:#dc2626;font-weight:700;' : days >= 3 ? 'color:#d97706;' : '';
+        return `
+        <tr>
+            <td><strong>${loan.analyst_name}</strong></td>
+            <td>${item.name}<div style="font-size:0.72rem;color:#64748b;">${_invCatLabel[item.category]||item.category}</div></td>
+            <td>${since}</td>
+            <td style="${alertStyle}">${days} día${days!==1?'s':''}</td>
+            <td style="text-align:center;">
+                <button class="btn-secondary" onclick="adminCheckIn('${loan.id}','${item.id}')" style="font-size:0.75rem;padding:4px 10px;">Registrar devolución</button>
+            </td>
+        </tr>`;
+    }).join('');
+
+    el.innerHTML = `
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:var(--radius-lg);overflow:hidden;">
+            <table class="data-table" style="font-size:0.82rem;">
+                <thead>
+                    <tr>
+                        <th>Analista</th>
+                        <th>Ítem</th>
+                        <th>Salida</th>
+                        <th>Días fuera</th>
+                        <th style="text-align:center;">Acción</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+}
+
+let _invHistorialCache = [];
+let _invHistorialFilters = { analyst: '', item: '', dateFrom: '', dateTo: '' };
+
+async function renderInventoryHistorial() {
+    const el = document.getElementById('inv-tab-content');
+    if(!el) return;
+    el.innerHTML = '<div style="text-align:center;padding:2rem;color:#94a3b8;">Cargando historial…</div>';
+
+    const { data: allLoans, error } = await supabaseClient
+        .from('inventory_loans')
+        .select('*')
+        .not('checked_in_at', 'is', null)
+        .order('checked_out_at', { ascending: false })
+        .limit(500);
+
+    if(error) {
+        el.innerHTML = '<div style="text-align:center;padding:3rem;color:#dc2626;">Error cargando historial.</div>';
+        return;
+    }
+    _invHistorialCache = allLoans || [];
+    _renderInventoryHistorialFiltered();
+}
+
+function clearInvHistorialFilters() {
+    _invHistorialFilters = { analyst: '', item: '', dateFrom: '', dateTo: '' };
+    _renderInventoryHistorialFiltered();
+}
+
+function applyInvHistorialFilters() {
+    _invHistorialFilters.analyst  = document.getElementById('invHist_filterAnalyst')?.value || '';
+    _invHistorialFilters.item     = document.getElementById('invHist_filterItem')?.value || '';
+    _invHistorialFilters.dateFrom = document.getElementById('invHist_filterFrom')?.value || '';
+    _invHistorialFilters.dateTo   = document.getElementById('invHist_filterTo')?.value || '';
+    _renderInventoryHistorialFiltered();
+}
+
+function _renderInventoryHistorialFiltered() {
+    const el = document.getElementById('inv-tab-content');
+    if(!el) return;
+
+    if(_invHistorialCache.length === 0 && dbInventoryLoans.length === 0) {
+        el.innerHTML = '<div style="text-align:center;padding:3rem;color:#94a3b8;">No hay movimientos históricos todavía.</div>';
+        return;
+    }
+
+    const f = _invHistorialFilters;
+    const data = _invHistorialCache.filter(loan => {
+        if(f.analyst && loan.analyst_name !== f.analyst) return false;
+        if(f.item && loan.item_id !== f.item) return false;
+        if(f.dateFrom && loan.checked_out_at < f.dateFrom) return false;
+        if(f.dateTo && loan.checked_out_at > f.dateTo + 'T23:59:59') return false;
+        return true;
+    });
+
+    // ── Ranking de frecuencia de uso (salidas históricas + préstamos activos) ──
+    const usageCount = {};
+    _invHistorialCache.forEach(l => { usageCount[l.item_id] = (usageCount[l.item_id]||0) + 1; });
+    dbInventoryLoans.forEach(l => { usageCount[l.item_id] = (usageCount[l.item_id]||0) + 1; });
+    const ranking = dbInventoryItems.map(item => ({ item, count: usageCount[item.id] || 0 }))
+        .sort((a, b) => b.count - a.count);
+    const maxCount = Math.max(1, ...ranking.map(r => r.count));
+
+    const rankingHTML = ranking.length === 0 ? '' : `
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:var(--radius-lg);padding:1.25rem;margin-bottom:1.5rem;">
+            <h4 style="margin:0 0 1rem;font-size:0.85rem;color:var(--clr-blue);">📊 Frecuencia de uso por ítem</h4>
+            ${ranking.map(r => `
+                <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">
+                    <div style="flex:0 0 180px;font-size:0.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.item.name}">${r.item.name}</div>
+                    <div style="flex:1;background:#f1f5f9;border-radius:4px;height:14px;overflow:hidden;">
+                        <div style="width:${(r.count/maxCount*100).toFixed(0)}%;background:${r.count===0?'#cbd5e1':'var(--clr-blue)'};height:100%;"></div>
+                    </div>
+                    <div style="flex:0 0 70px;text-align:right;font-size:0.75rem;color:#64748b;">${r.count} salida${r.count!==1?'s':''}</div>
+                </div>
+            `).join('')}
+        </div>`;
+
+    // ── Filtros ─────────────────────────────────────────────────────────────
+    const analystOptions = [...new Set(_invHistorialCache.map(l => l.analyst_name))].sort();
+    const filtersHTML = `
+        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:flex-end;background:#fff;padding:1rem;border-radius:var(--radius-lg);border:1px solid #e2e8f0;margin-bottom:1.25rem;">
+            <div style="flex:1;min-width:150px;">
+                <label style="font-size:0.65rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Analista</label>
+                <select id="invHist_filterAnalyst" onchange="applyInvHistorialFilters()" style="width:100%;padding:0.45rem;font-size:0.8rem;border:1px solid #cbd5e1;border-radius:4px;">
+                    <option value="">Todos</option>
+                    ${analystOptions.map(a => `<option value="${a}" ${f.analyst===a?'selected':''}>${a}</option>`).join('')}
+                </select>
+            </div>
+            <div style="flex:1;min-width:150px;">
+                <label style="font-size:0.65rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Ítem</label>
+                <select id="invHist_filterItem" onchange="applyInvHistorialFilters()" style="width:100%;padding:0.45rem;font-size:0.8rem;border:1px solid #cbd5e1;border-radius:4px;">
+                    <option value="">Todos</option>
+                    ${dbInventoryItems.map(i => `<option value="${i.id}" ${f.item===i.id?'selected':''}>${i.name}</option>`).join('')}
+                </select>
+            </div>
+            <div style="min-width:130px;">
+                <label style="font-size:0.65rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Desde</label>
+                <input type="date" id="invHist_filterFrom" value="${f.dateFrom}" onchange="applyInvHistorialFilters()" style="width:100%;padding:0.42rem;font-size:0.8rem;border:1px solid #cbd5e1;border-radius:4px;">
+            </div>
+            <div style="min-width:130px;">
+                <label style="font-size:0.65rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Hasta</label>
+                <input type="date" id="invHist_filterTo" value="${f.dateTo}" onchange="applyInvHistorialFilters()" style="width:100%;padding:0.42rem;font-size:0.8rem;border:1px solid #cbd5e1;border-radius:4px;">
+            </div>
+            <button class="btn-secondary" onclick="clearInvHistorialFilters()" style="font-size:0.8rem;">Limpiar filtros</button>
+        </div>`;
+
+    if(data.length === 0) {
+        el.innerHTML = rankingHTML + filtersHTML + '<div style="text-align:center;padding:3rem;color:#94a3b8;">No hay movimientos con estos filtros.</div>';
+        return;
+    }
+
+    const rows = data.map(loan => {
+        const item = dbInventoryItems.find(i => i.id === loan.item_id);
+        const out  = new Date(loan.checked_out_at).toLocaleDateString('es-CO', { day:'numeric', month:'short', year:'numeric' });
+        const inn  = new Date(loan.checked_in_at).toLocaleDateString('es-CO', { day:'numeric', month:'short', year:'numeric' });
+        const days = Math.floor((new Date(loan.checked_in_at) - new Date(loan.checked_out_at)) / 86400000);
+        return `
+        <tr>
+            <td style="color:#64748b;">${out}</td>
+            <td><strong>${loan.analyst_name}</strong></td>
+            <td>${item?.name || '(ítem eliminado)'}<div style="font-size:0.72rem;color:#94a3b8;">${item ? (_invCatLabel[item.category]||item.category) : ''}</div></td>
+            <td style="color:#64748b;">${inn}</td>
+            <td style="color:#64748b;">${days} día${days!==1?'s':''}</td>
+        </tr>`;
+    }).join('');
+
+    el.innerHTML = rankingHTML + filtersHTML + `
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:var(--radius-lg);overflow:hidden;">
+            <table class="data-table" style="font-size:0.82rem;">
+                <thead>
+                    <tr>
+                        <th>Salida</th>
+                        <th>Analista</th>
+                        <th>Ítem</th>
+                        <th>Devolución</th>
+                        <th>Duración</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+}
+
+// ── CRUD de ítems ──────────────────────────────────────────────────────────────
+
+function toggleAnalystAssign() {
+    const checked = document.getElementById('invItem_permanent')?.checked;
+    const row = document.getElementById('invItem_analystRow');
+    if(row) row.style.display = checked ? 'block' : 'none';
+}
+
+function toggleCalibrationFields() {
+    const checked = document.getElementById('invItem_requiresCalibration')?.checked;
+    const row = document.getElementById('invItem_calibrationRow');
+    if(row) row.style.display = checked ? 'flex' : 'none';
+}
+
+function _populateInvAnalystSelect() {
+    const sel = document.getElementById('invItem_analyst');
+    if(!sel) return;
+    sel.innerHTML = dbAnalysts.filter(a => a.is_active !== false).map(a =>
+        `<option value="${a.name}">${a.name}</option>`
+    ).join('');
+}
+
+function _populateInvEquipmentSelect() {
+    const sel = document.getElementById('invItem_equipment');
+    if(!sel) return;
+    sel.innerHTML = '<option value="">— No es un equipo de gestión —</option>' +
+        dbEquipment.filter(e => e.is_active !== false).map(e =>
+            `<option value="${e.id}">${e.name}${e.serial_number ? ' · '+e.serial_number : ''}</option>`
+        ).join('');
+}
+
+function onInvItemEquipmentChange() {
+    const equipId = document.getElementById('invItem_equipment').value;
+    if(!equipId) return;
+    const equip = dbEquipment.find(e => e.id === equipId);
+    if(!equip) return;
+    // Autocompleta nombre/serial desde equipment para no duplicar el dato manualmente
+    if(!document.getElementById('invItem_name').value.trim()) {
+        document.getElementById('invItem_name').value = equip.name || '';
+    }
+    if(!document.getElementById('invItem_serial').value.trim()) {
+        document.getElementById('invItem_serial').value = equip.serial_number || '';
+    }
+}
+
+function openAddInventoryItemModal() {
+    document.getElementById('invItemModalTitle').textContent = 'Agregar Ítem';
+    document.getElementById('invItem_editId').value = '';
+    document.getElementById('invItem_name').value = '';
+    document.getElementById('invItem_category').value = 'Vibraciones';
+    document.getElementById('invItem_serial').value = '';
+    document.getElementById('invItem_description').value = '';
+    document.getElementById('invItem_permanent').checked = false;
+    document.getElementById('invItem_analystRow').style.display = 'none';
+    document.getElementById('invItem_requiresCalibration').checked = false;
+    document.getElementById('invItem_calibrationRow').style.display = 'none';
+    document.getElementById('invItem_lastCalibration').value = '';
+    document.getElementById('invItem_calibrationInterval').value = '365';
+    _populateInvAnalystSelect();
+    _populateInvEquipmentSelect();
+    document.getElementById('invItem_equipment').value = '';
+    document.getElementById('inventoryItemModal').classList.add('active');
+}
+
+function openEditInventoryItemModal(itemId) {
+    const item = dbInventoryItems.find(i => i.id === itemId);
+    if(!item) return;
+    document.getElementById('invItemModalTitle').textContent = 'Editar Ítem';
+    document.getElementById('invItem_editId').value = itemId;
+    document.getElementById('invItem_name').value = item.name || '';
+    document.getElementById('invItem_category').value = item.category || 'General';
+    document.getElementById('invItem_serial').value = item.serial_number || '';
+    document.getElementById('invItem_description').value = item.description || '';
+    document.getElementById('invItem_permanent').checked = !!item.is_permanently_assigned;
+    document.getElementById('invItem_analystRow').style.display = item.is_permanently_assigned ? 'block' : 'none';
+    document.getElementById('invItem_requiresCalibration').checked = !!item.requires_calibration;
+    document.getElementById('invItem_calibrationRow').style.display = item.requires_calibration ? 'flex' : 'none';
+    document.getElementById('invItem_lastCalibration').value = item.last_calibration_date || '';
+    document.getElementById('invItem_calibrationInterval').value = item.calibration_interval_days || 365;
+    _populateInvAnalystSelect();
+    _populateInvEquipmentSelect();
+    document.getElementById('invItem_equipment').value = item.equipment_id || '';
+    if(item.assigned_analyst) {
+        const sel = document.getElementById('invItem_analyst');
+        if(sel) sel.value = item.assigned_analyst;
+    }
+    document.getElementById('inventoryItemModal').classList.add('active');
+}
+
+async function saveInventoryItem() {
+    const name = document.getElementById('invItem_name').value.trim();
+    if(!name) { showToast('El nombre es obligatorio', 'error'); return; }
+
+    const isPermanent = document.getElementById('invItem_permanent').checked;
+    const requiresCalibration = document.getElementById('invItem_requiresCalibration').checked;
+    const payload = {
+        name,
+        category:               document.getElementById('invItem_category').value,
+        serial_number:          document.getElementById('invItem_serial').value.trim() || null,
+        description:            document.getElementById('invItem_description').value.trim() || null,
+        is_permanently_assigned: isPermanent,
+        assigned_analyst:       isPermanent ? document.getElementById('invItem_analyst').value : null,
+        equipment_id:           document.getElementById('invItem_equipment').value || null,
+        requires_calibration:      requiresCalibration,
+        last_calibration_date:     requiresCalibration ? (document.getElementById('invItem_lastCalibration').value || null) : null,
+        calibration_interval_days: requiresCalibration ? (parseInt(document.getElementById('invItem_calibrationInterval').value) || 365) : null,
+        status:                 'disponible'
+    };
+
+    const editId = document.getElementById('invItem_editId').value;
+    let error;
+    if(editId) {
+        delete payload.status; // no sobreescribir estado al editar
+        ({ error } = await supabaseClient.from('inventory_items').update(payload).eq('id', editId));
+    } else {
+        ({ error } = await supabaseClient.from('inventory_items').insert(payload));
+    }
+
+    if(error) { showToast('Error guardando: ' + error.message, 'error'); return; }
+    showToast(editId ? 'Ítem actualizado' : 'Ítem agregado', 'success');
+    closeModal('inventoryItemModal');
+    await loadInventoryData();
+    renderInventoryView();
+}
+
+async function deleteInventoryItem(itemId) {
+    const item = dbInventoryItems.find(i => i.id === itemId);
+    if(!confirm(`¿Eliminar "${item?.name}"? Esta acción no se puede deshacer.`)) return;
+    const { error } = await supabaseClient.from('inventory_items').delete().eq('id', itemId);
+    if(error) { showToast('Error eliminando: ' + error.message, 'error'); return; }
+    showToast('Ítem eliminado', 'success');
+    await loadInventoryData();
+    renderInventoryView();
+}
+
+async function registerCalibrationToday(itemId) {
+    const item = dbInventoryItems.find(i => i.id === itemId);
+    if(!confirm(`¿Registrar calibración de "${item?.name}" con fecha de hoy?`)) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const { error } = await supabaseClient.from('inventory_items').update({ last_calibration_date: today }).eq('id', itemId);
+    if(error) { showToast('Error registrando calibración: ' + error.message, 'error'); return; }
+    showToast('Calibración registrada', 'success');
+    await loadInventoryData();
+    renderInventoryView();
+}
+
+// ── Incidentes (daño / pérdida) ─────────────────────────────────────────────────
+
+function openReportIncidentModal(itemId) {
+    const item = dbInventoryItems.find(i => i.id === itemId);
+    if(!item) return;
+    document.getElementById('invIncidentModalTitle').textContent = `Reportar incidente — ${item.name}`;
+    document.getElementById('invIncident_mode').value = 'report';
+    document.getElementById('invIncident_itemId').value = itemId;
+    document.getElementById('invIncident_typeRow').style.display = 'block';
+    document.getElementById('invIncident_type').value = 'dañado';
+    document.getElementById('invIncident_note').value = '';
+    document.getElementById('invIncident_note').placeholder = 'Describe qué pasó (obligatorio)...';
+    document.getElementById('invIncident_submitBtn').textContent = 'Reportar';
+    document.getElementById('inventoryIncidentModal').classList.add('active');
+}
+
+function openResolveIncidentModal(itemId) {
+    const item = dbInventoryItems.find(i => i.id === itemId);
+    if(!item) return;
+    document.getElementById('invIncidentModalTitle').textContent = `Resolver incidente — ${item.name}`;
+    document.getElementById('invIncident_mode').value = 'resolve';
+    document.getElementById('invIncident_itemId').value = itemId;
+    document.getElementById('invIncident_typeRow').style.display = 'none';
+    document.getElementById('invIncident_note').value = '';
+    document.getElementById('invIncident_note').placeholder = 'Nota de resolución (opcional)...';
+    document.getElementById('invIncident_submitBtn').textContent = 'Marcar como Disponible';
+    document.getElementById('inventoryIncidentModal').classList.add('active');
+}
+
+async function submitInventoryIncident() {
+    const mode   = document.getElementById('invIncident_mode').value;
+    const itemId = document.getElementById('invIncident_itemId').value;
+    const note   = document.getElementById('invIncident_note').value.trim();
+    const reportedBy = currentUserProfile?.analyst_name || currentUserProfile?.display_name || currentUser?.email || 'Desconocido';
+
+    if(mode === 'report') {
+        if(!note) { showToast('La nota es obligatoria para reportar un incidente', 'error'); return; }
+        const type = document.getElementById('invIncident_type').value;
+        const { error: e1 } = await supabaseClient.from('inventory_incidents').insert({
+            item_id: itemId, type, note, reported_by: reportedBy
+        });
+        const { error: e2 } = await supabaseClient.from('inventory_items').update({ status: type }).eq('id', itemId);
+        if(e1 || e2) { showToast('Error reportando incidente', 'error'); return; }
+        showToast('Incidente reportado', 'success');
+    } else {
+        const incident = _invOpenIncident(itemId);
+        if(incident) {
+            await supabaseClient.from('inventory_incidents').update({
+                resolved_at: new Date().toISOString(), resolution_note: note || null
+            }).eq('id', incident.id);
+        }
+        const { error } = await supabaseClient.from('inventory_items').update({ status: 'disponible' }).eq('id', itemId);
+        if(error) { showToast('Error resolviendo incidente', 'error'); return; }
+        showToast('Ítem marcado como disponible', 'success');
+    }
+
+    closeModal('inventoryIncidentModal');
+    await loadInventoryData();
+    renderInventoryView();
+}
+
+// ── QR ─────────────────────────────────────────────────────────────────────────
+
+function showInventoryQR(itemId) {
+    const item = dbInventoryItems.find(i => i.id === itemId);
+    if(!item) return;
+    document.getElementById('invQR_itemName').textContent = item.name;
+    document.getElementById('invQR_itemSerial').textContent = item.serial_number ? `Serial: ${item.serial_number}` : '';
+    document.getElementById('inventoryQRModal').classList.add('active');
+    document.getElementById('inventoryQRModal').dataset.itemId = itemId;
+    const box = document.getElementById('invQR_canvas');
+    box.innerHTML = '';
+    setTimeout(() => {
+        new QRCode(box, { text: itemId, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
+    }, 50);
+}
+
+function printInventoryQR() {
+    const itemId   = document.getElementById('inventoryQRModal').dataset.itemId;
+    const item     = dbInventoryItems.find(i => i.id === itemId);
+    const box      = document.getElementById('invQR_canvas');
+    const canvasEl = box.querySelector('canvas');
+    const imgEl    = box.querySelector('img');
+    const dataUrl  = canvasEl ? canvasEl.toDataURL('image/png') : (imgEl ? imgEl.src : '');
+    const win = window.open('', '_blank');
+    win.document.write(`
+        <html><head><title>QR ${item?.name}</title>
+        <style>body{font-family:Arial,sans-serif;text-align:center;padding:2rem;}
+        h3{margin:0.5rem 0 0.25rem;}p{color:#64748b;font-size:0.8rem;}</style></head>
+        <body onload="window.print(); window.close();">
+            <img src="${dataUrl}" width="220" height="220">
+            <h3>${item?.name || ''}</h3>
+            ${item?.serial_number ? `<p>Serial: ${item.serial_number}</p>` : ''}
+            <p style="font-size:0.65rem;color:#cbd5e1;margin-top:1rem;">${itemId}</p>
+        </body></html>`);
+    win.document.close();
+}
+
+// ── Escáner QR ────────────────────────────────────────────────────────────────
+
+function openInventoryScannerModal() {
+    document.getElementById('inventoryScanModal').classList.add('active');
+    document.getElementById('invScan_scannerBox').style.display = 'block';
+    document.getElementById('invScan_result').style.display = 'none';
+    _invScanAction = null;
+
+    setTimeout(() => {
+        try {
+            _invHtml5Scanner = new Html5Qrcode('inv-qr-reader');
+            _invHtml5Scanner.start(
+                { facingMode: 'environment' },
+                { fps: 10, qrbox: { width: 250, height: 250 } },
+                (decodedText) => {
+                    _invHtml5Scanner.stop().catch(() => {});
+                    handleInventoryQRScanned(decodedText);
+                },
+                () => {}
+            ).catch(err => {
+                showToast('No se pudo acceder a la cámara: ' + err, 'error');
+                closeInventoryScanner();
+            });
+        } catch(e) {
+            showToast('Error iniciando escáner: ' + e, 'error');
+        }
+    }, 200);
+}
+
+function closeInventoryScanner() {
+    if(_invHtml5Scanner) {
+        try {
+            const scanner = _invHtml5Scanner;
+            // stop()/clear() lanzan sincrónicamente si el escáner nunca llegó a iniciar
+            // (ej: cámara denegada). Deben quedar aislados para no bloquear el cierre del modal.
+            Promise.resolve()
+                .then(() => scanner.stop())
+                .catch(() => {})
+                .then(() => scanner.clear())
+                .catch(() => {});
+        } catch(e) { /* ignorar: el escáner nunca llegó a iniciar */ }
+        _invHtml5Scanner = null;
+    }
+    closeModal('inventoryScanModal');
+}
+
+function resetInventoryScanner() {
+    document.getElementById('invScan_scannerBox').style.display = 'block';
+    document.getElementById('invScan_result').style.display = 'none';
+    _invScanAction = null;
+    setTimeout(() => {
+        try {
+            _invHtml5Scanner = new Html5Qrcode('inv-qr-reader');
+            _invHtml5Scanner.start(
+                { facingMode: 'environment' },
+                { fps: 10, qrbox: { width: 250, height: 250 } },
+                (decodedText) => {
+                    _invHtml5Scanner.stop().catch(() => {});
+                    handleInventoryQRScanned(decodedText);
+                },
+                () => {}
+            ).catch(() => {});
+        } catch(e) {}
+    }, 200);
+}
+
+async function handleInventoryQRScanned(scannedId) {
+    document.getElementById('invScan_scannerBox').style.display = 'none';
+    document.getElementById('invScan_result').style.display = 'block';
+
+    const item = dbInventoryItems.find(i => i.id === scannedId);
+    const card = document.getElementById('invScan_itemCard');
+    const actionBtn = document.getElementById('invScan_actionBtn');
+
+    if(!item) {
+        card.innerHTML = `<div style="text-align:center;color:#dc2626;">⚠️ Ítem no reconocido.<br><small style="color:#94a3b8;">ID: ${scannedId}</small></div>`;
+        actionBtn.style.display = 'none';
+        return;
+    }
+
+    const sc = _invStatusColor[item.status] || '#64748b';
+    const sb = _invStatusBg[item.status] || '#f8fafc';
+    const activeLoan = dbInventoryLoans.find(l => l.item_id === item.id);
+    const analystName = currentUserProfile?.analyst_name || currentUserProfile?.display_name || currentUser?.email;
+
+    card.innerHTML = `
+        <div style="font-weight:700;font-size:1rem;margin-bottom:0.25rem;">${item.name}</div>
+        <div style="font-size:0.78rem;color:#64748b;margin-bottom:0.75rem;">${_invCatLabel[item.category]||item.category}${item.serial_number ? ' · '+item.serial_number : ''}</div>
+        <span style="background:${sb};color:${sc};border:1px solid ${sc}33;font-size:0.75rem;font-weight:700;padding:3px 10px;border-radius:99px;">
+            ${_invStatusLabel[item.status]||item.status}
+        </span>
+        ${activeLoan ? `<div style="font-size:0.78rem;color:#d97706;margin-top:0.5rem;">En poder de: <strong>${activeLoan.analyst_name}</strong></div>` : ''}
+    `;
+
+    if(item.status === 'disponible') {
+        _invScanAction = { type: 'checkout', itemId: item.id };
+        actionBtn.textContent = `✅ Llevar "${item.name}"`;
+        actionBtn.style.display = '';
+    } else if(item.status === 'prestado') {
+        _invScanAction = { type: 'checkin', itemId: item.id, loanId: activeLoan?.id };
+        const sameAnalyst = activeLoan?.analyst_name === analystName;
+        actionBtn.textContent = sameAnalyst ? `↩️ Devolver "${item.name}"` : `↩️ Registrar devolución (era de ${activeLoan?.analyst_name})`;
+        actionBtn.style.display = '';
+    } else {
+        actionBtn.style.display = 'none';
+        card.innerHTML += `<div style="margin-top:0.75rem;font-size:0.8rem;color:#dc2626;">Este ítem está marcado como <strong>${_invStatusLabel[item.status]}</strong> y no puede prestarse.</div>`;
+    }
+}
+
+async function confirmInventoryAction() {
+    if(!_invScanAction) return;
+    const analystName = currentUserProfile?.analyst_name || currentUserProfile?.display_name || currentUser?.email;
+
+    if(_invScanAction.type === 'checkout') {
+        const { error: e1 } = await supabaseClient.from('inventory_loans').insert({
+            item_id: _invScanAction.itemId, analyst_name: analystName
+        });
+        const { error: e2 } = await supabaseClient.from('inventory_items').update({ status: 'prestado' }).eq('id', _invScanAction.itemId);
+        if(e1 || e2) { showToast('Error registrando salida', 'error'); return; }
+        showToast('Salida registrada ✓', 'success');
+    } else if(_invScanAction.type === 'checkin') {
+        const { error: e1 } = await supabaseClient.from('inventory_loans').update({ checked_in_at: new Date().toISOString() }).eq('id', _invScanAction.loanId);
+        const { error: e2 } = await supabaseClient.from('inventory_items').update({ status: 'disponible' }).eq('id', _invScanAction.itemId);
+        if(e1 || e2) { showToast('Error registrando entrada', 'error'); return; }
+        showToast('Devolución registrada ✓', 'success');
+    }
+
+    closeInventoryScanner();
+    await loadInventoryData();
+    if(document.getElementById('view-inventory')?.style.display !== 'none') renderInventoryView();
+}
+
+async function adminCheckIn(loanId, itemId) {
+    if(!confirm('¿Registrar la devolución de este ítem?')) return;
+    const { error: e1 } = await supabaseClient.from('inventory_loans').update({ checked_in_at: new Date().toISOString() }).eq('id', loanId);
+    const { error: e2 } = await supabaseClient.from('inventory_items').update({ status: 'disponible' }).eq('id', itemId);
+    if(e1 || e2) { showToast('Error registrando devolución', 'error'); return; }
+    showToast('Devolución registrada', 'success');
+    await loadInventoryData();
+    renderInventoryView();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FIN MÓDULO DE INVENTARIO
+// ══════════════════════════════════════════════════════════════════════════════
 
 async function renderAdminView() {
     const analystsList = document.getElementById('admin-analysts-list');
