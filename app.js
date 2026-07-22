@@ -6570,7 +6570,7 @@ function renderInventoryCatalog() {
                                     <td>
                                         <div style="display:flex;align-items:center;gap:0.5rem;">
                                             ${item.photo_url
-                                                ? `<img src="${item.photo_url}" style="width:32px;height:32px;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0;flex-shrink:0;">`
+                                                ? `<img src="${item.photo_url}" onclick="showInventoryPhoto('${item.id}')" title="Ver foto en grande" style="width:32px;height:32px;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0;flex-shrink:0;cursor:pointer;">`
                                                 : `<div style="width:32px;height:32px;border-radius:6px;background:#f1f5f9;flex-shrink:0;"></div>`}
                                             <div>
                                                 <strong>${item.name}</strong>
@@ -7038,6 +7038,14 @@ async function submitInventoryIncident() {
     closeModal('inventoryIncidentModal');
     await loadInventoryData();
     renderInventoryView();
+}
+
+function showInventoryPhoto(itemId) {
+    const item = dbInventoryItems.find(i => i.id === itemId);
+    if(!item || !item.photo_url) return;
+    document.getElementById('invPhoto_itemName').textContent = item.name;
+    document.getElementById('invPhoto_img').src = item.photo_url;
+    document.getElementById('inventoryPhotoModal').classList.add('active');
 }
 
 // ── QR ─────────────────────────────────────────────────────────────────────────
