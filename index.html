@@ -911,6 +911,17 @@
                     <input id="invItem_name" type="text" placeholder="Ej: Colector de Vibraciones SKF" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;">
                 </div>
                 <div>
+                    <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Foto</label>
+                    <div style="display:flex;align-items:center;gap:0.85rem;">
+                        <img id="invItem_photoPreview" src="" style="display:none;width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0;">
+                        <div style="flex:1;">
+                            <input id="invItem_photoFile" type="file" accept="image/*" onchange="onInvItemPhotoSelected(event)" style="width:100%;font-size:0.78rem;">
+                            <p id="invItem_photoStatus" style="font-size:0.7rem;color:#94a3b8;margin-top:4px;">Se comprime automáticamente a menos de 150 KB.</p>
+                        </div>
+                    </div>
+                    <input type="hidden" id="invItem_photoUrl">
+                </div>
+                <div>
                     <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Categoría</label>
                     <select id="invItem_category" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;">
                         <option value="Vibraciones">〰️ Vibraciones</option>

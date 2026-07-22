@@ -19,10 +19,34 @@ CREATE TABLE IF NOT EXISTS public.inventory_items (
     requires_calibration      BOOLEAN DEFAULT FALSE,
     last_calibration_date     DATE,
     calibration_interval_days INTEGER DEFAULT 365,
+    photo_url                TEXT,       -- URL pública en Supabase Storage (bucket inventory-photos), no en la BD
     created_at              TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_inventory_items_equipment_id ON public.inventory_items(equipment_id);
+
+-- Bucket de Storage para fotos (comprimidas <150KB desde el navegador antes de subir)
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('inventory-photos', 'inventory-photos', true)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "Cualquiera ve fotos de inventario" ON storage.objects;
+CREATE POLICY "Cualquiera ve fotos de inventario"
+    ON storage.objects FOR SELECT USING (bucket_id = 'inventory-photos');
+
+DROP POLICY IF EXISTS "Auth sube fotos de inventario" ON storage.objects;
+CREATE POLICY "Auth sube fotos de inventario"
+    ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id = 'inventory-photos');
+
+DROP POLICY IF EXISTS "Auth actualiza fotos de inventario" ON storage.objects;
+CREATE POLICY "Auth actualiza fotos de inventario"
+    ON storage.objects FOR UPDATE TO authenticated
+    USING (bucket_id = 'inventory-photos') WITH CHECK (bucket_id = 'inventory-photos');
+
+DROP POLICY IF EXISTS "Admin borra fotos de inventario" ON storage.objects;
+CREATE POLICY "Admin borra fotos de inventario"
+    ON storage.objects FOR DELETE TO authenticated
+    USING (bucket_id = 'inventory-photos' AND (auth.jwt() ->> 'email') = 'agonzalez@a-maq.com');
 
 -- Auditoría de daño/pérdida: nota obligatoria, quién lo reportó, si ya se resolvió
 CREATE TABLE IF NOT EXISTS public.inventory_incidents (

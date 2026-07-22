@@ -6301,6 +6301,85 @@ let dbInventoryIncidents = []; // incidentes abiertos (resolved_at IS NULL)
 let _inventoryTab    = 'catalogo'; // 'catalogo' | 'encampo' | 'historial'
 let _invScanAction   = null; // { type: 'checkout'|'checkin', itemId, loanId }
 let _invHtml5Scanner = null;
+let _invPendingPhotoBlob = null; // foto ya comprimida, pendiente de subir al guardar
+
+// ── Compresión de fotos (<150KB) antes de subir a Supabase Storage ────────────────
+function _invLoadImageFromFile(file) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload  = () => { URL.revokeObjectURL(url); resolve(img); };
+        img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
+        img.src = url;
+    });
+}
+
+function _invCanvasToBlob(canvas, quality) {
+    return new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+}
+
+/** Reduce dimensión y calidad JPEG hasta que el peso quede bajo maxKB. Prioriza mantener
+ *  buena calidad visual, y solo baja resolución si con calidad mínima no alcanza. */
+async function compressImageUnder150KB(file, maxKB = 150) {
+    const img = await _invLoadImageFromFile(file);
+    const maxBytes = maxKB * 1024;
+    const dimCandidates = [800, 600, 450, 320];
+
+    for (const maxDim of dimCandidates) {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+
+        for (let q = 0.85; q >= 0.3; q -= 0.15) {
+            const blob = await _invCanvasToBlob(canvas, q);
+            if (blob && blob.size <= maxBytes) return blob;
+        }
+    }
+    // Último recurso: la combinación más pequeña que generamos, aunque exceda el límite.
+    const scale = Math.min(1, 320 / Math.max(img.width, img.height));
+    const canvas = document.createElement('canvas');
+    canvas.width  = Math.max(1, Math.round(img.width * scale));
+    canvas.height = Math.max(1, Math.round(img.height * scale));
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    return await _invCanvasToBlob(canvas, 0.3);
+}
+
+async function onInvItemPhotoSelected(event) {
+    const file = event.target.files[0];
+    if(!file) return;
+    if(!file.type.startsWith('image/')) { showToast('Selecciona un archivo de imagen', 'error'); return; }
+
+    const statusEl = document.getElementById('invItem_photoStatus');
+    statusEl.textContent = 'Comprimiendo…';
+    try {
+        const blob = await compressImageUnder150KB(file, 150);
+        _invPendingPhotoBlob = blob;
+        const preview = document.getElementById('invItem_photoPreview');
+        preview.src = URL.createObjectURL(blob);
+        preview.style.display = 'block';
+        const kb = (blob.size / 1024).toFixed(0);
+        statusEl.textContent = blob.size <= 150 * 1024
+            ? `Lista para subir (${kb} KB)`
+            : `⚠️ No se pudo bajar de 150KB (quedó en ${kb} KB), se subirá igual.`;
+    } catch(e) {
+        statusEl.textContent = 'Error procesando la imagen.';
+        console.error('Error comprimiendo foto:', e);
+    }
+}
+
+async function _uploadInvItemPhoto(itemId) {
+    if(!_invPendingPhotoBlob) return null;
+    const path = `${itemId}_${Date.now()}.jpg`;
+    const { error } = await supabaseClient.storage
+        .from('inventory-photos')
+        .upload(path, _invPendingPhotoBlob, { contentType: 'image/jpeg', upsert: true });
+    if(error) { showToast('Error subiendo foto: ' + error.message, 'error'); return null; }
+    const { data } = supabaseClient.storage.from('inventory-photos').getPublicUrl(path);
+    return data.publicUrl;
+}
 
 const _invCategories = ['Vibraciones', 'Termografía', 'Ultrasonido', 'Balanceo', 'Alineación', 'Rotodinámico', 'Capacitación', 'General'];
 const _invCatLabel = {
@@ -6489,10 +6568,17 @@ function renderInventoryCatalog() {
                                         <button onclick="showInventoryQR('${item.id}')" title="Ver QR" style="background:none;border:1px solid #cbd5e1;border-radius:4px;padding:3px 6px;cursor:pointer;font-size:0.9rem;">📷</button>
                                     </td>
                                     <td>
-                                        <strong>${item.name}</strong>
-                                        ${item.equipment_id ? '<span title="Vinculado a un equipo de gestiones" style="font-size:0.68rem;background:#eef2ff;color:#4f46e5;border:1px solid #4f46e533;padding:1px 6px;border-radius:99px;margin-left:6px;">🔗 Equipo</span>' : ''}
-                                        ${item.description ? `<div style="font-size:0.72rem;color:#94a3b8;">${item.description}</div>` : ''}
-                                        ${isTrouble && openIncident ? `<div style="font-size:0.72rem;color:#dc2626;margin-top:2px;">⚠️ ${openIncident.note} <span style="color:#94a3b8;">— ${openIncident.reported_by}</span></div>` : ''}
+                                        <div style="display:flex;align-items:center;gap:0.5rem;">
+                                            ${item.photo_url
+                                                ? `<img src="${item.photo_url}" style="width:32px;height:32px;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0;flex-shrink:0;">`
+                                                : `<div style="width:32px;height:32px;border-radius:6px;background:#f1f5f9;flex-shrink:0;"></div>`}
+                                            <div>
+                                                <strong>${item.name}</strong>
+                                                ${item.equipment_id ? '<span title="Vinculado a un equipo de gestiones" style="font-size:0.68rem;background:#eef2ff;color:#4f46e5;border:1px solid #4f46e533;padding:1px 6px;border-radius:99px;margin-left:6px;">🔗 Equipo</span>' : ''}
+                                                ${item.description ? `<div style="font-size:0.72rem;color:#94a3b8;">${item.description}</div>` : ''}
+                                                ${isTrouble && openIncident ? `<div style="font-size:0.72rem;color:#dc2626;margin-top:2px;">⚠️ ${openIncident.note} <span style="color:#94a3b8;">— ${openIncident.reported_by}</span></div>` : ''}
+                                            </div>
+                                        </div>
                                     </td>
                                     <td style="color:#64748b;">${item.serial_number || '—'}</td>
                                     <td>
@@ -6786,6 +6872,11 @@ function openAddInventoryItemModal() {
     _populateInvAnalystSelect();
     _populateInvEquipmentSelect();
     document.getElementById('invItem_equipment').value = '';
+    _invPendingPhotoBlob = null;
+    document.getElementById('invItem_photoUrl').value = '';
+    document.getElementById('invItem_photoFile').value = '';
+    document.getElementById('invItem_photoPreview').style.display = 'none';
+    document.getElementById('invItem_photoStatus').textContent = 'Se comprime automáticamente a menos de 150 KB.';
     document.getElementById('inventoryItemModal').classList.add('active');
 }
 
@@ -6811,6 +6902,13 @@ function openEditInventoryItemModal(itemId) {
         const sel = document.getElementById('invItem_analyst');
         if(sel) sel.value = item.assigned_analyst;
     }
+    _invPendingPhotoBlob = null;
+    document.getElementById('invItem_photoUrl').value = item.photo_url || '';
+    document.getElementById('invItem_photoFile').value = '';
+    const preview = document.getElementById('invItem_photoPreview');
+    if(item.photo_url) { preview.src = item.photo_url; preview.style.display = 'block'; }
+    else { preview.src = ''; preview.style.display = 'none'; }
+    document.getElementById('invItem_photoStatus').textContent = 'Se comprime automáticamente a menos de 150 KB.';
     document.getElementById('inventoryItemModal').classList.add('active');
 }
 
@@ -6835,17 +6933,27 @@ async function saveInventoryItem() {
     };
 
     const editId = document.getElementById('invItem_editId').value;
-    let error;
+    let error, itemId = editId;
+
     if(editId) {
         delete payload.status; // no sobreescribir estado al editar
         ({ error } = await supabaseClient.from('inventory_items').update(payload).eq('id', editId));
     } else {
-        ({ error } = await supabaseClient.from('inventory_items').insert(payload));
+        const result = await supabaseClient.from('inventory_items').insert(payload).select().single();
+        error = result.error;
+        if(!error) itemId = result.data.id;
     }
 
     if(error) { showToast('Error guardando: ' + error.message, 'error'); return; }
+
+    if(_invPendingPhotoBlob && itemId) {
+        const photoUrl = await _uploadInvItemPhoto(itemId);
+        if(photoUrl) await supabaseClient.from('inventory_items').update({ photo_url: photoUrl }).eq('id', itemId);
+    }
+
     showToast(editId ? 'Ítem actualizado' : 'Ítem agregado', 'success');
     closeModal('inventoryItemModal');
+    _invPendingPhotoBlob = null;
     await loadInventoryData();
     renderInventoryView();
 }
