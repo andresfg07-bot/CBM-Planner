@@ -266,7 +266,7 @@ function setMyWorkFilter(filter) {
     renderMyWorkView();
 }
 
-/** Devuelve gestiones con CSAT vencido (>7 días desde último día de informe) */
+/** Devuelve gestiones con CSAT vencido (>7 días desde que el analista marcó ejecutada) */
 function getCsatOverdueTasks(analystName) {
     const today = Date.now();
     return tasks.filter(t => {
@@ -274,12 +274,11 @@ function getCsatOverdueTasks(analystName) {
         if(t.status !== 'ejecutada') return false;
         if(t.csatScore || t.clientNoResponse) return false;
         if(analystName && !t.analysts_assignment?.some(a => a.name === analystName)) return false;
-        const lastReport = (t.scheduledDays||[])
-            .filter(d => d.type === 'report')
-            .map(d => d.date)
-            .sort().pop();
-        if(!lastReport) return false;
-        const diff = Math.floor((today - new Date(lastReport).getTime()) / 86400000);
+        // Fallback para gestiones antiguas sin executedAt registrado
+        const startRef = t.executedAt
+            || (t.scheduledDays||[]).filter(d => d.type === 'report').map(d => d.date).sort().pop();
+        if(!startRef) return false;
+        const diff = Math.floor((today - new Date(startRef).getTime()) / 86400000);
         return diff >= 7;
     });
 }
@@ -639,9 +638,10 @@ async function runNotificationsCheck() {
             if(t.isAbsence || t.serviceType === 'Metro Administrativo' || t.serviceType === 'Metro Terceros') return false;
             if(t.status !== 'ejecutada') return false;
             if(t.csatScore || t.clientNoResponse) return false;
-            const lastReport = (t.scheduledDays || []).filter(d => d.type === 'report').map(d => d.date).sort().pop();
-            if(!lastReport) return false;
-            const diff = Math.floor((today - new Date(lastReport).getTime()) / 86400000);
+            const startRef = t.executedAt
+                || (t.scheduledDays || []).filter(d => d.type === 'report').map(d => d.date).sort().pop();
+            if(!startRef) return false;
+            const diff = Math.floor((today - new Date(startRef).getTime()) / 86400000);
             return diff >= 15;
         });
         if(veryOverdue.length > 0) {
@@ -1088,6 +1088,7 @@ async function reopenCsat(taskId) {
 
     task.csatScore        = null;
     task.clientNoResponse = false;
+    task.csatClosedAt     = null;
 
     saveTasks();
     await saveTaskToSupabase(task);
@@ -1791,7 +1792,14 @@ async function updateTaskStatus(taskId, newStatus) {
 
     const oldStatus = task.status;
     task.status = newStatus;
-    
+
+    // Marca el momento exacto en que el analista ejecuta: desde aquí cuentan los días
+    // de cierre pendiente (antes se contaba desde el día programado del informe, no
+    // desde la ejecución real).
+    if(oldStatus !== 'ejecutada' && newStatus === 'ejecutada' && !task.executedAt) {
+        task.executedAt = new Date().toISOString();
+    }
+
     // Si se pasa a proyectada, se quita la programación
     if(newStatus === 'proyectada') {
         task.scheduledDays = [];
@@ -1799,11 +1807,12 @@ async function updateTaskStatus(taskId, newStatus) {
     if(!Array.isArray(task.scheduledDays)) task.scheduledDays = [];
 
     if(supabaseClient) {
-        await supabaseClient.from('tasks').update({ 
-            status: newStatus, 
-            scheduled_days: task.scheduledDays || [], 
+        await supabaseClient.from('tasks').update({
+            status: newStatus,
+            scheduled_days: task.scheduledDays || [],
             analyst: task.analyst,
-            analysts_assignment: task.analysts_assignment || [] 
+            analysts_assignment: task.analysts_assignment || [],
+            executed_at: task.executedAt || null
         }).eq('id', taskId);
     }
     
@@ -4457,7 +4466,9 @@ async function saveTaskToSupabase(task) {
             mes_facturacion: task.mesFacturacion || task.period,
             analysts_assignment: task.analysts_assignment || [],
             plant_id:   task.plantId   || null,
-            plant_name: task.plantName || null
+            plant_name: task.plantName || null,
+            executed_at:    task.executedAt    || null,
+            csat_closed_at: task.csatClosedAt  || null
         };
 
         if (!isTemporaryId) {
@@ -4524,7 +4535,9 @@ async function loadTasksFromSupabase() {
                 evidenceFiles: t.evidence_files || [],
                 serviceDetails: t.service_details || '',
                 plantId:   t.plant_id   || null,
-                plantName: t.plant_name || ''
+                plantName: t.plant_name || '',
+                executedAt:    t.executed_at    || null,
+                csatClosedAt:  t.csat_closed_at || null
             }));
 
             // 1. Merge remote into local
@@ -5217,6 +5230,18 @@ document.getElementById('csatForm').addEventListener('submit', async e => {
         tasks[taskIndex].evidenceNotes    = evidenceNotes;
         tasks[taskIndex].evidenceFiles    = allFiles;
 
+        // Si esta "Reunión de Cierre" ejecuta y cierra en un solo paso (admin/asistente
+        // sobre una gestión aún programada), marca el momento de ejecución igual que
+        // analystMarkExecuted, para que los días de cierre pendiente cuenten bien.
+        if(prevStatus !== 'ejecutada' && targetStatus === 'ejecutada' && !tasks[taskIndex].executedAt) {
+            tasks[taskIndex].executedAt = new Date().toISOString();
+        }
+        // Registra el momento del cierre CSAT (calificado o "cliente no respondió")
+        // la primera vez, para poder medir cuánto tardó el analista en cerrar.
+        if((score || noResponse) && !tasks[taskIndex].csatClosedAt) {
+            tasks[taskIndex].csatClosedAt = new Date().toISOString();
+        }
+
         saveTasks();
         // Notif: al pasar a ejecutada por primera vez desde el CSAT modal
         if(prevStatus !== 'ejecutada' && targetStatus === 'ejecutada') {
@@ -5648,14 +5673,24 @@ function getCsatTableData() {
 }
 
 function _csatEstadoCierre(t) {
-    if(t.csatScore && !t.clientNoResponse)
-        return { label: `⭐ ${t.csatScore}/5`, color: '#16a34a', bg: '#f0fdf4' };
-    if(t.clientNoResponse)
-        return { label: '⚠️ Sin respuesta', color: '#b45309', bg: '#fffbeb' };
-    // Calcular días pendientes
-    const lastReport = (t.scheduledDays||[]).filter(d=>d.type==='report').map(d=>d.date).sort().pop();
-    if(lastReport) {
-        const diff = Math.floor((Date.now() - new Date(lastReport).getTime()) / 86400000);
+    // Fallback para gestiones antiguas ejecutadas antes de registrar executedAt:
+    // usan el último día de informe programado como referencia, igual que antes.
+    const startRef = t.executedAt
+        || (t.scheduledDays||[]).filter(d=>d.type==='report').map(d=>d.date).sort().pop();
+
+    if(t.csatScore && !t.clientNoResponse) {
+        const closedSuffix = (startRef && t.csatClosedAt)
+            ? ` (${Math.max(0, Math.floor((new Date(t.csatClosedAt) - new Date(startRef)) / 86400000))}d)` : '';
+        return { label: `⭐ ${t.csatScore}/5${closedSuffix}`, color: '#16a34a', bg: '#f0fdf4' };
+    }
+    if(t.clientNoResponse) {
+        const closedSuffix = (startRef && t.csatClosedAt)
+            ? ` (${Math.max(0, Math.floor((new Date(t.csatClosedAt) - new Date(startRef)) / 86400000))}d)` : '';
+        return { label: `⚠️ Sin respuesta${closedSuffix}`, color: '#b45309', bg: '#fffbeb' };
+    }
+    // Días pendientes: desde que el analista marcó la gestión como ejecutada.
+    if(startRef) {
+        const diff = Math.floor((Date.now() - new Date(startRef).getTime()) / 86400000);
         if(diff >= 7) return { label: `🕐 Pendiente (${diff}d)`, color: '#dc2626', bg: '#fff1f2' };
     }
     return { label: '🕐 Pendiente', color: '#6b7280', bg: '#f8fafc' };
