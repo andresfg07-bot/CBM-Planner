@@ -6333,7 +6333,8 @@ async function exportReportPDF() {
 let dbInventoryItems = [];
 let dbInventoryLoans = []; // préstamos activos (checked_in_at IS NULL)
 let dbInventoryIncidents = []; // incidentes abiertos (resolved_at IS NULL)
-let _inventoryTab    = 'catalogo'; // 'catalogo' | 'encampo' | 'historial'
+let dbInventoryKits = []; // kits (maletas/equipos compuestos) con checklist propio
+let _inventoryTab    = 'catalogo'; // 'catalogo' | 'encampo' | 'historial' | 'kits'
 let _invScanAction   = null; // { type: 'checkout'|'checkin', itemId, loanId }
 let _invHtml5Scanner = null;
 let _invPendingPhotoBlob = null; // foto ya comprimida, pendiente de subir al guardar
@@ -6428,14 +6429,16 @@ const _invStatusBg    = { disponible:'#f0fdf4', prestado:'#fffbeb', dañado:'#fe
 
 async function loadInventoryData() {
     if(!supabaseClient) return;
-    const [{ data: items }, { data: loans }, { data: incidents }] = await Promise.all([
+    const [{ data: items }, { data: loans }, { data: incidents }, { data: kits }] = await Promise.all([
         supabaseClient.from('inventory_items').select('*').order('category').order('name'),
         supabaseClient.from('inventory_loans').select('*').is('checked_in_at', null).order('checked_out_at', { ascending: false }),
-        supabaseClient.from('inventory_incidents').select('*').is('resolved_at', null).order('created_at', { ascending: false })
+        supabaseClient.from('inventory_incidents').select('*').is('resolved_at', null).order('created_at', { ascending: false }),
+        supabaseClient.from('inventory_kits').select('*').order('name')
     ]);
     if(items) dbInventoryItems = items;
     if(loans) dbInventoryLoans = loans;
     if(incidents) dbInventoryIncidents = incidents;
+    if(kits) dbInventoryKits = kits;
 }
 
 function _invOpenIncident(itemId) {
@@ -6481,6 +6484,7 @@ function renderInventoryView() {
 
     const tabs = [
         { id:'catalogo',  label:'📦 Catálogo' },
+        { id:'kits',      label:'🧰 Kits' },
         { id:'encampo',   label:'🚚 En Campo' },
         { id:'historial', label:'📋 Historial' }
     ];
@@ -6503,6 +6507,7 @@ function renderInventoryView() {
     `;
 
     if(_inventoryTab === 'catalogo')   renderInventoryCatalog();
+    else if(_inventoryTab === 'kits')      renderInventoryKits();
     else if(_inventoryTab === 'encampo')   renderInventoryEnCampo();
     else if(_inventoryTab === 'historial') renderInventoryHistorial();
 }
@@ -6610,6 +6615,7 @@ function renderInventoryCatalog() {
                                             <div>
                                                 <strong>${item.name}</strong>
                                                 ${item.equipment_id ? '<span title="Vinculado a un equipo de gestiones" style="font-size:0.68rem;background:#eef2ff;color:#4f46e5;border:1px solid #4f46e533;padding:1px 6px;border-radius:99px;margin-left:6px;">🔗 Equipo</span>' : ''}
+                                                ${item.kit_id ? `<span title="Pertenece a un kit" style="font-size:0.68rem;background:#f5f3ff;color:#7c3aed;border:1px solid #7c3aed33;padding:1px 6px;border-radius:99px;margin-left:6px;">🧰 ${(dbInventoryKits.find(k=>k.id===item.kit_id)?.name)||'Kit'}</span>` : ''}
                                                 ${item.description ? `<div style="font-size:0.72rem;color:#94a3b8;">${item.description}</div>` : ''}
                                                 ${isTrouble && openIncident ? `<div style="font-size:0.72rem;color:#dc2626;margin-top:2px;">⚠️ ${openIncident.note} <span style="color:#94a3b8;">— ${openIncident.reported_by}</span></div>` : ''}
                                             </div>
@@ -6645,6 +6651,106 @@ function renderInventoryCatalog() {
         }).join('')}
         ${dbInventoryItems.length === 0 ? '<div style="text-align:center;padding:3rem;color:#94a3b8;">No hay ítems en el inventario todavía. Agrega el primero.</div>' : ''}
     `;
+}
+
+function renderInventoryKits() {
+    const el = document.getElementById('inv-tab-content');
+    if(!el) return;
+
+    el.innerHTML = `
+        <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
+            <button class="btn-primary" onclick="openAddInventoryKitModal()">+ Agregar kit</button>
+        </div>
+        ${dbInventoryKits.length === 0 ? '<div style="text-align:center;padding:3rem;color:#94a3b8;">No hay kits creados todavía. Un kit agrupa ítems que ya existen en el catálogo bajo un solo QR (ej. una maleta de instrumentación).</div>' : `
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:var(--radius-lg);overflow:hidden;">
+            <table class="data-table" style="font-size:0.82rem;">
+                <thead>
+                    <tr>
+                        <th style="width:44px;">QR</th>
+                        <th>Nombre</th>
+                        <th>Categoría</th>
+                        <th>Ítems</th>
+                        <th style="width:100px;text-align:center;">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${dbInventoryKits.map(kit => {
+                        const n = dbInventoryItems.filter(i => i.kit_id === kit.id).length;
+                        return `
+                        <tr>
+                            <td style="text-align:center;">
+                                <button onclick="showKitQR('${kit.id}')" title="Ver QR del kit" style="background:none;border:1px solid #cbd5e1;border-radius:4px;padding:3px 6px;cursor:pointer;font-size:0.9rem;">📷</button>
+                            </td>
+                            <td><strong>🧰 ${kit.name}</strong>${kit.description ? `<div style="font-size:0.72rem;color:#94a3b8;">${kit.description}</div>` : ''}</td>
+                            <td style="color:#64748b;">${_invCatLabel[kit.category]||kit.category}</td>
+                            <td style="color:#64748b;">${n} ítem${n!==1?'s':''}</td>
+                            <td style="text-align:center;white-space:nowrap;">
+                                <button onclick="openEditInventoryKitModal('${kit.id}')" title="Editar" style="background:none;border:none;cursor:pointer;color:#3b82f6;font-size:1rem;">✏️</button>
+                                <button onclick="deleteInventoryKit('${kit.id}')" title="Eliminar" style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:1rem;">🗑️</button>
+                            </td>
+                        </tr>`;
+                    }).join('')}
+                </tbody>
+            </table>
+        </div>`}
+    `;
+}
+
+function openAddInventoryKitModal() {
+    document.getElementById('invKitModalTitle').textContent = 'Agregar Kit';
+    document.getElementById('invKit_editId').value = '';
+    document.getElementById('invKit_name').value = '';
+    document.getElementById('invKit_category').value = 'Rotodinámico';
+    document.getElementById('invKit_description').value = '';
+    document.getElementById('inventoryKitModal').classList.add('active');
+}
+
+function openEditInventoryKitModal(kitId) {
+    const kit = dbInventoryKits.find(k => k.id === kitId);
+    if(!kit) return;
+    document.getElementById('invKitModalTitle').textContent = 'Editar Kit';
+    document.getElementById('invKit_editId').value = kitId;
+    document.getElementById('invKit_name').value = kit.name || '';
+    document.getElementById('invKit_category').value = kit.category || 'General';
+    document.getElementById('invKit_description').value = kit.description || '';
+    document.getElementById('inventoryKitModal').classList.add('active');
+}
+
+async function saveInventoryKit() {
+    const name = document.getElementById('invKit_name').value.trim();
+    if(!name) { showToast('El nombre del kit es obligatorio', 'error'); return; }
+
+    const payload = {
+        name,
+        category: document.getElementById('invKit_category').value,
+        description: document.getElementById('invKit_description').value.trim() || null
+    };
+
+    const editId = document.getElementById('invKit_editId').value;
+    let error;
+    if(editId) {
+        ({ error } = await supabaseClient.from('inventory_kits').update(payload).eq('id', editId));
+    } else {
+        ({ error } = await supabaseClient.from('inventory_kits').insert(payload));
+    }
+
+    if(error) { showToast('Error guardando kit: ' + error.message, 'error'); return; }
+    showToast(editId ? 'Kit actualizado' : 'Kit agregado', 'success');
+    closeModal('inventoryKitModal');
+    await loadInventoryData();
+    renderInventoryView();
+}
+
+async function deleteInventoryKit(kitId) {
+    const kit = dbInventoryKits.find(k => k.id === kitId);
+    const n = dbInventoryItems.filter(i => i.kit_id === kitId).length;
+    const warn = n > 0 ? `\n\nLos ${n} ítem(s) de este kit quedarán como independientes (sin kit asignado).` : '';
+    if(!confirm(`¿Eliminar el kit "${kit?.name}"?${warn}`)) return;
+    const { error } = await supabaseClient.from('inventory_kits').delete().eq('id', kitId);
+    if(error) { showToast('Error eliminando kit: ' + error.message, 'error'); return; }
+    showToast('Kit eliminado', 'success');
+    await loadInventoryData();
+    renderInventoryView();
 }
 
 function renderInventoryEnCampo() {
@@ -6877,6 +6983,13 @@ function _populateInvEquipmentSelect() {
         ).join('');
 }
 
+function _populateInvKitSelect() {
+    const sel = document.getElementById('invItem_kit');
+    if(!sel) return;
+    sel.innerHTML = '<option value="">— Ítem independiente —</option>' +
+        dbInventoryKits.map(k => `<option value="${k.id}">🧰 ${k.name}</option>`).join('');
+}
+
 function onInvItemEquipmentChange() {
     const equipId = document.getElementById('invItem_equipment').value;
     if(!equipId) return;
@@ -6907,6 +7020,8 @@ function openAddInventoryItemModal() {
     _populateInvAnalystSelect();
     _populateInvEquipmentSelect();
     document.getElementById('invItem_equipment').value = '';
+    _populateInvKitSelect();
+    document.getElementById('invItem_kit').value = '';
     _invPendingPhotoBlob = null;
     document.getElementById('invItem_photoUrl').value = '';
     document.getElementById('invItem_photoFile').value = '';
@@ -6933,6 +7048,8 @@ function openEditInventoryItemModal(itemId) {
     _populateInvAnalystSelect();
     _populateInvEquipmentSelect();
     document.getElementById('invItem_equipment').value = item.equipment_id || '';
+    _populateInvKitSelect();
+    document.getElementById('invItem_kit').value = item.kit_id || '';
     if(item.assigned_analyst) {
         const sel = document.getElementById('invItem_analyst');
         if(sel) sel.value = item.assigned_analyst;
@@ -6961,6 +7078,7 @@ async function saveInventoryItem() {
         is_permanently_assigned: isPermanent,
         assigned_analyst:       isPermanent ? document.getElementById('invItem_analyst').value : null,
         equipment_id:           document.getElementById('invItem_equipment').value || null,
+        kit_id:                 document.getElementById('invItem_kit').value || null,
         requires_calibration:      requiresCalibration,
         last_calibration_date:     requiresCalibration ? (document.getElementById('invItem_lastCalibration').value || null) : null,
         calibration_interval_days: requiresCalibration ? (parseInt(document.getElementById('invItem_calibrationInterval').value) || 365) : null,
@@ -7085,37 +7203,53 @@ function showInventoryPhoto(itemId) {
 
 // ── QR ─────────────────────────────────────────────────────────────────────────
 
-function showInventoryQR(itemId) {
-    const item = dbInventoryItems.find(i => i.id === itemId);
-    if(!item) return;
-    document.getElementById('invQR_itemName').textContent = item.name;
-    document.getElementById('invQR_itemSerial').textContent = item.serial_number ? `Serial: ${item.serial_number}` : '';
-    document.getElementById('inventoryQRModal').classList.add('active');
-    document.getElementById('inventoryQRModal').dataset.itemId = itemId;
+function _showInventoryQRModal(qrText, title, subtitle) {
+    document.getElementById('invQR_itemName').textContent = title;
+    document.getElementById('invQR_itemSerial').textContent = subtitle || '';
+    const modal = document.getElementById('inventoryQRModal');
+    modal.classList.add('active');
+    modal.dataset.qrText = qrText;
+    modal.dataset.printTitle = title;
+    modal.dataset.printSubtitle = subtitle || '';
     const box = document.getElementById('invQR_canvas');
     box.innerHTML = '';
     setTimeout(() => {
-        new QRCode(box, { text: itemId, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
+        new QRCode(box, { text: qrText, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
     }, 50);
 }
 
+function showInventoryQR(itemId) {
+    const item = dbInventoryItems.find(i => i.id === itemId);
+    if(!item) return;
+    _showInventoryQRModal(itemId, item.name, item.serial_number ? `Serial: ${item.serial_number}` : '');
+}
+
+/** El QR de un kit lleva el prefijo "kit:" para que el escáner sepa distinguirlo de un ítem suelto. */
+function showKitQR(kitId) {
+    const kit = dbInventoryKits.find(k => k.id === kitId);
+    if(!kit) return;
+    _showInventoryQRModal(`kit:${kitId}`, `🧰 ${kit.name}`, 'Kit — al escanear abre el checklist');
+}
+
 function printInventoryQR() {
-    const itemId   = document.getElementById('inventoryQRModal').dataset.itemId;
-    const item     = dbInventoryItems.find(i => i.id === itemId);
+    const modal    = document.getElementById('inventoryQRModal');
     const box      = document.getElementById('invQR_canvas');
     const canvasEl = box.querySelector('canvas');
     const imgEl    = box.querySelector('img');
     const dataUrl  = canvasEl ? canvasEl.toDataURL('image/png') : (imgEl ? imgEl.src : '');
+    const title    = modal.dataset.printTitle || '';
+    const subtitle = modal.dataset.printSubtitle || '';
+    const qrText   = modal.dataset.qrText || '';
     const win = window.open('', '_blank');
     win.document.write(`
-        <html><head><title>QR ${item?.name}</title>
+        <html><head><title>QR ${title}</title>
         <style>body{font-family:Arial,sans-serif;text-align:center;padding:2rem;}
         h3{margin:0.5rem 0 0.25rem;}p{color:#64748b;font-size:0.8rem;}</style></head>
         <body onload="window.print(); window.close();">
             <img src="${dataUrl}" width="220" height="220">
-            <h3>${item?.name || ''}</h3>
-            ${item?.serial_number ? `<p>Serial: ${item.serial_number}</p>` : ''}
-            <p style="font-size:0.65rem;color:#cbd5e1;margin-top:1rem;">${itemId}</p>
+            <h3>${title}</h3>
+            ${subtitle ? `<p>${subtitle}</p>` : ''}
+            <p style="font-size:0.65rem;color:#cbd5e1;margin-top:1rem;">${qrText}</p>
         </body></html>`);
     win.document.close();
 }
@@ -7255,6 +7389,12 @@ function resetInventoryScanner() {
 }
 
 async function handleInventoryQRScanned(scannedId) {
+    if(scannedId.startsWith('kit:')) {
+        closeInventoryScanner();
+        openKitChecklistModal(scannedId.slice(4));
+        return;
+    }
+
     document.getElementById('invScan_scannerBox').style.display = 'none';
     document.getElementById('invScan_result').style.display = 'block';
 
@@ -7318,6 +7458,76 @@ async function confirmInventoryAction() {
     closeInventoryScanner();
     await loadInventoryData();
     if(document.getElementById('view-inventory')?.style.display !== 'none') renderInventoryView();
+}
+
+// ── Checklist de kits (maletas con varios ítems bajo un solo QR) ────────────────
+
+function openKitChecklistModal(kitId) {
+    const kit = dbInventoryKits.find(k => k.id === kitId);
+    if(!kit) { showToast('Kit no reconocido', 'error'); return; }
+
+    const items = dbInventoryItems.filter(i => i.kit_id === kitId);
+    if(items.length === 0) { showToast('Este kit todavía no tiene ítems asignados', 'error'); return; }
+
+    document.getElementById('invKitChecklist_title').textContent = `🧰 ${kit.name}`;
+    document.getElementById('invKitChecklist_kitId').value = kitId;
+
+    const container = document.getElementById('invKitChecklist_items');
+    container.innerHTML = items.map(item => {
+        const blocked = item.status === 'dañado' || item.status === 'perdido';
+        const activeLoan = dbInventoryLoans.find(l => l.item_id === item.id);
+        return `
+        <label style="display:flex;align-items:center;gap:0.6rem;padding:0.55rem 0.65rem;border:1px solid #e2e8f0;border-radius:8px;${blocked?'opacity:0.55;':''}">
+            <input type="checkbox" data-item-id="${item.id}" data-prev-status="${item.status}" ${blocked ? 'disabled' : 'checked'} style="width:16px;height:16px;flex-shrink:0;">
+            <div style="flex:1;">
+                <div style="font-size:0.85rem;font-weight:600;">${item.name}</div>
+                <div style="font-size:0.7rem;color:#64748b;">
+                    ${_invStatusLabel[item.status]||item.status}${activeLoan ? ` · con ${activeLoan.analyst_name}` : ''}${blocked ? ' — no se puede llevar' : ''}
+                </div>
+            </div>
+        </label>`;
+    }).join('');
+
+    document.getElementById('inventoryKitChecklistModal').classList.add('active');
+}
+
+async function submitKitChecklist() {
+    const kitId = document.getElementById('invKitChecklist_kitId').value;
+    const analystName = currentUserProfile?.analyst_name || currentUserProfile?.display_name || currentUser?.email || 'Desconocido';
+    const checkboxes = document.querySelectorAll('#invKitChecklist_items input[type="checkbox"]');
+
+    const leftBehind = [];
+    for(const cb of checkboxes) {
+        const itemId = cb.dataset.itemId;
+        const prevStatus = cb.dataset.prevStatus;
+        const item = dbInventoryItems.find(i => i.id === itemId);
+        if(!item) continue;
+
+        if(cb.checked) {
+            if(prevStatus === 'disponible') {
+                await supabaseClient.from('inventory_loans').insert({ item_id: itemId, analyst_name: analystName });
+                await supabaseClient.from('inventory_items').update({ status: 'prestado' }).eq('id', itemId);
+            } else if(prevStatus === 'prestado') {
+                const loan = dbInventoryLoans.find(l => l.item_id === itemId);
+                if(loan) await supabaseClient.from('inventory_loans').update({ checked_in_at: new Date().toISOString() }).eq('id', loan.id);
+                await supabaseClient.from('inventory_items').update({ status: 'disponible' }).eq('id', itemId);
+            }
+        } else {
+            if(prevStatus === 'disponible') leftBehind.push(`${item.name} (queda en el cajón)`);
+            if(prevStatus === 'prestado')   leftBehind.push(`${item.name} (sigue en campo)`);
+        }
+    }
+
+    closeModal('inventoryKitChecklistModal');
+
+    if(leftBehind.length > 0) {
+        showToast(`⚠️ Registrado. Sin marcar: ${leftBehind.join(' · ')}`, 'warning');
+    } else {
+        showToast('Checklist del kit registrado ✓', 'success');
+    }
+
+    await loadInventoryData();
+    if(document.getElementById('view-inventory')?.classList.contains('active-view')) renderInventoryView();
 }
 
 async function adminCheckIn(loanId, itemId) {

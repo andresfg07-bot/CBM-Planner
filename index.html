@@ -946,6 +946,13 @@
                     <p style="font-size:0.7rem;color:#94a3b8;margin-top:4px;">Úsalo solo si este ítem también aparece en el selector de equipo al crear una gestión.</p>
                 </div>
                 <div>
+                    <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Pertenece a un kit (opcional)</label>
+                    <select id="invItem_kit" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;">
+                        <option value="">— Ítem independiente —</option>
+                    </select>
+                    <p style="font-size:0.7rem;color:#94a3b8;margin-top:4px;">Un ítem solo puede pertenecer a un kit. Si lo necesitas suelto para otro trabajo, escanéalo por separado.</p>
+                </div>
+                <div>
                     <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Descripción / Notas</label>
                     <textarea id="invItem_description" rows="2" placeholder="Detalles adicionales..." style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;resize:vertical;"></textarea>
                 </div>
@@ -977,6 +984,62 @@
                 </div>
             </div>
             <input type="hidden" id="invItem_editId">
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- MODAL: Agregar / Editar kit                -->
+    <!-- ══════════════════════════════════════════ -->
+    <div id="inventoryKitModal" class="modal">
+        <div class="modal-content" style="max-width:440px;">
+            <span class="close-btn" onclick="closeModal('inventoryKitModal')">&times;</span>
+            <h2 id="invKitModalTitle" style="margin-bottom:1.25rem;">Agregar Kit</h2>
+            <div style="display:flex; flex-direction:column; gap:0.85rem;">
+                <div>
+                    <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Nombre *</label>
+                    <input id="invKit_name" type="text" placeholder="Ej: Maleta Rotodinámico ASDAQ 1" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;">
+                </div>
+                <div>
+                    <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Categoría</label>
+                    <select id="invKit_category" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;">
+                        <option value="Vibraciones">〰️ Vibraciones</option>
+                        <option value="Termografía">🌡️ Termografía</option>
+                        <option value="Ultrasonido">🔊 Ultrasonido</option>
+                        <option value="Balanceo">⚖️ Balanceo</option>
+                        <option value="Alineación">📐 Alineación</option>
+                        <option value="Rotodinámico">⚙️ Rotodinámico</option>
+                        <option value="Capacitación">📚 Capacitación</option>
+                        <option value="General">🔧 General</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Descripción / Notas</label>
+                    <textarea id="invKit_description" rows="2" placeholder="Detalles adicionales..." style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;resize:vertical;"></textarea>
+                </div>
+                <p style="font-size:0.72rem;color:#94a3b8;">Después de crear el kit, asigna sus ítems desde el catálogo (campo "Pertenece a un kit" al editar cada ítem).</p>
+                <div style="display:flex;gap:0.75rem;margin-top:0.5rem;">
+                    <button class="btn-secondary" onclick="closeModal('inventoryKitModal')" style="flex:1;">Cancelar</button>
+                    <button class="btn-primary" onclick="saveInventoryKit()" style="flex:2;">Guardar</button>
+                </div>
+            </div>
+            <input type="hidden" id="invKit_editId">
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- MODAL: Checklist de un kit (escaneo QR)    -->
+    <!-- ══════════════════════════════════════════ -->
+    <div id="inventoryKitChecklistModal" class="modal">
+        <div class="modal-content" style="max-width:460px;">
+            <span class="close-btn" onclick="closeModal('inventoryKitChecklistModal')">&times;</span>
+            <h2 id="invKitChecklist_title" style="margin-bottom:0.25rem;font-size:1.1rem;"></h2>
+            <p style="font-size:0.78rem;color:#64748b;margin-bottom:1rem;">Marca lo que te llevas. Lo que dejes sin marcar debe quedar en el cajón de guardado temporal.</p>
+            <div id="invKitChecklist_items" style="display:flex;flex-direction:column;gap:0.5rem;max-height:50vh;overflow-y:auto;"></div>
+            <div style="display:flex;gap:0.75rem;margin-top:1.25rem;">
+                <button class="btn-secondary" onclick="closeModal('inventoryKitChecklistModal')" style="flex:1;">Cancelar</button>
+                <button class="btn-primary" onclick="submitKitChecklist()" style="flex:2;">Confirmar</button>
+            </div>
+            <input type="hidden" id="invKitChecklist_kitId">
         </div>
     </div>
 
