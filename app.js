@@ -7469,18 +7469,41 @@ function openKitChecklistModal(kitId) {
     const items = dbInventoryItems.filter(i => i.kit_id === kitId);
     if(items.length === 0) { showToast('Este kit todavía no tiene ítems asignados', 'error'); return; }
 
+    // Modo del checklist según el estado real de los ítems: si están disponibles,
+    // el kit está en A-MAQ y esto es una salida; si están prestados, el kit está
+    // en campo y esto es un regreso. Si hay mezcla, se avisa por ítem individual.
+    const actionable = items.filter(i => i.status === 'disponible' || i.status === 'prestado');
+    const allOut  = actionable.length > 0 && actionable.every(i => i.status === 'prestado');
+    const allHome = actionable.length > 0 && actionable.every(i => i.status === 'disponible');
+    const mode = allOut ? 'return' : allHome ? 'checkout' : 'mixed';
+
     document.getElementById('invKitChecklist_title').textContent = `🧰 ${kit.name}`;
     document.getElementById('invKitChecklist_kitId').value = kitId;
+
+    const instructions = {
+        checkout: 'El kit está en A-MAQ. Marca lo que te llevas — lo que dejes sin marcar debe quedar en el cajón de guardado temporal.',
+        return:   'El kit está en campo. Marca lo que estás devolviendo ahora — lo que dejes sin marcar sigue afuera.',
+        mixed:    'Este kit tiene ítems en estados distintos. Revisa el estado de cada uno antes de confirmar.'
+    };
+    document.getElementById('invKitChecklist_instructions').textContent = instructions[mode];
+
+    const btnLabel = { checkout: 'Confirmar salida', return: 'Confirmar regreso', mixed: 'Confirmar' };
+    document.getElementById('invKitChecklist_submitBtn').textContent = btnLabel[mode];
 
     const container = document.getElementById('invKitChecklist_items');
     container.innerHTML = items.map(item => {
         const blocked = item.status === 'dañado' || item.status === 'perdido';
         const activeLoan = dbInventoryLoans.find(l => l.item_id === item.id);
+        const actionBadge = item.status === 'disponible'
+            ? '<span style="font-size:0.65rem;font-weight:700;color:#2563eb;background:#eff6ff;padding:1px 6px;border-radius:99px;">SALE</span>'
+            : item.status === 'prestado'
+                ? '<span style="font-size:0.65rem;font-weight:700;color:#d97706;background:#fffbeb;padding:1px 6px;border-radius:99px;">REGRESA</span>'
+                : '';
         return `
         <label style="display:flex;align-items:center;gap:0.6rem;padding:0.55rem 0.65rem;border:1px solid #e2e8f0;border-radius:8px;${blocked?'opacity:0.55;':''}">
             <input type="checkbox" data-item-id="${item.id}" data-prev-status="${item.status}" ${blocked ? 'disabled' : 'checked'} style="width:16px;height:16px;flex-shrink:0;">
             <div style="flex:1;">
-                <div style="font-size:0.85rem;font-weight:600;">${item.name}</div>
+                <div style="font-size:0.85rem;font-weight:600;display:flex;align-items:center;gap:6px;">${item.name} ${actionBadge}</div>
                 <div style="font-size:0.7rem;color:#64748b;">
                     ${_invStatusLabel[item.status]||item.status}${activeLoan ? ` · con ${activeLoan.analyst_name}` : ''}${blocked ? ' — no se puede llevar' : ''}
                 </div>
