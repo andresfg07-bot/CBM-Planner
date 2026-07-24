@@ -6562,6 +6562,14 @@ function renderAnalystInventory(container) {
     `;
 }
 
+let _invCatalogCollapsed = new Set(); // categorías colapsadas en el Catálogo (vacío = todas expandidas)
+
+function toggleInvCatalogGroup(cat) {
+    if(_invCatalogCollapsed.has(cat)) _invCatalogCollapsed.delete(cat);
+    else _invCatalogCollapsed.add(cat);
+    renderInventoryCatalog();
+}
+
 function renderInventoryCatalog() {
     const el = document.getElementById('inv-tab-content');
     if(!el) return;
@@ -6578,10 +6586,15 @@ function renderInventoryCatalog() {
         ${categories.map(cat => {
             const items = dbInventoryItems.filter(i => i.category === cat);
             if(items.length === 0) return '';
+            const collapsed = _invCatalogCollapsed.has(cat);
             return `
             <div style="margin-bottom:1.5rem;">
-                <h4 style="font-size:0.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.5rem;">${_invCatLabel[cat]}</h4>
-                <div style="background:#fff;border:1px solid #e2e8f0;border-radius:var(--radius-lg);overflow:hidden;">
+                <h4 onclick="toggleInvCatalogGroup('${cat}')" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;font-size:0.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.5rem;">
+                    <span style="display:inline-block;transition:transform .15s;transform:rotate(${collapsed?'-90':'0'}deg);">▾</span>
+                    ${_invCatLabel[cat]}
+                    <span style="font-weight:600;text-transform:none;letter-spacing:0;color:#94a3b8;">(${items.length})</span>
+                </h4>
+                <div style="${collapsed?'display:none;':''}background:#fff;border:1px solid #e2e8f0;border-radius:var(--radius-lg);overflow:hidden;">
                     <table class="data-table" style="font-size:0.82rem;">
                         <thead>
                             <tr>
@@ -6800,9 +6813,16 @@ function renderInventoryEnCampo() {
 let _invHistorialCache = [];
 let _invHistorialFilters = { analyst: '', item: '', dateFrom: '', dateTo: '' };
 let _invShowUsageRanking = false;
+let _invRankingExpanded = new Set(); // categorías expandidas en el ranking (vacío = todas colapsadas)
 
 function toggleInvUsageRanking() {
     _invShowUsageRanking = !_invShowUsageRanking;
+    _renderInventoryHistorialFiltered();
+}
+
+function toggleInvRankingGroup(cat) {
+    if(_invRankingExpanded.has(cat)) _invRankingExpanded.delete(cat);
+    else _invRankingExpanded.add(cat);
     _renderInventoryHistorialFiltered();
 }
 
@@ -6857,13 +6877,23 @@ function _renderInventoryHistorialFiltered() {
         return true;
     });
 
-    // ── Ranking de frecuencia de uso (salidas históricas + préstamos activos) ──
+    // ── Ranking de frecuencia de uso (salidas históricas + préstamos activos), ──
+    // ── agrupado por categoría para que no crezca sin control ───────────────────
     const usageCount = {};
     _invHistorialCache.forEach(l => { usageCount[l.item_id] = (usageCount[l.item_id]||0) + 1; });
     dbInventoryLoans.forEach(l => { usageCount[l.item_id] = (usageCount[l.item_id]||0) + 1; });
     const ranking = dbInventoryItems.map(item => ({ item, count: usageCount[item.id] || 0 }))
         .sort((a, b) => b.count - a.count);
     const maxCount = Math.max(1, ...ranking.map(r => r.count));
+
+    const rankingByCat = {};
+    ranking.forEach(r => {
+        const cat = r.item.category || 'General';
+        (rankingByCat[cat] = rankingByCat[cat] || []).push(r);
+    });
+    const catGroups = Object.entries(rankingByCat)
+        .map(([cat, rows]) => ({ cat, rows, total: rows.reduce((s,r) => s + r.count, 0) }))
+        .sort((a, b) => b.total - a.total);
 
     const rankingToggleHTML = ranking.length === 0 ? '' : `
         <div style="margin-bottom:1.25rem;">
@@ -6875,15 +6905,31 @@ function _renderInventoryHistorialFiltered() {
     const rankingHTML = (!_invShowUsageRanking || ranking.length === 0) ? '' : `
         <div style="background:#fff;border:1px solid #e2e8f0;border-radius:var(--radius-lg);padding:1.25rem;margin-bottom:1.5rem;">
             <h4 style="margin:0 0 1rem;font-size:0.85rem;color:var(--clr-blue);">📊 Frecuencia de uso por ítem</h4>
-            ${ranking.map(r => `
-                <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">
-                    <div style="flex:0 0 180px;font-size:0.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.item.name}">${r.item.name}</div>
-                    <div style="flex:1;background:#f1f5f9;border-radius:4px;height:14px;overflow:hidden;">
-                        <div style="width:${(r.count/maxCount*100).toFixed(0)}%;background:${r.count===0?'#cbd5e1':'var(--clr-blue)'};height:100%;"></div>
+            ${catGroups.map(g => {
+                const expanded = _invRankingExpanded.has(g.cat);
+                const top = g.rows[0];
+                return `
+                <div style="margin-bottom:0.75rem;">
+                    <div onclick="toggleInvRankingGroup('${g.cat}')" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:8px;padding:0.5rem 0.6rem;background:#f8fafc;border-radius:8px;">
+                        <span style="display:inline-block;font-size:0.75rem;color:#94a3b8;transition:transform .15s;transform:rotate(${expanded?'0':'-90'}deg);">▾</span>
+                        <span style="font-size:0.8rem;font-weight:700;color:#334155;">${_invCatLabel[g.cat]||g.cat}</span>
+                        <span style="font-size:0.72rem;color:#94a3b8;">(${g.rows.length} ítem${g.rows.length!==1?'s':''})</span>
+                        <span style="margin-left:auto;font-size:0.72rem;color:#64748b;">${top && top.count > 0 ? `más usado: ${top.item.name} (${top.count})` : 'sin movimientos'}</span>
                     </div>
-                    <div style="flex:0 0 70px;text-align:right;font-size:0.75rem;color:#64748b;">${r.count} salida${r.count!==1?'s':''}</div>
-                </div>
-            `).join('')}
+                    ${!expanded ? '' : `
+                    <div style="padding:0.75rem 0.5rem 0.25rem;">
+                        ${g.rows.map(r => `
+                            <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">
+                                <div style="flex:0 0 180px;font-size:0.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.item.name}">${r.item.name}</div>
+                                <div style="flex:1;background:#f1f5f9;border-radius:4px;height:14px;overflow:hidden;">
+                                    <div style="width:${(r.count/maxCount*100).toFixed(0)}%;background:${r.count===0?'#cbd5e1':'var(--clr-blue)'};height:100%;"></div>
+                                </div>
+                                <div style="flex:0 0 70px;text-align:right;font-size:0.75rem;color:#64748b;">${r.count} salida${r.count!==1?'s':''}</div>
+                            </div>
+                        `).join('')}
+                    </div>`}
+                </div>`;
+            }).join('')}
         </div>`;
 
     // ── Filtros ─────────────────────────────────────────────────────────────
