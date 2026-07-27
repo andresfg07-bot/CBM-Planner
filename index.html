@@ -1027,6 +1027,21 @@
     </div>
 
     <!-- ══════════════════════════════════════════ -->
+    <!-- MODAL: Ver ítems de un kit                 -->
+    <!-- ══════════════════════════════════════════ -->
+    <div id="inventoryKitItemsModal" class="modal">
+        <div class="modal-content" style="max-width:460px;">
+            <span class="close-btn" onclick="closeModal('inventoryKitItemsModal')">&times;</span>
+            <h2 id="invKitItems_title" style="margin-bottom:0.15rem;font-size:1.1rem;"></h2>
+            <p id="invKitItems_subtitle" style="font-size:0.78rem;color:#64748b;margin-bottom:1rem;"></p>
+            <div id="invKitItems_list" style="display:flex;flex-direction:column;gap:0.5rem;max-height:55vh;overflow-y:auto;"></div>
+            <div style="margin-top:1.25rem;">
+                <button class="btn-secondary" onclick="closeModal('inventoryKitItemsModal')" style="width:100%;">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
     <!-- MODAL: Checklist de un kit (escaneo QR)    -->
     <!-- ══════════════════════════════════════════ -->
     <div id="inventoryKitChecklistModal" class="modal">

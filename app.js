@@ -6694,7 +6694,10 @@ function renderInventoryKits() {
                             <td style="text-align:center;">
                                 <button onclick="showKitQR('${kit.id}')" title="Ver QR del kit" style="background:none;border:1px solid #cbd5e1;border-radius:4px;padding:3px 6px;cursor:pointer;font-size:0.9rem;">📷</button>
                             </td>
-                            <td><strong>🧰 ${kit.name}</strong>${kit.description ? `<div style="font-size:0.72rem;color:#94a3b8;">${kit.description}</div>` : ''}</td>
+                            <td>
+                                <strong onclick="showKitItems('${kit.id}')" style="cursor:pointer;color:var(--clr-blue);" title="Ver ítems de este kit">🧰 ${kit.name}</strong>
+                                ${kit.description ? `<div style="font-size:0.72rem;color:#94a3b8;">${kit.description}</div>` : ''}
+                            </td>
                             <td style="color:#64748b;">${_invCatLabel[kit.category]||kit.category}</td>
                             <td style="color:#64748b;">${n} ítem${n!==1?'s':''}</td>
                             <td style="text-align:center;white-space:nowrap;">
@@ -6764,6 +6767,44 @@ async function deleteInventoryKit(kitId) {
     showToast('Kit eliminado', 'success');
     await loadInventoryData();
     renderInventoryView();
+}
+
+function showKitItems(kitId) {
+    const kit = dbInventoryKits.find(k => k.id === kitId);
+    if(!kit) return;
+    const items = dbInventoryItems.filter(i => i.kit_id === kitId);
+
+    document.getElementById('invKitItems_title').textContent = `🧰 ${kit.name}`;
+    document.getElementById('invKitItems_subtitle').textContent = `${items.length} ítem${items.length!==1?'s':''} en este kit`;
+
+    const container = document.getElementById('invKitItems_list');
+    container.innerHTML = items.length === 0
+        ? '<div style="text-align:center;padding:1.5rem;color:#94a3b8;font-size:0.85rem;">Este kit todavía no tiene ítems asignados. Edítalos desde el Catálogo (campo "Pertenece a un kit").</div>'
+        : items.map(item => {
+            const sc = _invStatusColor[item.status] || '#64748b';
+            const sb = _invStatusBg[item.status] || '#f8fafc';
+            const activeLoan = dbInventoryLoans.find(l => l.item_id === item.id);
+            return `
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;padding:0.55rem 0.65rem;border:1px solid #e2e8f0;border-radius:8px;">
+                <div style="display:flex;align-items:center;gap:0.6rem;min-width:0;">
+                    ${item.photo_url
+                        ? `<img src="${item.photo_url}" style="width:32px;height:32px;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0;flex-shrink:0;">`
+                        : `<div style="width:32px;height:32px;border-radius:6px;background:#f1f5f9;flex-shrink:0;"></div>`}
+                    <div style="min-width:0;">
+                        <div style="font-size:0.85rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${item.name}</div>
+                        <div style="font-size:0.7rem;color:#94a3b8;">${item.serial_number || '—'}</div>
+                    </div>
+                </div>
+                <div style="text-align:right;flex-shrink:0;">
+                    <span style="background:${sb};color:${sc};border:1px solid ${sc}33;font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;">
+                        ${_invStatusLabel[item.status]||item.status}
+                    </span>
+                    ${activeLoan ? `<div style="font-size:0.68rem;color:#d97706;margin-top:2px;">→ ${activeLoan.analyst_name}</div>` : ''}
+                </div>
+            </div>`;
+        }).join('');
+
+    document.getElementById('inventoryKitItemsModal').classList.add('active');
 }
 
 function renderInventoryEnCampo() {
