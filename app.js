@@ -37,6 +37,10 @@ let dbEquipment = [];
 let dbPlants = []; // { id, client_id, name } — plantas/sedes por cliente
 let currentUser = null;
 let currentUserProfile = null; // { id, email, display_name, role, analyst_name }
+
+/** El rol "viewer" puede ver todas las vistas (menos Admin de Datos) pero es de solo observación:
+ *  no puede crear, editar, eliminar, programar (drag&drop) ni escanear QR. */
+function isViewerRole() { return currentUserProfile?.role === 'viewer'; }
 let clientAnalystPreferences = []; // preferencias del cliente activo en el form [ {name, priority} ]
 let draggedTaskId = null; // Declaración global necesaria
 
@@ -143,7 +147,7 @@ function applyRoleUI() {
         analyst:    ['mywork', 'planning', 'inventory'],
         assistant:  ['dashboard', 'tasks', 'planning', 'finance', 'reports'],
         commercial: ['dashboard', 'tasks', 'planning', 'finance', 'reports'],
-        viewer:     ['dashboard'],
+        viewer:     ['dashboard', 'tasks', 'planning', 'finance', 'reports', 'inventory'],
     };
     const allowed = allowedViews[role] || allowedViews.viewer;
 
@@ -152,6 +156,11 @@ function applyRoleUI() {
         const view = nav.getAttribute('data-view');
         nav.style.display = allowed.includes(view) ? 'flex' : 'none';
     });
+
+    // El rol viewer es de solo observación: cualquier elemento marcado con
+    // class="viewer-hide" (estático o generado dinámicamente en cualquier render)
+    // se oculta automáticamente vía CSS mientras el body tenga esta clase.
+    document.body.classList.toggle('role-viewer', role === 'viewer');
 
     // Actualizar nombre y rol en el header
     const nameEl  = document.querySelector('.profile-info .name');
@@ -1703,7 +1712,7 @@ function renderTasksTable(container) {
                         <td style="color:var(--clr-green); font-weight:600">$${(t.budget || 0).toLocaleString('es-CO')}</td>
                         <td>${formatAnalystDisplay(t)}</td>
                         <td>
-                            ${role === 'commercial' ? `
+                            ${(role === 'commercial' || role === 'viewer') ? `
                                 <span style="padding: 0.4rem 0.6rem; font-size: 0.85rem; border-radius: 6px; background:#f1f5f9; font-weight: 600; display:inline-block;">${t.status.toUpperCase()}</span>
                             ` : `
                             <select onchange="updateTaskStatus('${t.id}', this.value)" style="padding: 0.4rem; font-size: 0.85rem; border-radius: 6px; border: 1px solid #cbd5e1; width: 100%; font-weight: 500;" ${isFacturada ? 'disabled' : ''}>
@@ -1725,7 +1734,7 @@ function renderTasksTable(container) {
                                     ${(t.csatScore || t.clientNoResponse) ? actionIcon('reopen', `reopenCsat('${t.id}')`, 'Reabrir CSAT (para que el analista lo llene de nuevo)') : ''}
                                     ${t.status === 'programada' ? actionIcon('revert', `revertToProjected('${t.id}')`, 'Revertir a Proyectada') : ''}
                                     ${actionIcon('delete', `deleteTask('${t.id}')`,              'Borrar')}
-                                ` : role === 'commercial' ? `
+                                ` : (role === 'commercial' || role === 'viewer') ? `
                                     ${t.serviceDetails
                                         ? actionIcon('note', `openServiceDetailsModal('${t.id}')`, 'Ver detalles del servicio')
                                         : '<span style="font-size:0.72rem; color:var(--text-secondary);">Sin detalles</span>'}
@@ -2555,7 +2564,7 @@ let isDragging = false;
 /** Roles que solo pueden visualizar el calendario, sin arrastrar ni modificar nada */
 function isPlanningReadOnly() {
     const r = currentUserProfile?.role;
-    return r === 'analyst' || r === 'commercial' || r === 'assistant';
+    return r === 'analyst' || r === 'commercial' || r === 'assistant' || r === 'viewer';
 }
 
 function handleDragStart(e) {
@@ -6477,7 +6486,7 @@ function renderInventoryView() {
         return;
     }
 
-    if(role !== 'admin') {
+    if(role !== 'admin' && role !== 'viewer') {
         container.innerHTML = '<div style="text-align:center;padding:3rem;color:#94a3b8;">No tienes permiso para ver esta sección.</div>';
         return;
     }
@@ -6495,7 +6504,7 @@ function renderInventoryView() {
                 <h2>Control de Inventario CBM</h2>
                 <p class="subtitle">Gestiona los equipos y herramientas del departamento.</p>
             </div>
-            <button class="btn-primary" onclick="openInventoryScannerModal()" style="display:flex;align-items:center;gap:0.5rem;">
+            <button class="btn-primary viewer-hide" onclick="openInventoryScannerModal()" style="display:flex;align-items:center;gap:0.5rem;">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>
                 Escanear QR
             </button>
@@ -6581,7 +6590,7 @@ function renderInventoryCatalog() {
             <button onclick="printAllInventoryQRs()" title="Imprimir todos los QR" ${dbInventoryItems.length===0?'disabled':''} style="background:none;border:1px solid #cbd5e1;border-radius:6px;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;color:#64748b;cursor:pointer;">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
             </button>
-            <button class="btn-primary" onclick="openAddInventoryItemModal()">+ Agregar ítem</button>
+            <button class="btn-primary viewer-hide" onclick="openAddInventoryItemModal()">+ Agregar ítem</button>
         </div>
         ${categories.map(cat => {
             const items = dbInventoryItems.filter(i => i.category === cat);
@@ -6648,12 +6657,14 @@ function renderInventoryCatalog() {
                                         ${item.is_permanently_assigned ? `📌 ${item.assigned_analyst||'—'}` : '—'}
                                     </td>
                                     <td style="text-align:center;white-space:nowrap;">
-                                        <button onclick="openEditInventoryItemModal('${item.id}')" title="Editar" style="background:none;border:none;cursor:pointer;color:#3b82f6;font-size:1rem;">✏️</button>
-                                        <button onclick="deleteInventoryItem('${item.id}')" title="Eliminar" style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:1rem;">🗑️</button>
-                                        ${item.requires_calibration ? `<button onclick="registerCalibrationToday('${item.id}')" title="Registrar calibración hoy" style="background:none;border:none;cursor:pointer;font-size:1rem;">📅</button>` : ''}
-                                        ${isTrouble
-                                            ? `<button onclick="openResolveIncidentModal('${item.id}')" title="Marcar como disponible" style="background:none;border:none;cursor:pointer;color:#16a34a;font-size:1rem;">✅</button>`
-                                            : `<button onclick="openReportIncidentModal('${item.id}')" title="Reportar daño/pérdida" style="background:none;border:none;cursor:pointer;color:#d97706;font-size:1rem;">⚠️</button>`}
+                                        <span class="viewer-hide">
+                                            <button onclick="openEditInventoryItemModal('${item.id}')" title="Editar" style="background:none;border:none;cursor:pointer;color:#3b82f6;font-size:1rem;">✏️</button>
+                                            <button onclick="deleteInventoryItem('${item.id}')" title="Eliminar" style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:1rem;">🗑️</button>
+                                            ${item.requires_calibration ? `<button onclick="registerCalibrationToday('${item.id}')" title="Registrar calibración hoy" style="background:none;border:none;cursor:pointer;font-size:1rem;">📅</button>` : ''}
+                                            ${isTrouble
+                                                ? `<button onclick="openResolveIncidentModal('${item.id}')" title="Marcar como disponible" style="background:none;border:none;cursor:pointer;color:#16a34a;font-size:1rem;">✅</button>`
+                                                : `<button onclick="openReportIncidentModal('${item.id}')" title="Reportar daño/pérdida" style="background:none;border:none;cursor:pointer;color:#d97706;font-size:1rem;">⚠️</button>`}
+                                        </span>
                                     </td>
                                 </tr>`;
                             }).join('')}
@@ -6672,7 +6683,7 @@ function renderInventoryKits() {
 
     el.innerHTML = `
         <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
-            <button class="btn-primary" onclick="openAddInventoryKitModal()">+ Agregar kit</button>
+            <button class="btn-primary viewer-hide" onclick="openAddInventoryKitModal()">+ Agregar kit</button>
         </div>
         ${dbInventoryKits.length === 0 ? '<div style="text-align:center;padding:3rem;color:#94a3b8;">No hay kits creados todavía. Un kit agrupa ítems que ya existen en el catálogo bajo un solo QR (ej. una maleta de instrumentación).</div>' : `
         <div style="background:#fff;border:1px solid #e2e8f0;border-radius:var(--radius-lg);overflow:hidden;">
@@ -6701,8 +6712,10 @@ function renderInventoryKits() {
                             <td style="color:#64748b;">${_invCatLabel[kit.category]||kit.category}</td>
                             <td style="color:#64748b;">${n} ítem${n!==1?'s':''}</td>
                             <td style="text-align:center;white-space:nowrap;">
-                                <button onclick="openEditInventoryKitModal('${kit.id}')" title="Editar" style="background:none;border:none;cursor:pointer;color:#3b82f6;font-size:1rem;">✏️</button>
-                                <button onclick="deleteInventoryKit('${kit.id}')" title="Eliminar" style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:1rem;">🗑️</button>
+                                <span class="viewer-hide">
+                                    <button onclick="openEditInventoryKitModal('${kit.id}')" title="Editar" style="background:none;border:none;cursor:pointer;color:#3b82f6;font-size:1rem;">✏️</button>
+                                    <button onclick="deleteInventoryKit('${kit.id}')" title="Eliminar" style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:1rem;">🗑️</button>
+                                </span>
                             </td>
                         </tr>`;
                     }).join('')}
@@ -6829,7 +6842,7 @@ function renderInventoryEnCampo() {
             <td>${since}</td>
             <td style="${alertStyle}">${days} día${days!==1?'s':''}</td>
             <td style="text-align:center;">
-                <button class="btn-secondary" onclick="adminCheckIn('${loan.id}','${item.id}')" style="font-size:0.75rem;padding:4px 10px;">Registrar devolución</button>
+                <button class="btn-secondary viewer-hide" onclick="adminCheckIn('${loan.id}','${item.id}')" style="font-size:0.75rem;padding:4px 10px;">Registrar devolución</button>
             </td>
         </tr>`;
     }).join('');
@@ -6855,6 +6868,17 @@ let _invHistorialCache = [];
 let _invHistorialFilters = { analyst: '', item: '', dateFrom: '', dateTo: '' };
 let _invShowUsageRanking = false;
 let _invRankingExpanded = new Set(); // categorías expandidas en el ranking (vacío = todas colapsadas)
+let invHistSortState = { column: null, dir: 'asc' };
+
+function sortInvHistBy(column) {
+    if (invHistSortState.column === column) {
+        invHistSortState.dir = invHistSortState.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+        invHistSortState.column = column;
+        invHistSortState.dir = 'asc';
+    }
+    _renderInventoryHistorialFiltered();
+}
 
 function toggleInvUsageRanking() {
     _invShowUsageRanking = !_invShowUsageRanking;
@@ -6910,7 +6934,7 @@ function _renderInventoryHistorialFiltered() {
     }
 
     const f = _invHistorialFilters;
-    const data = _invHistorialCache.filter(loan => {
+    let data = _invHistorialCache.filter(loan => {
         if(f.analyst && loan.analyst_name !== f.analyst) return false;
         if(f.item && loan.item_id !== f.item) return false;
         if(f.dateFrom && loan.checked_out_at < f.dateFrom) return false;
@@ -7007,6 +7031,34 @@ function _renderInventoryHistorialFiltered() {
         return;
     }
 
+    // Ordenamiento por columna
+    if(invHistSortState.column) {
+        const getVal = (loan) => {
+            const item = dbInventoryItems.find(i => i.id === loan.item_id);
+            switch(invHistSortState.column) {
+                case 'out':     return loan.checked_out_at || '';
+                case 'analyst': return (loan.analyst_name || '').toLowerCase();
+                case 'item':    return (item?.name || '').toLowerCase();
+                case 'in':      return loan.checked_in_at || '';
+                case 'days':    return Math.floor((new Date(loan.checked_in_at) - new Date(loan.checked_out_at)) / 86400000);
+                default:        return '';
+            }
+        };
+        const dir = invHistSortState.dir === 'asc' ? 1 : -1;
+        data = data.slice().sort((a, b) => {
+            const va = getVal(a), vb = getVal(b);
+            if(typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+            return String(va).localeCompare(String(vb), 'es') * dir;
+        });
+    }
+
+    const sortArrow = (col) => {
+        if(invHistSortState.column !== col) return '<span style="opacity:0.3;">↕</span>';
+        return invHistSortState.dir === 'asc' ? '↑' : '↓';
+    };
+    const thSort = (col, label, extraStyle = '') =>
+        `<th onclick="sortInvHistBy('${col}')" style="cursor:pointer;user-select:none;${extraStyle}">${label} <span style="font-size:0.75em;">${sortArrow(col)}</span></th>`;
+
     const rows = data.map(loan => {
         const item = dbInventoryItems.find(i => i.id === loan.item_id);
         const out  = new Date(loan.checked_out_at).toLocaleDateString('es-CO', { day:'numeric', month:'short', year:'numeric' });
@@ -7027,11 +7079,11 @@ function _renderInventoryHistorialFiltered() {
             <table class="data-table" style="font-size:0.82rem;">
                 <thead>
                     <tr>
-                        <th>Salida</th>
-                        <th>Analista</th>
-                        <th>Ítem</th>
-                        <th>Devolución</th>
-                        <th>Duración</th>
+                        ${thSort('out',     'Salida')}
+                        ${thSort('analyst', 'Analista')}
+                        ${thSort('item',    'Ítem')}
+                        ${thSort('in',      'Devolución')}
+                        ${thSort('days',    'Duración')}
                     </tr>
                 </thead>
                 <tbody>${rows}</tbody>

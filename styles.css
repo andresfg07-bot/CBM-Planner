@@ -1691,6 +1691,10 @@ h1 {
 .status-badge.ejecutada  { background: #fff1f2; color: #e11d48; }
 .status-badge.facturada  { background: #f0fdf4; color: #16a34a; }
 
+/* Rol "viewer": solo observación. Cualquier control marcado como viewer-hide
+   desaparece sin importar cuántas veces se regenere el HTML que lo contiene. */
+body.role-viewer .viewer-hide { display: none !important; }
+
 /* ══════════════════════════════════════════════════════
    BARRA DE FILTROS UNIFICADA (buscador + selects tipo pill + tags)
    ══════════════════════════════════════════════════════ */
