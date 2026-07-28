@@ -1897,19 +1897,14 @@ async function saveEditedBudget() {
 
 async function deleteTask(taskId) {
     if(!confirm('¿Estás seguro de que deseas borrar esta gestión?')) return;
-    
-    const taskToDelete = tasks.find(t => t.id === taskId);
-    const clientName = taskToDelete ? taskToDelete.client : 'Gestión';
-    
+
     const index = tasks.findIndex(t => t.id === taskId);
     if(index === -1) return;
-    
-    tasks.splice(index, 1);
-    
-    if(supabaseClient) {
-        await supabaseClient.from('tasks').delete().eq('id', taskId);
-    }
-    
+
+    // Actualización optimista: se quita la fila de inmediato, ANTES de esperar a
+    // Supabase. Así el botón desaparece al instante y no queda "tildado" — no hay
+    // forma de hacer doble clic sobre un botón que ya no está en pantalla.
+    const [removedTask] = tasks.splice(index, 1);
     saveTasks();
     renderBoard();
     renderCalendar();
@@ -1917,6 +1912,21 @@ async function deleteTask(taskId) {
     renderTasksView();
     renderDashboardStats();
 
+    if(supabaseClient) {
+        const { error } = await supabaseClient.from('tasks').delete().eq('id', taskId);
+        if(error) {
+            // El borrado falló en el servidor: revertir localmente para no quedar
+            // desincronizados, y avisar en vez de fallar en silencio.
+            tasks.splice(index, 0, removedTask);
+            saveTasks();
+            renderBoard();
+            renderCalendar();
+            if(typeof renderPlanningSidebar === 'function') renderPlanningSidebar();
+            renderTasksView();
+            renderDashboardStats();
+            showToast('Error eliminando la gestión: ' + error.message, 'error');
+        }
+    }
 }
 
 async function revertToProjected(taskId) {
