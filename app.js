@@ -1574,6 +1574,14 @@ function generateId() {
     return 't_' + Math.random().toString(36).substr(2, 9);
 }
 
+/** parseInt con valor por defecto que NO pisa un 0 legítimo (a diferencia de `parseInt(x) || def`,
+ *  que convierte 0 en el default por ser falsy). Usado para daysField: hay servicios de solo
+ *  informe (sin viaje a planta) donde 0 días de campo es un valor válido, no un dato faltante. */
+function parseIntOrDefault(value, def) {
+    const n = parseInt(value);
+    return Number.isNaN(n) ? def : n;
+}
+
 // ── Skeleton loader para tablas ──────────────────────────────────────────────
 function renderSkeletonTable(container, cols = 5, rows = 5) {
     const widths = ['60%','40%','30%','50%','25%'];
@@ -3494,7 +3502,7 @@ async function handleCalendarDrop(cell, dragInfo) {
             const [yStr, mStr, dStr] = targetDateStr.split('-');
             let loopDate = new Date(parseInt(yStr), parseInt(mStr) - 1, parseInt(dStr));
             let fieldAsigned = 0;
-            const totalFieldNeeded = parseInt(task.daysField) || 1;
+            const totalFieldNeeded = parseIntOrDefault(task.daysField, 1);
             while(fieldAsigned < totalFieldNeeded) {
                 const y = loopDate.getFullYear();
                 const m = loopDate.getMonth() + 1;
@@ -4457,7 +4465,7 @@ async function saveTaskToSupabase(task) {
             client: task.client,
             analyst: task.analyst,
             budget: parseFloat(task.budget) || 0,
-            days_field: parseInt(task.daysField) || 1,
+            days_field: parseIntOrDefault(task.daysField, 1),
             days_report: parseInt(task.daysReport) || 0,
             scheduled_days: task.scheduledDays || [],
             status: task.status,
@@ -4528,7 +4536,7 @@ async function loadTasksFromSupabase() {
                 analysts_assignment: t.analysts_assignment || [],
                 equipmentId: t.equipment_id || '',
                 budget: parseFloat(t.budget) || 0,
-                daysField: parseInt(t.days_field) || 1,
+                daysField: parseIntOrDefault(t.days_field, 1),
                 daysReport: parseInt(t.days_report) || 0,
                 serviceType: t.service_type || '',
                 isAbsence: t.is_absence || false,
@@ -4725,10 +4733,10 @@ function openEditTaskModal(taskId) {
         if (budgetEl) budgetEl.value = task.budget;
         
         const fieldEl = document.getElementById('taskDaysField');
-        if (fieldEl) fieldEl.value = task.daysField || 1;
-        
+        if (fieldEl) fieldEl.value = task.daysField ?? 1;
+
         const reportEl = document.getElementById('taskDaysReport');
-        if (reportEl) reportEl.value = task.daysReport || 0;
+        if (reportEl) reportEl.value = task.daysReport ?? 0;
 
         const dateInputStr = task.scheduledDays && task.scheduledDays.length > 0
             ? task.scheduledDays.map(d => d.date ? d.date : `${task.period}-${String(d.day).padStart(2,'0')}`).join(', ')
@@ -4925,7 +4933,7 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
         
         const budgetVal = document.getElementById('taskBudget').value;
         const budget = budgetVal ? parseFloat(budgetVal) : 0;
-        const dField = parseInt(document.getElementById('taskDaysField').value) || 1;
+        const dField = parseIntOrDefault(document.getElementById('taskDaysField').value, 1);
         const dReport = parseInt(document.getElementById('taskDaysReport').value) || 0;
         const serviceType = document.getElementById('taskServiceType').value;
         const editId = document.getElementById('editTaskId').value;
