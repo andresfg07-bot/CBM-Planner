@@ -6683,10 +6683,17 @@ function renderAnalystInventory(container) {
 }
 
 let _invCatalogCollapsed = new Set(); // categorías colapsadas en el Catálogo (vacío = todas expandidas)
+let _invCatalogKitsCollapsed = new Set(); // kits colapsados dentro del Catálogo
 
 function toggleInvCatalogGroup(cat) {
     if(_invCatalogCollapsed.has(cat)) _invCatalogCollapsed.delete(cat);
     else _invCatalogCollapsed.add(cat);
+    renderInventoryCatalog();
+}
+
+function toggleInvCatalogKit(kitId) {
+    if(_invCatalogKitsCollapsed.has(kitId)) _invCatalogKitsCollapsed.delete(kitId);
+    else _invCatalogKitsCollapsed.add(kitId);
     renderInventoryCatalog();
 }
 
@@ -6695,6 +6702,79 @@ function renderInventoryCatalog() {
     if(!el) return;
 
     const categories = _invCategories;
+
+    const theadHtml = `
+        <thead>
+            <tr>
+                <th style="width:44px;">QR</th>
+                <th>Nombre</th>
+                <th>Serial</th>
+                <th>Estado</th>
+                <th>Calibración</th>
+                <th>Asignado a</th>
+                <th style="width:120px;text-align:center;">Acciones</th>
+            </tr>
+        </thead>`;
+
+    const renderItemRow = (item, insideKit = false) => {
+        const sc = _invStatusColor[item.status] || '#64748b';
+        const sb = _invStatusBg[item.status] || '#f8fafc';
+        const activeLoan = dbInventoryLoans.find(l => l.item_id === item.id);
+        const openIncident = _invOpenIncident(item.id);
+        const isTrouble = item.status === 'dañado' || item.status === 'perdido';
+        const calib = _invCalibrationStatus(item);
+        return `
+        <tr>
+            <td style="text-align:center;">
+                <button onclick="showInventoryQR('${item.id}')" title="Ver QR" style="background:none;border:1px solid #cbd5e1;border-radius:4px;padding:3px 6px;cursor:pointer;font-size:0.9rem;">📷</button>
+            </td>
+            <td>
+                <div style="display:flex;align-items:center;gap:0.5rem;">
+                    ${item.photo_url
+                        ? `<img src="${item.photo_url}" onclick="showInventoryPhoto('${item.id}')" title="Ver foto en grande" style="width:32px;height:32px;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0;flex-shrink:0;cursor:pointer;">`
+                        : `<div style="width:32px;height:32px;border-radius:6px;background:#f1f5f9;flex-shrink:0;"></div>`}
+                    <div>
+                        <strong>${item.name}</strong>
+                        ${item.equipment_id ? '<span title="Vinculado a un equipo de gestiones" style="font-size:0.68rem;background:#eef2ff;color:#4f46e5;border:1px solid #4f46e533;padding:1px 6px;border-radius:99px;margin-left:6px;">🔗 Equipo</span>' : ''}
+                        ${(!insideKit && item.kit_id) ? `<span title="Pertenece a un kit" style="font-size:0.68rem;background:#f5f3ff;color:#7c3aed;border:1px solid #7c3aed33;padding:1px 6px;border-radius:99px;margin-left:6px;">🧰 ${(dbInventoryKits.find(k=>k.id===item.kit_id)?.name)||'Kit'}</span>` : ''}
+                        ${item.description ? `<div style="font-size:0.72rem;color:#94a3b8;">${item.description}</div>` : ''}
+                        ${isTrouble && openIncident ? `<div style="font-size:0.72rem;color:#dc2626;margin-top:2px;">⚠️ ${openIncident.note} <span style="color:#94a3b8;">— ${openIncident.reported_by}</span></div>` : ''}
+                    </div>
+                </div>
+            </td>
+            <td style="color:#64748b;">${item.serial_number || '—'}</td>
+            <td>
+                <span style="background:${sb};color:${sc};border:1px solid ${sc}33;font-size:0.72rem;font-weight:700;padding:2px 8px;border-radius:99px;">
+                    ${_invStatusLabel[item.status]||item.status}
+                </span>
+                ${activeLoan ? `<div style="font-size:0.7rem;color:#d97706;margin-top:2px;">→ ${activeLoan.analyst_name}</div>` : ''}
+            </td>
+            <td>
+                ${calib ? `<span style="background:${calib.bg};color:${calib.color};border:1px solid ${calib.color}33;font-size:0.7rem;font-weight:600;padding:2px 8px;border-radius:99px;white-space:nowrap;">${calib.label}</span>` : '<span style="color:#cbd5e1;">—</span>'}
+            </td>
+            <td style="font-size:0.78rem;color:#64748b;">
+                ${item.is_permanently_assigned ? `📌 ${item.assigned_analyst||'—'}` : '—'}
+            </td>
+            <td style="text-align:center;white-space:nowrap;">
+                <span class="viewer-hide">
+                    <button onclick="openEditInventoryItemModal('${item.id}')" title="Editar" style="background:none;border:none;cursor:pointer;color:#3b82f6;font-size:1rem;">✏️</button>
+                    <button onclick="deleteInventoryItem('${item.id}')" title="Eliminar" style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:1rem;">🗑️</button>
+                    ${item.requires_calibration ? `<button onclick="registerCalibrationToday('${item.id}')" title="Registrar calibración hoy" style="background:none;border:none;cursor:pointer;font-size:1rem;">📅</button>` : ''}
+                    ${isTrouble
+                        ? `<button onclick="openResolveIncidentModal('${item.id}')" title="Marcar como disponible" style="background:none;border:none;cursor:pointer;color:#16a34a;font-size:1rem;">✅</button>`
+                        : `<button onclick="openReportIncidentModal('${item.id}')" title="Reportar daño/pérdida" style="background:none;border:none;cursor:pointer;color:#d97706;font-size:1rem;">⚠️</button>`}
+                </span>
+            </td>
+        </tr>`;
+    };
+
+    const renderItemsTable = (items, insideKit = false) => `
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:var(--radius-lg);overflow:hidden;">
+            <table class="data-table" style="font-size:0.82rem;">
+                ${theadHtml}
+                <tbody>${items.map(i => renderItemRow(i, insideKit)).join('')}</tbody>
+            </table>
+        </div>`;
 
     el.innerHTML = `
         <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-bottom:1rem;">
@@ -6707,6 +6787,15 @@ function renderInventoryCatalog() {
             const items = dbInventoryItems.filter(i => i.category === cat);
             if(items.length === 0) return '';
             const collapsed = _invCatalogCollapsed.has(cat);
+
+            const standaloneItems = items.filter(i => !i.kit_id);
+            const kitGroups = [...new Set(items.filter(i => i.kit_id).map(i => i.kit_id))]
+                .reduce((acc, kitId) => {
+                    const kit = dbInventoryKits.find(k => k.id === kitId);
+                    if(kit) acc.push({ kit, items: items.filter(i => i.kit_id === kitId) });
+                    return acc;
+                }, []);
+
             return `
             <div style="margin-bottom:1.5rem;">
                 <h4 onclick="toggleInvCatalogGroup('${cat}')" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;font-size:0.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.5rem;">
@@ -6714,73 +6803,20 @@ function renderInventoryCatalog() {
                     ${_invCatLabel[cat]}
                     <span style="font-weight:600;text-transform:none;letter-spacing:0;color:#94a3b8;">(${items.length})</span>
                 </h4>
-                <div style="${collapsed?'display:none;':''}background:#fff;border:1px solid #e2e8f0;border-radius:var(--radius-lg);overflow:hidden;">
-                    <table class="data-table" style="font-size:0.82rem;">
-                        <thead>
-                            <tr>
-                                <th style="width:44px;">QR</th>
-                                <th>Nombre</th>
-                                <th>Serial</th>
-                                <th>Estado</th>
-                                <th>Calibración</th>
-                                <th>Asignado a</th>
-                                <th style="width:120px;text-align:center;">Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${items.map(item => {
-                                const sc = _invStatusColor[item.status] || '#64748b';
-                                const sb = _invStatusBg[item.status] || '#f8fafc';
-                                const activeLoan = dbInventoryLoans.find(l => l.item_id === item.id);
-                                const openIncident = _invOpenIncident(item.id);
-                                const isTrouble = item.status === 'dañado' || item.status === 'perdido';
-                                const calib = _invCalibrationStatus(item);
-                                return `
-                                <tr>
-                                    <td style="text-align:center;">
-                                        <button onclick="showInventoryQR('${item.id}')" title="Ver QR" style="background:none;border:1px solid #cbd5e1;border-radius:4px;padding:3px 6px;cursor:pointer;font-size:0.9rem;">📷</button>
-                                    </td>
-                                    <td>
-                                        <div style="display:flex;align-items:center;gap:0.5rem;">
-                                            ${item.photo_url
-                                                ? `<img src="${item.photo_url}" onclick="showInventoryPhoto('${item.id}')" title="Ver foto en grande" style="width:32px;height:32px;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0;flex-shrink:0;cursor:pointer;">`
-                                                : `<div style="width:32px;height:32px;border-radius:6px;background:#f1f5f9;flex-shrink:0;"></div>`}
-                                            <div>
-                                                <strong>${item.name}</strong>
-                                                ${item.equipment_id ? '<span title="Vinculado a un equipo de gestiones" style="font-size:0.68rem;background:#eef2ff;color:#4f46e5;border:1px solid #4f46e533;padding:1px 6px;border-radius:99px;margin-left:6px;">🔗 Equipo</span>' : ''}
-                                                ${item.kit_id ? `<span title="Pertenece a un kit" style="font-size:0.68rem;background:#f5f3ff;color:#7c3aed;border:1px solid #7c3aed33;padding:1px 6px;border-radius:99px;margin-left:6px;">🧰 ${(dbInventoryKits.find(k=>k.id===item.kit_id)?.name)||'Kit'}</span>` : ''}
-                                                ${item.description ? `<div style="font-size:0.72rem;color:#94a3b8;">${item.description}</div>` : ''}
-                                                ${isTrouble && openIncident ? `<div style="font-size:0.72rem;color:#dc2626;margin-top:2px;">⚠️ ${openIncident.note} <span style="color:#94a3b8;">— ${openIncident.reported_by}</span></div>` : ''}
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td style="color:#64748b;">${item.serial_number || '—'}</td>
-                                    <td>
-                                        <span style="background:${sb};color:${sc};border:1px solid ${sc}33;font-size:0.72rem;font-weight:700;padding:2px 8px;border-radius:99px;">
-                                            ${_invStatusLabel[item.status]||item.status}
-                                        </span>
-                                        ${activeLoan ? `<div style="font-size:0.7rem;color:#d97706;margin-top:2px;">→ ${activeLoan.analyst_name}</div>` : ''}
-                                    </td>
-                                    <td>
-                                        ${calib ? `<span style="background:${calib.bg};color:${calib.color};border:1px solid ${calib.color}33;font-size:0.7rem;font-weight:600;padding:2px 8px;border-radius:99px;white-space:nowrap;">${calib.label}</span>` : '<span style="color:#cbd5e1;">—</span>'}
-                                    </td>
-                                    <td style="font-size:0.78rem;color:#64748b;">
-                                        ${item.is_permanently_assigned ? `📌 ${item.assigned_analyst||'—'}` : '—'}
-                                    </td>
-                                    <td style="text-align:center;white-space:nowrap;">
-                                        <span class="viewer-hide">
-                                            <button onclick="openEditInventoryItemModal('${item.id}')" title="Editar" style="background:none;border:none;cursor:pointer;color:#3b82f6;font-size:1rem;">✏️</button>
-                                            <button onclick="deleteInventoryItem('${item.id}')" title="Eliminar" style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:1rem;">🗑️</button>
-                                            ${item.requires_calibration ? `<button onclick="registerCalibrationToday('${item.id}')" title="Registrar calibración hoy" style="background:none;border:none;cursor:pointer;font-size:1rem;">📅</button>` : ''}
-                                            ${isTrouble
-                                                ? `<button onclick="openResolveIncidentModal('${item.id}')" title="Marcar como disponible" style="background:none;border:none;cursor:pointer;color:#16a34a;font-size:1rem;">✅</button>`
-                                                : `<button onclick="openReportIncidentModal('${item.id}')" title="Reportar daño/pérdida" style="background:none;border:none;cursor:pointer;color:#d97706;font-size:1rem;">⚠️</button>`}
-                                        </span>
-                                    </td>
-                                </tr>`;
-                            }).join('')}
-                        </tbody>
-                    </table>
+                <div style="${collapsed?'display:none;':''}">
+                    ${standaloneItems.length > 0 ? renderItemsTable(standaloneItems) : ''}
+                    ${kitGroups.map(({ kit, items: kitItems }) => {
+                        const kitCollapsed = _invCatalogKitsCollapsed.has(kit.id);
+                        return `
+                        <div style="margin-top:0.5rem;">
+                            <div onclick="toggleInvCatalogKit('${kit.id}')" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;padding:6px 12px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;margin-bottom:${kitCollapsed?'0':'4px'};">
+                                <span style="display:inline-block;transition:transform .15s;transform:rotate(${kitCollapsed?'-90':'0'}deg);color:#7c3aed;">▾</span>
+                                <span style="font-size:0.8rem;font-weight:700;color:#7c3aed;">🧰 ${kit.name}</span>
+                                <span style="font-size:0.75rem;color:#a78bfa;font-weight:500;">(${kitItems.length} ítem${kitItems.length !== 1 ? 's' : ''})</span>
+                            </div>
+                            ${kitCollapsed ? '' : `<div style="padding-left:1rem;">${renderItemsTable(kitItems, true)}</div>`}
+                        </div>`;
+                    }).join('')}
                 </div>
             </div>`;
         }).join('')}
