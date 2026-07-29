@@ -1138,13 +1138,74 @@ function openServiceDetailsModal(taskId) {
     _stopServiceDictation();
 
     document.getElementById('serviceDetailsModal').classList.add('active');
+
+    // El ícono "ojo" es una notificación para comercial/admin/viewer: al abrir y leer
+    // el detalle, se marca como leído (pasa de verde a gris).
+    const isReviewer = role === 'commercial' || role === 'admin' || role === 'viewer';
+    if(isReviewer && task.serviceDetails && !task.serviceDetailsReadAt) {
+        markServiceDetailsAsRead(task);
+    }
+}
+
+/** Marca el detalle del servicio como leído (ícono pasa de verde a gris) y lo persiste. */
+async function markServiceDetailsAsRead(task) {
+    task.serviceDetailsReadAt = new Date().toISOString();
+    renderTasksView();
+    if(typeof renderMyWorkView === 'function') renderMyWorkView();
+    if(supabaseClient) {
+        await supabaseClient.from('tasks').update({ service_details_read_at: task.serviceDetailsReadAt }).eq('id', task.id);
+    }
 }
 
 async function saveServiceDetails() {
     const task = tasks.find(t => t.id === _serviceDetailsTaskId);
     if(!task) return;
     _stopServiceDictation();
-    task.serviceDetails = document.getElementById('serviceDetailsInput').value.trim();
+
+    const rawText = document.getElementById('serviceDetailsInput').value.trim();
+
+    if(!rawText) {
+        task.serviceDetails = '';
+        task.serviceDetailsRaw = '';
+        task.serviceDetailsReadAt = null;
+        saveTasks();
+        closeModal('serviceDetailsModal');
+        if(typeof renderMyWorkView === 'function') renderMyWorkView();
+        renderTasksView();
+        await saveTaskToSupabase(task);
+        showToast('Detalles del servicio guardados.', 'success');
+        return;
+    }
+
+    // Requerimiento 1: estructurar el texto dictado (desordenado) en la plantilla fija
+    // vía IA (llamada server-side, la API key nunca se expone en el navegador).
+    const saveBtn = document.querySelector('#serviceDetailsActions .btn-primary');
+    const originalLabel = saveBtn ? saveBtn.textContent : '';
+    if(saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Estructurando…'; }
+
+    let structured = rawText; // respaldo: si la IA falla, se guarda el texto tal cual
+    try {
+        const resp = await fetch('/api/structure-service-details', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rawText })
+        });
+        if(resp.ok) {
+            const data = await resp.json();
+            if(data.structured) structured = data.structured;
+        } else {
+            console.error('Error estructurando detalles:', await resp.text());
+        }
+    } catch(e) {
+        console.error('Error llamando al servicio de estructuración:', e);
+    }
+
+    if(saveBtn) { saveBtn.disabled = false; saveBtn.textContent = originalLabel; }
+
+    task.serviceDetailsRaw = rawText;
+    task.serviceDetails = structured;
+    // Nuevo dato del analista → el ícono vuelve a quedar "no leído" (verde) para los revisores.
+    task.serviceDetailsReadAt = null;
 
     saveTasks();
     closeModal('serviceDetailsModal');
@@ -1153,7 +1214,7 @@ async function saveServiceDetails() {
     await saveTaskToSupabase(task);
     // Notif: nuevos detalles del servicio → a los comerciales
     notifyServiceDetailsUpdated(task).catch(() => {});
-    showToast('Detalles del servicio guardados.', 'success');
+    showToast('Detalles del servicio guardados y estructurados.', 'success');
 }
 
 function toggleServiceDetailsDictation() {
@@ -1305,6 +1366,22 @@ const SVG_ICONS = {
 };
 function actionIcon(type, onclick, title) {
     return `<span class="action-icon ${type}" onclick="${onclick}" title="${title}">${SVG_ICONS[type] || ''}</span>`;
+}
+
+/** Ícono "ojo" con 3 estados para comercial/admin/viewer (Requerimiento 2):
+ *  deshabilitado (sin datos) · verde (dato nuevo sin leer) · gris (ya leído). */
+function serviceDetailsIcon(task) {
+    const svg = SVG_ICONS.note || '';
+    if(!task.serviceDetails) {
+        return `<span class="action-icon note" style="opacity:0.3;cursor:not-allowed;color:#94a3b8;" title="Sin detalles registrados aún">${svg}</span>`;
+    }
+    const unread = !task.serviceDetailsReadAt;
+    const color  = unread ? '#16a34a' : '#94a3b8';
+    const title  = unread ? 'Nuevo: ver detalles del servicio' : 'Ver detalles del servicio (ya leído)';
+    return `<span class="action-icon note" onclick="openServiceDetailsModal('${task.id}')" title="${title}" style="color:${color};cursor:pointer;position:relative;display:inline-block;">
+        ${svg}
+        ${unread ? '<span style="position:absolute;top:-2px;right:-2px;width:8px;height:8px;background:#16a34a;border:1.5px solid #fff;border-radius:50%;"></span>' : ''}
+    </span>`;
 }
 
 // ── Helper: assign a consistent color per analyst
@@ -1738,14 +1815,12 @@ function renderTasksTable(container) {
                                 ${role === 'admin' ? `
                                     ${actionIcon('edit',   `openEditTaskModal('${t.id}')`,       'Editar')}
                                     ${actionIcon('csat',   `openClosingMeetingModal('${t.id}')`, 'Reunión de Cierre')}
-                                    ${actionIcon('note',   `openServiceDetailsModal('${t.id}')`, t.serviceDetails ? 'Ver detalles del servicio (comercial)' : 'Agregar detalles del servicio (comercial)')}
+                                    ${serviceDetailsIcon(t)}
                                     ${(t.csatScore || t.clientNoResponse) ? actionIcon('reopen', `reopenCsat('${t.id}')`, 'Reabrir CSAT (para que el analista lo llene de nuevo)') : ''}
                                     ${t.status === 'programada' ? actionIcon('revert', `revertToProjected('${t.id}')`, 'Revertir a Proyectada') : ''}
                                     ${actionIcon('delete', `deleteTask('${t.id}')`,              'Borrar')}
                                 ` : (role === 'commercial' || role === 'viewer') ? `
-                                    ${t.serviceDetails
-                                        ? actionIcon('note', `openServiceDetailsModal('${t.id}')`, 'Ver detalles del servicio')
-                                        : '<span style="font-size:0.72rem; color:var(--text-secondary);">Sin detalles</span>'}
+                                    ${serviceDetailsIcon(t)}
                                 ` : role === 'assistant' ? `
                                     <div style="display:flex;gap:0.3rem;align-items:center;">
                                         ${t.status === 'ejecutada' ? `
@@ -4490,6 +4565,8 @@ async function saveTaskToSupabase(task) {
             evidence_notes: task.evidenceNotes || null,
             evidence_files: task.evidenceFiles || [],
             service_details: task.serviceDetails || null,
+            service_details_raw: task.serviceDetailsRaw || null,
+            service_details_read_at: task.serviceDetailsReadAt || null,
             mes_facturacion: task.mesFacturacion || task.period,
             analysts_assignment: task.analysts_assignment || [],
             plant_id:   task.plantId   || null,
@@ -4561,6 +4638,8 @@ async function loadTasksFromSupabase() {
                 evidenceNotes: t.evidence_notes || '',
                 evidenceFiles: t.evidence_files || [],
                 serviceDetails: t.service_details || '',
+                serviceDetailsRaw: t.service_details_raw || '',
+                serviceDetailsReadAt: t.service_details_read_at || null,
                 plantId:   t.plant_id   || null,
                 plantName: t.plant_name || '',
                 executedAt:    t.executed_at    || null,
