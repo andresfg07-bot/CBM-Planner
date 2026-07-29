@@ -1139,21 +1139,25 @@ function openServiceDetailsModal(taskId) {
 
     document.getElementById('serviceDetailsModal').classList.add('active');
 
-    // El ícono "ojo" es una notificación para comercial/admin/viewer: al abrir y leer
-    // el detalle, se marca como leído (pasa de verde a gris).
+    // El ícono "ojo" es una notificación por rol: al abrir y leer el detalle, se
+    // marca como leído para ESE rol (pasa de verde a gris) sin afectar al otro.
     const isReviewer = role === 'commercial' || role === 'admin' || role === 'viewer';
-    if(isReviewer && task.serviceDetails && !task.serviceDetailsReadAt) {
-        markServiceDetailsAsRead(task);
+    const readField  = role === 'admin' ? 'serviceDetailsReadAtAdmin' : 'serviceDetailsReadAt';
+    if(isReviewer && task.serviceDetails && !task[readField]) {
+        markServiceDetailsAsRead(task, role);
     }
 }
 
-/** Marca el detalle del servicio como leído (ícono pasa de verde a gris) y lo persiste. */
-async function markServiceDetailsAsRead(task) {
-    task.serviceDetailsReadAt = new Date().toISOString();
+/** Marca el detalle del servicio como leído para el rol dado (admin o commercial/viewer). */
+async function markServiceDetailsAsRead(task, role) {
+    const isAdmin   = role === 'admin';
+    const localKey  = isAdmin ? 'serviceDetailsReadAtAdmin' : 'serviceDetailsReadAt';
+    const dbKey     = isAdmin ? 'service_details_read_at_admin' : 'service_details_read_at';
+    task[localKey]  = new Date().toISOString();
     renderTasksView();
     if(typeof renderMyWorkView === 'function') renderMyWorkView();
     if(supabaseClient) {
-        await supabaseClient.from('tasks').update({ service_details_read_at: task.serviceDetailsReadAt }).eq('id', task.id);
+        await supabaseClient.from('tasks').update({ [dbKey]: task[localKey] }).eq('id', task.id);
     }
 }
 
@@ -1167,7 +1171,8 @@ async function saveServiceDetails() {
     if(!rawText) {
         task.serviceDetails = '';
         task.serviceDetailsRaw = '';
-        task.serviceDetailsReadAt = null;
+        task.serviceDetailsReadAt      = null;
+        task.serviceDetailsReadAtAdmin = null;
         saveTasks();
         closeModal('serviceDetailsModal');
         if(typeof renderMyWorkView === 'function') renderMyWorkView();
@@ -1204,8 +1209,9 @@ async function saveServiceDetails() {
 
     task.serviceDetailsRaw = rawText;
     task.serviceDetails = structured;
-    // Nuevo dato del analista → el ícono vuelve a quedar "no leído" (verde) para los revisores.
-    task.serviceDetailsReadAt = null;
+    // Nuevo dato del analista → el ícono vuelve a verde para TODOS los revisores (independiente).
+    task.serviceDetailsReadAt      = null;
+    task.serviceDetailsReadAtAdmin = null;
 
     saveTasks();
     closeModal('serviceDetailsModal');
@@ -1368,16 +1374,18 @@ function actionIcon(type, onclick, title) {
     return `<span class="action-icon ${type}" onclick="${onclick}" title="${title}">${SVG_ICONS[type] || ''}</span>`;
 }
 
-/** Ícono "ojo" con 3 estados para comercial/admin/viewer (Requerimiento 2):
- *  deshabilitado (sin datos) · verde (dato nuevo sin leer) · gris (ya leído). */
+/** Ícono "ojo" con 3 estados, independiente por rol:
+ *  deshabilitado (sin datos) · verde (no leído por este rol) · gris (ya leído). */
 function serviceDetailsIcon(task) {
-    const svg = SVG_ICONS.note || '';
+    const svg  = SVG_ICONS.note || '';
+    const role = currentUserProfile?.role || 'viewer';
     if(!task.serviceDetails) {
         return `<span class="action-icon note" style="opacity:0.3;cursor:not-allowed;color:#94a3b8;" title="Sin detalles registrados aún">${svg}</span>`;
     }
-    const unread = !task.serviceDetailsReadAt;
-    const color  = unread ? '#16a34a' : '#94a3b8';
-    const title  = unread ? 'Nuevo: ver detalles del servicio' : 'Ver detalles del servicio (ya leído)';
+    const readField = role === 'admin' ? 'serviceDetailsReadAtAdmin' : 'serviceDetailsReadAt';
+    const unread    = !task[readField];
+    const color     = unread ? '#16a34a' : '#94a3b8';
+    const title     = unread ? 'Nuevo: ver detalles del servicio' : 'Ver detalles del servicio (ya leído)';
     return `<span class="action-icon note" onclick="openServiceDetailsModal('${task.id}')" title="${title}" style="color:${color};cursor:pointer;position:relative;display:inline-block;">
         ${svg}
         ${unread ? '<span style="position:absolute;top:-2px;right:-2px;width:8px;height:8px;background:#16a34a;border:1.5px solid #fff;border-radius:50%;"></span>' : ''}
@@ -4566,7 +4574,8 @@ async function saveTaskToSupabase(task) {
             evidence_files: task.evidenceFiles || [],
             service_details: task.serviceDetails || null,
             service_details_raw: task.serviceDetailsRaw || null,
-            service_details_read_at: task.serviceDetailsReadAt || null,
+            service_details_read_at:       task.serviceDetailsReadAt      || null,
+            service_details_read_at_admin: task.serviceDetailsReadAtAdmin || null,
             mes_facturacion: task.mesFacturacion || task.period,
             analysts_assignment: task.analysts_assignment || [],
             plant_id:   task.plantId   || null,
@@ -4639,7 +4648,8 @@ async function loadTasksFromSupabase() {
                 evidenceFiles: t.evidence_files || [],
                 serviceDetails: t.service_details || '',
                 serviceDetailsRaw: t.service_details_raw || '',
-                serviceDetailsReadAt: t.service_details_read_at || null,
+                serviceDetailsReadAt:      t.service_details_read_at       || null,
+                serviceDetailsReadAtAdmin: t.service_details_read_at_admin || null,
                 plantId:   t.plant_id   || null,
                 plantName: t.plant_name || '',
                 executedAt:    t.executed_at    || null,
