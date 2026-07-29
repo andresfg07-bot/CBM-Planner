@@ -4674,6 +4674,20 @@ async function loadTasksFromSupabase() {
                 }
                 return true;
             });
+
+            // 3. SYNC DELETES: Remove local tasks that no longer exist in the remote.
+            // Without this, tasks deleted by an admin persist indefinitely in other
+            // users' localStorage because the merge above only adds/updates, never removes.
+            // Keep t_ tasks only if they have never been synced (no supabaseId); a t_ task
+            // with a supabaseId means the UUID migration didn't finish persisting, and the
+            // real record may have been deleted — don't keep it.
+            const remoteIdSet = new Set(remoteTasks.map(t => t.id));
+            tasks = tasks.filter(t => {
+                if (remoteIdSet.has(t.id)) return true;
+                if (t.supabaseId && remoteIdSet.has(t.supabaseId)) return true;
+                // Keep only truly unsynced temp tasks (no supabaseId yet)
+                return t.id.startsWith('t_') && !t.supabaseId;
+            });
             
             saveTasks();
             if(typeof postDropSync === 'function') postDropSync();
