@@ -1537,6 +1537,7 @@ const SERVICE_TYPE_COLORS = {
     'Ultrasonido':           '#5BB0C9',
     'Rotodinámico':          '#6B7280',
     'Capacitación':          '#D4A24C',
+    'Calibración':           '#10B981',
     'Metro Administrativo':  '#9CA3AF',
     'Metro Terceros':        '#8B7BA8'
 };
@@ -6579,11 +6580,11 @@ async function _uploadInvItemPhoto(itemId) {
     return data.publicUrl;
 }
 
-const _invCategories = ['Vibraciones', 'Termografía', 'Ultrasonido', 'Balanceo', 'Alineación', 'Rotodinámico', 'Capacitación', 'General'];
+const _invCategories = ['Vibraciones', 'Termografía', 'Ultrasonido', 'Balanceo', 'Alineación', 'Rotodinámico', 'Capacitación', 'Calibración', 'General'];
 const _invCatLabel = {
     Vibraciones: '〰️ Vibraciones', Termografía: '🌡️ Termografía', Ultrasonido: '🔊 Ultrasonido',
     Balanceo: '⚖️ Balanceo', Alineación: '📐 Alineación', Rotodinámico: '⚙️ Rotodinámico',
-    Capacitación: '📚 Capacitación', General: '🔧 General'
+    Capacitación: '📚 Capacitación', Calibración: '🔬 Calibración', General: '🔧 General'
 };
 const _invStatusLabel = { disponible:'Disponible', prestado:'En Campo', dañado:'Dañado', perdido:'Perdido' };
 const _invStatusColor = { disponible:'#16a34a', prestado:'#d97706', dañado:'#dc2626', perdido:'#7f1d1d' };

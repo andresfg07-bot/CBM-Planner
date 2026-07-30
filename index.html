@@ -554,6 +554,7 @@
                             <option value="Ultrasonido">🔊 Ultrasonido</option>
                             <option value="Rotodinámico">⚙️ Rotodinámico</option>
                             <option value="Capacitación">📚 Capacitación</option>
+                            <option value="Calibración">🔬 Calibración</option>
                             <option value="Metro Terceros">🤝 Metro Terceros</option>
                         </select>
                     </div>
@@ -624,6 +625,7 @@
                         <option value="Ultrasonido">🔊 Ultrasonido</option>
                         <option value="Rotodinámico">⚙️ Rotodinámico</option>
                         <option value="Capacitación">📚 Capacitación</option>
+                        <option value="Calibración">🔬 Calibración</option>
                         <option value="Vacaciones">🌴 Vacaciones</option>
                         <option value="Incapacidad">💊 Incapacidad</option>
                         <option value="Compensatorio">🔄 Compensatorio</option>
@@ -862,13 +864,18 @@
         <div class="modal-content" style="max-width:480px;">
             <span class="close-btn" onclick="closeModal('serviceDetailsModal')">&times;</span>
             <h2 id="serviceDetailsTitle" style="margin-bottom:0.25rem;">📝 Detalles del Servicio</h2>
-            <p style="font-size:0.82rem; color:var(--text-secondary); margin-bottom:1rem;">
-                Agrega los detalles del servicio necesarios para el comercial, tal como # de subsistemas,
-                # de horas de servicio (hora de entrada y de salida del servicio), etc.
+            <p style="font-size:0.82rem; color:var(--text-secondary); margin-bottom:0.5rem;">
+                Completa la información siguiendo el formato de la plantilla — así queda igual de ordenado
+                sin importar quién lo escriba.
             </p>
+            <div id="serviceDetailsTemplateBtnWrap" style="margin-bottom:0.6rem;">
+                <button type="button" onclick="insertServiceDetailsTemplate()" style="background:#eff6ff; border:1px solid #bae6fd; color:#0369a1; border-radius:6px; padding:0.35rem 0.7rem; font-size:0.78rem; font-weight:600; cursor:pointer;">
+                    📋 Usar plantilla
+                </button>
+            </div>
             <div class="form-group" style="position:relative;">
-                <textarea id="serviceDetailsInput" rows="7"
-                          placeholder="Ej: Se midieron 12 subsistemas. Ingreso 7:30 a.m., salida 2:00 p.m. (6.5 h). Se revisaron 8 equipos rotativos..."
+                <textarea id="serviceDetailsInput" rows="9"
+                          placeholder="Fecha de gestión: &#10;Ingeniero encargado: &#10;Cantidad de subsistemas: &#10;Hora de entrada: &#10;Hora de salida: &#10;Horas a cobrar en el servicio: &#10;SCT: &#10;Observaciones adicionales: "
                           style="width:100%; padding:0.7rem; border:1px solid #cbd5e1; border-radius:var(--radius-md); font-size:0.9rem; resize:vertical; line-height:1.5;"></textarea>
                 <button type="button" id="serviceDetailsMicBtn" onclick="toggleServiceDetailsDictation()"
                         title="Dictar por voz"
@@ -931,6 +938,7 @@
                         <option value="Alineación">📐 Alineación</option>
                         <option value="Rotodinámico">⚙️ Rotodinámico</option>
                         <option value="Capacitación">📚 Capacitación</option>
+                        <option value="Calibración">🔬 Calibración</option>
                         <option value="General">🔧 General</option>
                     </select>
                 </div>
@@ -1009,6 +1017,7 @@
                         <option value="Alineación">📐 Alineación</option>
                         <option value="Rotodinámico">⚙️ Rotodinámico</option>
                         <option value="Capacitación">📚 Capacitación</option>
+                        <option value="Calibración">🔬 Calibración</option>
                         <option value="General">🔧 General</option>
                     </select>
                 </div>
