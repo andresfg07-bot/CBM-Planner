@@ -4604,29 +4604,36 @@ async function saveTaskToSupabase(task) {
             csat_closed_at: task.csatClosedAt  || null
         };
 
-        if (!isTemporaryId) {
-            taskData.id = task.id;
-        }
-        
+        const existingId = task.supabaseId || (!isTemporaryId ? task.id : null);
         let result;
-        if(task.supabaseId || !isTemporaryId) {
-            result = await supabaseClient.from('tasks').upsert({ 
-                ...taskData, 
-                id: task.supabaseId || task.id 
-            });
+
+        if(existingId) {
+            // Tarea existente: UPDATE puntual por id. Más predecible que upsert
+            // y permite detectar si 0 filas fueron afectadas (RLS silencioso).
+            result = await supabaseClient.from('tasks')
+                .update(taskData)
+                .eq('id', existingId)
+                .select('id, mes_facturacion');
+
+            if(!result.error && (!result.data || result.data.length === 0)) {
+                console.error('UPDATE no afectó ninguna fila — posible RLS o id incorrecto:', existingId);
+                showToast('El cambio no se guardó en la nube (sin permiso o id inválido). Contacta al administrador.', 'error');
+            } else if(!result.error) {
+                console.log('UPDATE ok:', result.data);
+            }
         } else {
+            // Tarea nueva: INSERT
             result = await supabaseClient.from('tasks').insert(taskData).select();
             if(result.data && result.data.length > 0) {
                 const newRealId = result.data[0].id;
-                // Update BOTH to ensure total synchronization
-                task.id = newRealId; 
+                task.id = newRealId;
                 task.supabaseId = newRealId;
-                console.log("Task inserted and local ID updated to:", newRealId);
+                console.log('Task inserted, new id:', newRealId);
             }
         }
-        
+
         if(result.error) {
-            console.error("Error saving to Supabase:", result.error);
+            console.error('Error saving to Supabase:', result.error);
             showToast('Error al guardar en la nube: ' + result.error.message, 'error');
         }
     } catch(err) {
