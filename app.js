@@ -4624,9 +4624,13 @@ async function saveTaskToSupabase(task) {
             }
         }
         
-        if(result.error) console.error("Error saving to Supabase:", result.error);
+        if(result.error) {
+            console.error("Error saving to Supabase:", result.error);
+            showToast('Error al guardar en la nube: ' + result.error.message, 'error');
+        }
     } catch(err) {
         console.error("Sync error:", err);
+        showToast('Error de conexión al guardar. Los cambios pueden no haberse guardado.', 'error');
     }
 }
 
@@ -4920,8 +4924,9 @@ function openEditTaskModal(taskId) {
 
         const billingMonthEl = document.getElementById('taskBillingMonth');
         if (billingMonthEl) {
-            populateBillingMonthSelect();
-            billingMonthEl.value = task.mesFacturacion || formatPeriod();
+            const currentBilling = task.mesFacturacion || formatPeriod();
+            _populateMonthSelect('taskBillingMonth', currentBilling);
+            billingMonthEl.value = currentBilling;
         }
 
         const periodMonthEl = document.getElementById('taskPeriodMonth');
@@ -8548,20 +8553,30 @@ async function initializeApp() {
 
 }
 
-/** Rango común para los selects de mes: 6 meses atrás y 18 adelante
- *  (cubre planeación anual completa + margen para facturación rezagada). */
-function _populateMonthSelect(selectId) {
+/** Rango común para los selects de mes: 24 meses atrás y 18 adelante.
+ *  El rango extendido hacia atrás evita que mesFacturacion de gestiones antiguas
+ *  quede fuera del select, lo que causaba que el valor se reseteara al period. */
+function _populateMonthSelect(selectId, ensureValue) {
     const select = document.getElementById(selectId);
     if(!select) return;
     select.innerHTML = '';
     const now = new Date();
-    for(let i = -6; i <= 18; i++) {
+    for(let i = -24; i <= 18; i++) {
         const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
         const y = d.getFullYear();
         const m = d.getMonth() + 1;
         const val = `${y}-${String(m).padStart(2, '0')}`;
         const label = `${monthNames[m-1]} ${y}`;
         select.innerHTML += `<option value="${val}">${label}</option>`;
+    }
+    // Si el valor a preseleccionar todavía no está en el rango generado, lo inyectamos.
+    if(ensureValue && !select.querySelector(`option[value="${ensureValue}"]`)) {
+        const [y, m] = ensureValue.split('-').map(Number);
+        const label = `${monthNames[m-1]} ${y}`;
+        const opt = document.createElement('option');
+        opt.value = ensureValue;
+        opt.textContent = label;
+        select.insertBefore(opt, select.firstChild);
     }
 }
 
