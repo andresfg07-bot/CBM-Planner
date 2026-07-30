@@ -654,7 +654,6 @@ async function runNotificationsCheck() {
             return diff >= 15;
         });
         if(veryOverdue.length > 0) {
-            const todayIso = new Date().toISOString().substring(0, 10);
             const list = veryOverdue.slice(0, 5).map(t => _clientLabelForNotif(t)).join(', ');
             const suffix = veryOverdue.length > 5 ? `, y ${veryOverdue.length - 5} más.` : '.';
             await notifyOncePerTaskAndType({
@@ -662,7 +661,7 @@ async function runNotificationsCheck() {
                 title: `${veryOverdue.length} CSAT vencidos hace más de 15 días`,
                 body: list + suffix,
                 is_urgent: true,
-                extraData: { day: todayIso, count: veryOverdue.length }
+                extraData: {}
             });
         }
 
