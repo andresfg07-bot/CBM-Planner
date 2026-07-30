@@ -7967,8 +7967,8 @@ async function renderAdminView() {
             <thead>
                 <tr>
                     <th style="width: 45%;">Planta / Cliente</th>
-                    <th style="width: 35%;">Contacto</th>
-                    <th style="width: 20%;">Acciones</th>
+                    <th style="width: 30%;">Contacto</th>
+                    <th style="width: 25%;">Acciones</th>
                 </tr>
             </thead>
             <tbody>
