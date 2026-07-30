@@ -1417,6 +1417,22 @@ function getAnalystColor(name) {
     return colorPalette[idx === -1 ? 0 : idx % colorPalette.length];
 }
 
+/** Devuelve colores pastel consistentes para un cliente, basados en su nombre base.
+ *  El mismo cliente siempre recibe el mismo tono, independiente del orden. */
+function getClientColor(clientStr) {
+    const base = getClientCompanyBase(clientStr);
+    if (!base) return { bg: '#f8fafc', border: '#e2e8f0' };
+    let hash = 0;
+    for (let i = 0; i < base.length; i++) {
+        hash = base.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const hue = Math.abs(hash) % 360;
+    return {
+        bg:     `hsl(${hue}, 55%, 95%)`,
+        border: `hsl(${hue}, 50%, 72%)`
+    };
+}
+
 /** Convierte un color hex a su versión clara mezclándolo con blanco */
 function getAnalystColorLight(name) {
     const hex = getAnalystColor(name);
@@ -2750,6 +2766,9 @@ function renderPlanningSidebar() {
         item.draggable = true;
         item.id = t.id;
         item.setAttribute('data-task-id', t.id);
+        const clr = getClientColor(t.client);
+        item.style.background  = clr.bg;
+        item.style.borderLeft  = `3px solid ${clr.border}`;
         item.innerHTML = `
             <div style="font-weight:700; margin-bottom:0.25rem; pointer-events:none;">${t.client}</div>
             <div style="font-size:0.7rem; color:var(--text-secondary); pointer-events:none;">${formatAnalystDisplay(t)}</div>

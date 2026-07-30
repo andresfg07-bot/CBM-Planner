@@ -1556,6 +1556,21 @@ h1 {
     }
 }
 
+/* Planning sidebar items — tarjetas con color pastel por cliente */
+.planning-sidebar-item {
+    padding: 0.45rem 0.7rem;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(0,0,0,0.07);
+    flex-shrink: 0;
+    min-width: 120px;
+    max-width: 200px;
+    transition: box-shadow 0.15s, filter 0.15s;
+}
+.planning-sidebar-item:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    filter: brightness(0.96);
+}
+
 /* Touch and Drag Support Improvements */
 .calendar-pill, .kanban-card, .planning-sidebar-item {
     cursor: grab;
