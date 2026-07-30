@@ -1148,15 +1148,17 @@ function openServiceDetailsModal(taskId) {
     }
 }
 
-/** Marca el detalle del servicio como leído para el rol dado (admin o commercial/viewer). */
+/** Marca el detalle del servicio como leído para el rol dado (admin o commercial/viewer).
+ *  Usa update() apuntando solo al campo correspondiente para no depender del upsert general. */
 async function markServiceDetailsAsRead(task, role) {
-    const isAdmin   = role === 'admin';
-    const localKey  = isAdmin ? 'serviceDetailsReadAtAdmin' : 'serviceDetailsReadAt';
-    const dbKey     = isAdmin ? 'service_details_read_at_admin' : 'service_details_read_at';
-    task[localKey]  = new Date().toISOString();
+    const isAdmin  = role === 'admin';
+    const localKey = isAdmin ? 'serviceDetailsReadAtAdmin' : 'serviceDetailsReadAt';
+    const dbKey    = isAdmin ? 'service_details_read_at_admin' : 'service_details_read_at';
+    task[localKey] = new Date().toISOString();
+    saveTasks();
     renderTasksView();
     if(typeof renderMyWorkView === 'function') renderMyWorkView();
-    if(supabaseClient) {
+    if(supabaseClient && task.id && !task.id.startsWith('t_')) {
         await supabaseClient.from('tasks').update({ [dbKey]: task[localKey] }).eq('id', task.id);
     }
 }
@@ -4593,8 +4595,7 @@ async function saveTaskToSupabase(task) {
             evidence_files: task.evidenceFiles || [],
             service_details: task.serviceDetails || null,
             service_details_raw: task.serviceDetailsRaw || null,
-            service_details_read_at:       task.serviceDetailsReadAt      || null,
-            service_details_read_at_admin: task.serviceDetailsReadAtAdmin || null,
+            service_details_read_at: task.serviceDetailsReadAt || null,
             mes_facturacion: task.mesFacturacion || task.period,
             analysts_assignment: task.analysts_assignment || [],
             plant_id:   task.plantId   || null,
