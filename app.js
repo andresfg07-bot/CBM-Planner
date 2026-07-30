@@ -7977,11 +7977,11 @@ async function renderAdminView() {
                         <td><strong>${getClientDisplayName(c)}</strong></td>
                         <td>${c.contact_name || '-'}</td>
                         <td>
-                            <div class="action-icons">
+                            <div class="action-icons" style="gap:0.3rem;">
                                 ${actionIcon('plant',  `openPlantsModal('${c.id}')`,      'Gestionar Plantas')}
                                 ${actionIcon('pref',   `openPreferenceModal('${c.id}')`,  'Asignar Analistas')}
                                 ${actionIcon('edit',   `editClient('${c.id}')`,            'Editar')}
-                                ${actionIcon('delete', `deleteClient('${c.id}')`,           'Eliminar')}
+                                ${actionIcon('delete', `deleteClient('${c.id}')`,          'Eliminar')}
                             </div>
                         </td>
                     </tr>
