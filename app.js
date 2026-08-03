@@ -7714,6 +7714,11 @@ async function printAllInventoryQRs() {
     const perPage = cols * rows;
 
     doc.setFont('helvetica', 'normal');
+    const _setDash = (on) => {
+        try { doc.setLineDash(on ? [1, 1.5] : [], 0); } catch(e) {
+            try { doc.setLineDashPattern(on ? [1, 1.5] : [], 0); } catch(e2) {}
+        }
+    };
 
     qrData.forEach(({ item, dataUrl }, idx) => {
         const idxInPage = idx % perPage;
@@ -7723,19 +7728,29 @@ async function printAllInventoryQRs() {
         const row = Math.floor(idxInPage / cols);
         const x = marginX + col * cellW;
         const y = marginY + row * cellH;
+        const qrX    = x + (cellW - qrSize) / 2; // centrado horizontal
+        const centerX = x + cellW / 2;
 
-        doc.addImage(dataUrl, 'PNG', x, y, qrSize, qrSize);
+        // Línea de corte punteada
+        doc.setDrawColor(180, 180, 180);
+        doc.setLineWidth(0.15);
+        _setDash(true);
+        doc.rect(x, y, cellW, cellH, 'S');
+        doc.setDrawColor(0, 0, 0);
+        doc.setLineWidth(0.2);
+        _setDash(false);
 
-        const centerX = x + qrSize / 2;
+        doc.addImage(dataUrl, 'PNG', qrX, y + 1, qrSize, qrSize);
+
         const name = item.name.length > 18 ? item.name.slice(0, 18) + '…' : item.name;
         doc.setFontSize(6.5);
         doc.setTextColor(30);
-        doc.text(name, centerX, y + qrSize + 3, { align: 'center' });
+        doc.text(name, centerX, y + qrSize + 4, { align: 'center' });
 
         if(item.serial_number) {
             doc.setFontSize(5.5);
             doc.setTextColor(130);
-            doc.text(item.serial_number, centerX, y + qrSize + 5.5, { align: 'center' });
+            doc.text(item.serial_number, centerX, y + qrSize + 6.5, { align: 'center' });
         }
     });
 
@@ -7780,6 +7795,11 @@ async function printAllKitQRs() {
     const perPage = cols * rows;
 
     doc.setFont('helvetica', 'normal');
+    const _setDash = (on) => {
+        try { doc.setLineDash(on ? [1, 1.5] : [], 0); } catch(e) {
+            try { doc.setLineDashPattern(on ? [1, 1.5] : [], 0); } catch(e2) {}
+        }
+    };
 
     qrData.forEach(({ kit, dataUrl }, idx) => {
         const idxInPage = idx % perPage;
@@ -7789,18 +7809,28 @@ async function printAllKitQRs() {
         const row = Math.floor(idxInPage / cols);
         const x = marginX + col * cellW;
         const y = marginY + row * cellH;
+        const qrX     = x + (cellW - qrSize) / 2;
+        const centerX = x + cellW / 2;
 
-        doc.addImage(dataUrl, 'PNG', x, y, qrSize, qrSize);
+        // Línea de corte punteada
+        doc.setDrawColor(180, 180, 180);
+        doc.setLineWidth(0.15);
+        _setDash(true);
+        doc.rect(x, y, cellW, cellH, 'S');
+        doc.setDrawColor(0, 0, 0);
+        doc.setLineWidth(0.2);
+        _setDash(false);
 
-        const centerX = x + qrSize / 2;
+        doc.addImage(dataUrl, 'PNG', qrX, y + 1, qrSize, qrSize);
+
         const name = kit.name.length > 18 ? kit.name.slice(0, 18) + '…' : kit.name;
         doc.setFontSize(6.5);
         doc.setTextColor(30);
-        doc.text(name, centerX, y + qrSize + 3, { align: 'center' });
+        doc.text(name, centerX, y + qrSize + 4, { align: 'center' });
 
         doc.setFontSize(5.5);
         doc.setTextColor(130);
-        doc.text('Kit', centerX, y + qrSize + 5.5, { align: 'center' });
+        doc.text('Kit', centerX, y + qrSize + 6.5, { align: 'center' });
     });
 
     doc.save(`QR_Kits_CBM_${new Date().toISOString().slice(0, 10)}.pdf`);
