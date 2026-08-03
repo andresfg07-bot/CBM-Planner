@@ -6497,7 +6497,8 @@ let dbInventoryLoans = []; // préstamos activos (checked_in_at IS NULL)
 let dbInventoryIncidents = []; // incidentes abiertos (resolved_at IS NULL)
 let dbInventoryKits = []; // kits (maletas/equipos compuestos) con checklist propio
 let _inventoryTab    = 'catalogo'; // 'catalogo' | 'encampo' | 'historial' | 'kits'
-let _invScanAction   = null; // { type: 'checkout'|'checkin', itemId, loanId }
+let _invScanAction          = null; // { type: 'checkout'|'checkin', itemId, loanId }
+let _kitChecklistSubmitting = false; // guard contra doble envío del checklist
 let _invHtml5Scanner = null;
 let _invPendingPhotoBlob = null; // foto ya comprimida, pendiente de subir al guardar
 
@@ -7843,20 +7844,30 @@ function openKitChecklistModal(kitId) {
 }
 
 async function submitKitChecklist() {
-    const kitId = document.getElementById('invKitChecklist_kitId').value;
+    if(_kitChecklistSubmitting) return;
+    _kitChecklistSubmitting = true;
+
+    // Leer todos los datos del formulario ANTES de cerrar el modal
+    const kitId      = document.getElementById('invKitChecklist_kitId').value;
     const analystName = currentUserProfile?.analyst_name || currentUserProfile?.display_name || currentUser?.email || 'Desconocido';
     const checkboxes = document.querySelectorAll('#invKitChecklist_items input[type="checkbox"]');
+    const selections = Array.from(checkboxes).map(cb => ({
+        itemId:     cb.dataset.itemId,
+        prevStatus: cb.dataset.prevStatus,
+        checked:    cb.checked
+    }));
+
+    // Cerrar el modal inmediatamente para evitar doble envío
+    closeModal('inventoryKitChecklistModal');
 
     const leftBehind = [];
-    for(const cb of checkboxes) {
-        const itemId = cb.dataset.itemId;
-        const prevStatus = cb.dataset.prevStatus;
+    for(const { itemId, prevStatus, checked } of selections) {
         const item = dbInventoryItems.find(i => i.id === itemId);
         if(!item) continue;
 
-        if(cb.checked) {
+        if(checked) {
             if(prevStatus === 'disponible') {
-                await supabaseClient.from('inventory_loans').insert({ item_id: itemId, analyst_name: analystName });
+                await supabaseClient.from('inventory_loans').insert({ item_id: itemId, analyst_name: analystName, kit_id: kitId });
                 await supabaseClient.from('inventory_items').update({ status: 'prestado' }).eq('id', itemId);
             } else if(prevStatus === 'prestado') {
                 const loan = dbInventoryLoans.find(l => l.item_id === itemId);
@@ -7869,14 +7880,13 @@ async function submitKitChecklist() {
         }
     }
 
-    closeModal('inventoryKitChecklistModal');
-
     if(leftBehind.length > 0) {
         showToast(`⚠️ Registrado. Sin marcar: ${leftBehind.join(' · ')}`, 'warning');
     } else {
         showToast('Checklist del kit registrado ✓', 'success');
     }
 
+    _kitChecklistSubmitting = false;
     await loadInventoryData();
     if(document.getElementById('view-inventory')?.classList.contains('active-view')) renderInventoryView();
 }
