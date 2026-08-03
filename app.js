@@ -6872,7 +6872,10 @@ function renderInventoryKits() {
     if(!el) return;
 
     el.innerHTML = `
-        <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
+        <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-bottom:1rem;">
+            <button onclick="printAllKitQRs()" title="Imprimir todos los QR de kits" ${dbInventoryKits.length===0?'disabled':''} style="background:none;border:1px solid #cbd5e1;border-radius:6px;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;color:#64748b;cursor:pointer;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+            </button>
             <button class="btn-primary viewer-hide" onclick="openAddInventoryKitModal()">+ Agregar kit</button>
         </div>
         ${dbInventoryKits.length === 0 ? '<div style="text-align:center;padding:3rem;color:#94a3b8;">No hay kits creados todavía. Un kit agrupa ítems que ya existen en el catálogo bajo un solo QR (ej. una maleta de instrumentación).</div>' : `
@@ -7737,6 +7740,70 @@ async function printAllInventoryQRs() {
     });
 
     doc.save(`QR_Inventario_CBM_${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
+async function printAllKitQRs() {
+    if(dbInventoryKits.length === 0) { showToast('No hay kits en el inventario', 'error'); return; }
+    if(typeof window.jspdf === 'undefined' && typeof jsPDF === 'undefined') {
+        showToast('La librería PDF está cargando. Intenta en unos segundos.', 'error'); return;
+    }
+    showToast('Generando PDF de kits…', 'success');
+
+    const hiddenContainer = document.createElement('div');
+    hiddenContainer.style.position = 'fixed';
+    hiddenContainer.style.left = '-9999px';
+    document.body.appendChild(hiddenContainer);
+
+    const QR_RENDER_PX = 180;
+    const qrData = dbInventoryKits.map(kit => {
+        const box = document.createElement('div');
+        hiddenContainer.appendChild(box);
+        new QRCode(box, { text: `kit:${kit.id}`, width: QR_RENDER_PX, height: QR_RENDER_PX, correctLevel: QRCode.CorrectLevel.M });
+        const canvasEl = box.querySelector('canvas');
+        const imgEl    = box.querySelector('img');
+        const dataUrl  = canvasEl ? canvasEl.toDataURL('image/png') : (imgEl ? imgEl.src : '');
+        return { kit, dataUrl };
+    });
+    document.body.removeChild(hiddenContainer);
+
+    const { jsPDF: JSPDF } = window.jspdf || {};
+    const doc = JSPDF ? new JSPDF({ unit: 'mm', format: 'letter' }) : new jsPDF({ unit: 'mm', format: 'letter' });
+
+    const pageW = 215.9, pageH = 279.4;
+    const marginX = 12, marginY = 14;
+    const qrSize = 15;
+    const cellW  = qrSize + 6;
+    const cellH  = qrSize + 9;
+
+    const cols = Math.max(1, Math.floor((pageW - marginX * 2) / cellW));
+    const rows = Math.max(1, Math.floor((pageH - marginY * 2) / cellH));
+    const perPage = cols * rows;
+
+    doc.setFont('helvetica', 'normal');
+
+    qrData.forEach(({ kit, dataUrl }, idx) => {
+        const idxInPage = idx % perPage;
+        if(idx > 0 && idxInPage === 0) doc.addPage();
+
+        const col = idxInPage % cols;
+        const row = Math.floor(idxInPage / cols);
+        const x = marginX + col * cellW;
+        const y = marginY + row * cellH;
+
+        doc.addImage(dataUrl, 'PNG', x, y, qrSize, qrSize);
+
+        const centerX = x + qrSize / 2;
+        const name = kit.name.length > 18 ? kit.name.slice(0, 18) + '…' : kit.name;
+        doc.setFontSize(6.5);
+        doc.setTextColor(30);
+        doc.text(name, centerX, y + qrSize + 3, { align: 'center' });
+
+        doc.setFontSize(5.5);
+        doc.setTextColor(130);
+        doc.text('Kit', centerX, y + qrSize + 5.5, { align: 'center' });
+    });
+
+    doc.save(`QR_Kits_CBM_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
 // ── Escáner QR ────────────────────────────────────────────────────────────────
