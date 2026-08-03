@@ -7057,7 +7057,8 @@ function renderInventoryEnCampo() {
 let _invHistorialCache = [];
 let _invHistorialFilters = { analyst: '', item: '', dateFrom: '', dateTo: '' };
 let _invShowUsageRanking = false;
-let _invRankingExpanded = new Set(); // categorías expandidas en el ranking (vacío = todas colapsadas)
+let _invRankingExpanded  = new Set(); // categorías expandidas en el ranking (vacío = todas colapsadas)
+let _invHistGroupExpanded = new Set(); // kit_loan_id de grupos expandidos en el historial
 let invHistSortState = { column: null, dir: 'asc' };
 
 function sortInvHistBy(column) {
@@ -7078,6 +7079,12 @@ function toggleInvUsageRanking() {
 function toggleInvRankingGroup(cat) {
     if(_invRankingExpanded.has(cat)) _invRankingExpanded.delete(cat);
     else _invRankingExpanded.add(cat);
+    _renderInventoryHistorialFiltered();
+}
+
+function toggleInvHistGroup(groupId) {
+    if(_invHistGroupExpanded.has(groupId)) _invHistGroupExpanded.delete(groupId);
+    else _invHistGroupExpanded.add(groupId);
     _renderInventoryHistorialFiltered();
 }
 
@@ -7221,36 +7228,117 @@ function _renderInventoryHistorialFiltered() {
         return;
     }
 
-    // Ordenamiento por columna
-    if(invHistSortState.column) {
-        const getVal = (loan) => {
-            const item = dbInventoryItems.find(i => i.id === loan.item_id);
-            switch(invHistSortState.column) {
-                case 'out':     return loan.checked_out_at || '';
-                case 'analyst': return (loan.analyst_name || '').toLowerCase();
-                case 'item':    return (item?.name || '').toLowerCase();
-                case 'in':      return loan.checked_in_at || '';
-                case 'days':    return Math.floor((new Date(loan.checked_in_at) - new Date(loan.checked_out_at)) / 86400000);
-                default:        return '';
+    // ── Agrupar por kit_loan_id ──────────────────────────────────────────────
+    // Si hay filtro por ítem específico, no agrupar (el usuario quiere ver ese ítem solo)
+    const shouldGroup = !f.item;
+    const kitGroupMap = new Map();
+    const singleLoans = [];
+    if(shouldGroup) {
+        data.forEach(loan => {
+            if(loan.kit_loan_id) {
+                if(!kitGroupMap.has(loan.kit_loan_id)) kitGroupMap.set(loan.kit_loan_id, []);
+                kitGroupMap.get(loan.kit_loan_id).push(loan);
+            } else {
+                singleLoans.push(loan);
             }
-        };
-        const dir = invHistSortState.dir === 'asc' ? 1 : -1;
-        data = data.slice().sort((a, b) => {
-            const va = getVal(a), vb = getVal(b);
-            if(typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
-            return String(va).localeCompare(String(vb), 'es') * dir;
         });
+    } else {
+        singleLoans.push(...data);
     }
+
+    // Construir lista unificada de displayItems para ordenar
+    const displayItems = [];
+    kitGroupMap.forEach((loans, groupId) => {
+        const repOut = loans.map(l => l.checked_out_at || '').sort()[0];
+        const repIn  = loans.map(l => l.checked_in_at  || '').sort().pop();
+        const days   = (repOut && repIn) ? Math.floor((new Date(repIn) - new Date(repOut)) / 86400000) : 0;
+        const kit    = dbInventoryKits?.find(k => k.id === loans[0].kit_id);
+        displayItems.push({ type: 'kit', groupId, loans, kit, analystName: loans[0].analyst_name, repOut, repIn, days });
+    });
+    singleLoans.forEach(loan => {
+        const item = dbInventoryItems.find(i => i.id === loan.item_id);
+        displayItems.push({ type: 'item', loan, item });
+    });
+
+    // Ordenamiento unificado
+    const getDisplayVal = (di) => {
+        if(di.type === 'kit') {
+            switch(invHistSortState.column) {
+                case 'out':     return di.repOut || '';
+                case 'analyst': return (di.analystName || '').toLowerCase();
+                case 'item':    return (di.kit?.name || '').toLowerCase();
+                case 'in':      return di.repIn  || '';
+                case 'days':    return di.days;
+                default:        return di.repOut || '';
+            }
+        }
+        const item = di.item;
+        switch(invHistSortState.column) {
+            case 'out':     return di.loan.checked_out_at || '';
+            case 'analyst': return (di.loan.analyst_name || '').toLowerCase();
+            case 'item':    return (item?.name || '').toLowerCase();
+            case 'in':      return di.loan.checked_in_at  || '';
+            case 'days':    return Math.floor((new Date(di.loan.checked_in_at) - new Date(di.loan.checked_out_at)) / 86400000);
+            default:        return di.loan.checked_out_at || '';
+        }
+    };
+    const dir = invHistSortState.column ? (invHistSortState.dir === 'asc' ? 1 : -1) : -1;
+    displayItems.sort((a, b) => {
+        const va = getDisplayVal(a), vb = getDisplayVal(b);
+        if(typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+        return String(va).localeCompare(String(vb), 'es') * dir;
+    });
 
     const sortArrow = (col) => {
         if(invHistSortState.column !== col) return '<span style="opacity:0.3;">↕</span>';
         return invHistSortState.dir === 'asc' ? '↑' : '↓';
     };
-    const thSort = (col, label, extraStyle = '') =>
-        `<th onclick="sortInvHistBy('${col}')" style="cursor:pointer;user-select:none;${extraStyle}">${label} <span style="font-size:0.75em;">${sortArrow(col)}</span></th>`;
+    const thSort = (col, label) =>
+        `<th onclick="sortInvHistBy('${col}')" style="cursor:pointer;user-select:none;">${label} <span style="font-size:0.75em;">${sortArrow(col)}</span></th>`;
 
-    const rows = data.map(loan => {
-        const item = dbInventoryItems.find(i => i.id === loan.item_id);
+    const rows = displayItems.map(di => {
+        if(di.type === 'kit') {
+            const expanded = _invHistGroupExpanded.has(di.groupId);
+            const outDate  = new Date(di.repOut).toLocaleDateString('es-CO', { day:'numeric', month:'short', year:'numeric' });
+            const inDate   = di.repIn ? new Date(di.repIn).toLocaleDateString('es-CO', { day:'numeric', month:'short', year:'numeric' }) : '—';
+            const kitName  = di.kit?.name || `Kit (${di.loans.length} ítems)`;
+            const arrow    = expanded ? '▾' : '▸';
+            const headerRow = `
+            <tr onclick="toggleInvHistGroup('${di.groupId}')" style="cursor:pointer;background:#f0f9ff;border-bottom:1px solid #e0f0ff;">
+                <td style="color:#64748b;">${outDate}</td>
+                <td><strong>${di.analystName}</strong></td>
+                <td>
+                    <span style="display:inline-flex;align-items:center;gap:5px;">
+                        <span style="font-size:0.78rem;color:#64748b;line-height:1;">${arrow}</span>
+                        🧰 <strong>${kitName}</strong>
+                    </span>
+                    <div style="font-size:0.72rem;color:#2563eb;margin-top:2px;">${di.loans.length} ítem${di.loans.length!==1?'s':''} · clic para ${expanded?'colapsar':'ver detalle'}</div>
+                </td>
+                <td style="color:#64748b;">${inDate}</td>
+                <td style="color:#64748b;">${di.days} día${di.days!==1?'s':''}</td>
+            </tr>`;
+            if(!expanded) return headerRow;
+            const itemRows = di.loans.map(loan => {
+                const item    = dbInventoryItems.find(i => i.id === loan.item_id);
+                const iOut    = new Date(loan.checked_out_at).toLocaleDateString('es-CO', { day:'numeric', month:'short' });
+                const iIn     = loan.checked_in_at ? new Date(loan.checked_in_at).toLocaleDateString('es-CO', { day:'numeric', month:'short' }) : '—';
+                const iDays   = (loan.checked_in_at) ? Math.floor((new Date(loan.checked_in_at) - new Date(loan.checked_out_at)) / 86400000) : 0;
+                return `
+                <tr style="background:#f8fafc;">
+                    <td style="color:#94a3b8;font-size:0.75rem;padding-left:1.5rem;">${iOut}</td>
+                    <td></td>
+                    <td style="padding-left:2rem;">
+                        <span style="font-size:0.83rem;">${item?.name || '(ítem eliminado)'}</span>
+                        <div style="font-size:0.7rem;color:#94a3b8;">${item ? (_invCatLabel[item.category]||item.category) : ''}</div>
+                    </td>
+                    <td style="color:#94a3b8;font-size:0.75rem;">${iIn}</td>
+                    <td style="color:#94a3b8;font-size:0.75rem;">${iDays} día${iDays!==1?'s':''}</td>
+                </tr>`;
+            }).join('');
+            return headerRow + itemRows;
+        }
+        // Ítem individual (préstamo sin kit_loan_id)
+        const { loan, item } = di;
         const out  = new Date(loan.checked_out_at).toLocaleDateString('es-CO', { day:'numeric', month:'short', year:'numeric' });
         const inn  = new Date(loan.checked_in_at).toLocaleDateString('es-CO', { day:'numeric', month:'short', year:'numeric' });
         const days = Math.floor((new Date(loan.checked_in_at) - new Date(loan.checked_out_at)) / 86400000);
@@ -7271,7 +7359,7 @@ function _renderInventoryHistorialFiltered() {
                     <tr>
                         ${thSort('out',     'Salida')}
                         ${thSort('analyst', 'Analista')}
-                        ${thSort('item',    'Ítem')}
+                        ${thSort('item',    'Ítem / Kit')}
                         ${thSort('in',      'Devolución')}
                         ${thSort('days',    'Duración')}
                     </tr>
@@ -7860,6 +7948,8 @@ async function submitKitChecklist() {
     // Cerrar el modal inmediatamente para evitar doble envío
     closeModal('inventoryKitChecklistModal');
 
+    const kitLoanGroupId = crypto?.randomUUID ? crypto.randomUUID() : `klg_${Date.now()}_${Math.random().toString(36).substr(2,9)}`;
+
     const leftBehind = [];
     for(const { itemId, prevStatus, checked } of selections) {
         const item = dbInventoryItems.find(i => i.id === itemId);
@@ -7867,7 +7957,7 @@ async function submitKitChecklist() {
 
         if(checked) {
             if(prevStatus === 'disponible') {
-                await supabaseClient.from('inventory_loans').insert({ item_id: itemId, analyst_name: analystName, kit_id: kitId });
+                await supabaseClient.from('inventory_loans').insert({ item_id: itemId, analyst_name: analystName, kit_id: kitId, kit_loan_id: kitLoanGroupId });
                 await supabaseClient.from('inventory_items').update({ status: 'prestado' }).eq('id', itemId);
             } else if(prevStatus === 'prestado') {
                 const loan = dbInventoryLoans.find(l => l.item_id === itemId);
