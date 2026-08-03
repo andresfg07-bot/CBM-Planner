@@ -7674,29 +7674,155 @@ function printInventoryQR() {
     win.document.close();
 }
 
-/** Genera un PDF con el QR de cada ítem del inventario en grilla, 15x15mm cada uno, listos para imprimir y pegar. */
-async function printAllInventoryQRs() {
-    if(dbInventoryItems.length === 0) { showToast('No hay ítems en el inventario', 'error'); return; }
+// ── Modal de configuración de impresión de QR ──────────────────────────────────
+
+function printAllInventoryQRs() { openPrintQRsModal('items'); }
+function printAllKitQRs()       { openPrintQRsModal('kits');  }
+
+let _invPrintMode = 'items';
+
+function openPrintQRsModal(mode) {
+    _invPrintMode = mode;
+    const all = mode === 'kits' ? dbInventoryKits : dbInventoryItems;
+    if(all.length === 0) { showToast('No hay elementos para imprimir', 'error'); return; }
+
+    document.getElementById('invPrintConfigModal')?.remove();
+    const modal = document.createElement('div');
+    modal.id = 'invPrintConfigModal';
+    modal.className = 'modal active';
+    modal.innerHTML = `
+    <div class="modal-content" style="max-width:480px;max-height:88vh;display:flex;flex-direction:column;padding:0;">
+        <div style="padding:1rem 1.25rem;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;">
+            <h3 style="margin:0;font-size:1rem;color:#1e293b;">🖨️ Configurar impresión de QR</h3>
+            <button onclick="document.getElementById('invPrintConfigModal').remove()" style="background:none;border:none;font-size:1.1rem;cursor:pointer;color:#94a3b8;line-height:1;">✕</button>
+        </div>
+        <div style="overflow-y:auto;flex:1;padding:1.25rem;">
+
+            <div style="margin-bottom:1.5rem;">
+                <div style="font-size:0.72rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Tamaño del QR</div>
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.5rem;margin-bottom:0.75rem;">
+                    ${[['8','Micro','(8 mm)'],['12','Pequeño','(12 mm)'],['18','Mediano','(18 mm)'],['28','Grande','(28 mm)']].map(([s,label,sub]) => `
+                    <button id="invPrint_sz${s}" onclick="invPrintSetSize(${s})"
+                        style="padding:8px 4px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.75rem;cursor:pointer;background:#f8fafc;text-align:center;line-height:1.4;">
+                        ${label}<br><span style="font-size:0.65rem;color:#94a3b8;">${sub}</span>
+                    </button>`).join('')}
+                </div>
+                <div style="display:flex;align-items:center;gap:0.6rem;">
+                    <span style="font-size:0.78rem;color:#64748b;white-space:nowrap;">Tamaño personalizado:</span>
+                    <input type="number" id="invPrint_customSize" min="6" max="60" value="18"
+                        oninput="invPrintCustomSize()"
+                        style="width:64px;padding:5px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;text-align:center;">
+                    <span style="font-size:0.78rem;color:#64748b;">mm</span>
+                </div>
+            </div>
+
+            <div>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                    <div style="font-size:0.72rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;">
+                        ${mode === 'kits' ? 'Kits' : 'Ítems'} a imprimir
+                        (<span id="invPrint_count">${all.length}</span> de ${all.length})
+                    </div>
+                    <div style="display:flex;gap:0.4rem;">
+                        <button onclick="invPrintSelectAll(true)"  style="font-size:0.7rem;padding:3px 10px;border:1px solid #cbd5e1;border-radius:4px;cursor:pointer;background:#f8fafc;">Todos</button>
+                        <button onclick="invPrintSelectAll(false)" style="font-size:0.7rem;padding:3px 10px;border:1px solid #cbd5e1;border-radius:4px;cursor:pointer;background:#f8fafc;">Ninguno</button>
+                    </div>
+                </div>
+                <div id="invPrint_itemList" style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;max-height:280px;overflow-y:auto;">
+                    ${all.map((item, i) => `
+                    <label style="display:flex;align-items:center;gap:0.6rem;padding:0.45rem 0.75rem;cursor:pointer;${i%2===0?'background:#fff;':'background:#f8fafc;'}border-bottom:1px solid #f1f5f9;">
+                        <input type="checkbox" data-id="${item.id}" checked onchange="_updateInvPrintCount(${all.length})"
+                            style="width:15px;height:15px;flex-shrink:0;cursor:pointer;">
+                        <span style="font-size:0.82rem;flex:1;">${mode==='kits'?'🧰 ':''}${item.name}</span>
+                        ${item.serial_number?`<span style="font-size:0.7rem;color:#94a3b8;white-space:nowrap;">${item.serial_number}</span>`:''}
+                    </label>`).join('')}
+                </div>
+            </div>
+        </div>
+        <div style="padding:0.875rem 1.25rem;border-top:1px solid #e2e8f0;display:flex;gap:0.75rem;justify-content:flex-end;">
+            <button onclick="document.getElementById('invPrintConfigModal').remove()"
+                style="padding:8px 18px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;cursor:pointer;font-size:0.85rem;">Cancelar</button>
+            <button onclick="executePrintQRs()" class="btn-primary" style="padding:8px 18px;">Generar PDF</button>
+        </div>
+    </div>`;
+    document.body.appendChild(modal);
+    invPrintSetSize(18); // activa el preset Mediano por defecto
+}
+
+function invPrintSetSize(mm) {
+    const input = document.getElementById('invPrint_customSize');
+    if(input) input.value = mm;
+    [8, 12, 18, 28].forEach(s => {
+        const btn = document.getElementById(`invPrint_sz${s}`);
+        if(!btn) return;
+        const active = s === Number(mm);
+        btn.style.border    = active ? '2px solid var(--clr-blue)' : '1px solid #cbd5e1';
+        btn.style.background = active ? '#eff6ff' : '#f8fafc';
+        btn.style.fontWeight = active ? '700' : '';
+        btn.style.color      = active ? 'var(--clr-blue)' : '';
+    });
+}
+
+function invPrintCustomSize() {
+    const val = parseInt(document.getElementById('invPrint_customSize')?.value || 18);
+    [8, 12, 18, 28].forEach(s => {
+        const btn = document.getElementById(`invPrint_sz${s}`);
+        if(!btn) return;
+        const active = s === val;
+        btn.style.border    = active ? '2px solid var(--clr-blue)' : '1px solid #cbd5e1';
+        btn.style.background = active ? '#eff6ff' : '#f8fafc';
+        btn.style.fontWeight = active ? '700' : '';
+        btn.style.color      = active ? 'var(--clr-blue)' : '';
+    });
+}
+
+function invPrintSelectAll(checked) {
+    const list = document.getElementById('invPrint_itemList');
+    if(!list) return;
+    const cbs = list.querySelectorAll('input[type="checkbox"]');
+    cbs.forEach(cb => cb.checked = checked);
+    _updateInvPrintCount(cbs.length);
+}
+
+function _updateInvPrintCount(total) {
+    const list = document.getElementById('invPrint_itemList');
+    if(!list) return;
+    const checked = list.querySelectorAll('input[type="checkbox"]:checked').length;
+    const el = document.getElementById('invPrint_count');
+    if(el) el.textContent = checked;
+}
+
+async function executePrintQRs() {
+    const qrSize = Math.min(60, Math.max(6, parseInt(document.getElementById('invPrint_customSize')?.value || 18)));
+    const mode   = _invPrintMode;
+    const list   = document.getElementById('invPrint_itemList');
+    if(!list) return;
+    const selectedIds = new Set(Array.from(list.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.dataset.id));
+    if(selectedIds.size === 0) { showToast('Selecciona al menos un elemento', 'error'); return; }
+
+    const items = (mode === 'kits' ? dbInventoryKits : dbInventoryItems).filter(i => selectedIds.has(i.id));
+    document.getElementById('invPrintConfigModal')?.remove();
+    showToast('Generando PDF…', 'success');
+    await _generateQRPDF(items, qrSize, mode);
+}
+
+async function _generateQRPDF(items, qrSize, mode) {
     if(typeof window.jspdf === 'undefined' && typeof jsPDF === 'undefined') {
         showToast('La librería PDF está cargando. Intenta en unos segundos.', 'error'); return;
     }
-    showToast('Generando PDF…', 'success');
 
-    // Contenedor oculto: qrcodejs necesita un elemento real en el DOM para dibujar el canvas.
     const hiddenContainer = document.createElement('div');
-    hiddenContainer.style.position = 'fixed';
-    hiddenContainer.style.left = '-9999px';
+    hiddenContainer.style.cssText = 'position:fixed;left:-9999px;top:-9999px;';
     document.body.appendChild(hiddenContainer);
 
-    const QR_RENDER_PX = 180; // resolución del canvas para que 15mm se vea nítido al imprimir
-    const qrData = dbInventoryItems.map(item => {
+    const QR_RENDER_PX = Math.round(qrSize * 14);
+    const qrData = items.map(item => {
         const box = document.createElement('div');
         hiddenContainer.appendChild(box);
-        new QRCode(box, { text: item.id, width: QR_RENDER_PX, height: QR_RENDER_PX, correctLevel: QRCode.CorrectLevel.M });
+        const qrText = mode === 'kits' ? `kit:${item.id}` : item.id;
+        new QRCode(box, { text: qrText, width: QR_RENDER_PX, height: QR_RENDER_PX, correctLevel: QRCode.CorrectLevel.M });
         const canvasEl = box.querySelector('canvas');
         const imgEl    = box.querySelector('img');
-        const dataUrl  = canvasEl ? canvasEl.toDataURL('image/png') : (imgEl ? imgEl.src : '');
-        return { item, dataUrl };
+        return { item, dataUrl: canvasEl ? canvasEl.toDataURL('image/png') : (imgEl ? imgEl.src : '') };
     });
     document.body.removeChild(hiddenContainer);
 
@@ -7704,14 +7830,19 @@ async function printAllInventoryQRs() {
     const doc = JSPDF ? new JSPDF({ unit: 'mm', format: 'letter' }) : new jsPDF({ unit: 'mm', format: 'letter' });
 
     const pageW = 215.9, pageH = 279.4;
-    const marginX = 12, marginY = 14;
-    const qrSize = 15;      // mm, tamaño solicitado para que no sea invasivo
-    const cellW  = qrSize + 6;
-    const cellH  = qrSize + 9; // espacio extra abajo para nombre + serial
+    const marginX = 10, marginY = 12;
+    const pad   = Math.max(2, qrSize * 0.18);  // padding interno dentro de la celda
+    const textH = Math.max(6, qrSize * 0.55);  // altura reservada para texto debajo del QR
+    const cellW = qrSize + pad * 2;
+    const cellH = qrSize + pad + textH;
 
-    const cols = Math.max(1, Math.floor((pageW - marginX * 2) / cellW));
-    const rows = Math.max(1, Math.floor((pageH - marginY * 2) / cellH));
-    const perPage = cols * rows;
+    const cols       = Math.max(1, Math.floor((pageW - marginX * 2) / cellW));
+    const rowsPerPg  = Math.max(1, Math.floor((pageH - marginY * 2) / cellH));
+    const perPage    = cols * rowsPerPg;
+
+    const nameFontSz   = Math.max(4.5, qrSize * 0.41);
+    const subFontSz    = Math.max(3.5, qrSize * 0.34);
+    const maxNameChars = Math.round(14 * (qrSize / 15));
 
     doc.setFont('helvetica', 'normal');
     const _setDash = (on) => {
@@ -7724,116 +7855,42 @@ async function printAllInventoryQRs() {
         const idxInPage = idx % perPage;
         if(idx > 0 && idxInPage === 0) doc.addPage();
 
-        const col = idxInPage % cols;
-        const row = Math.floor(idxInPage / cols);
-        const x = marginX + col * cellW;
-        const y = marginY + row * cellH;
-        const qrX    = x + (cellW - qrSize) / 2; // centrado horizontal
+        const col     = idxInPage % cols;
+        const row     = Math.floor(idxInPage / cols);
+        const x       = marginX + col * cellW;
+        const y       = marginY + row * cellH;
+        const qrX     = x + pad;
+        const qrY     = y + pad * 0.5;
         const centerX = x + cellW / 2;
 
         // Línea de corte punteada
-        doc.setDrawColor(180, 180, 180);
-        doc.setLineWidth(0.15);
+        doc.setDrawColor(185, 185, 185);
+        doc.setLineWidth(0.12);
         _setDash(true);
         doc.rect(x, y, cellW, cellH, 'S');
         doc.setDrawColor(0, 0, 0);
         doc.setLineWidth(0.2);
         _setDash(false);
 
-        doc.addImage(dataUrl, 'PNG', qrX, y + 1, qrSize, qrSize);
+        doc.addImage(dataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
 
-        const name = item.name.length > 18 ? item.name.slice(0, 18) + '…' : item.name;
-        doc.setFontSize(6.5);
+        const name = item.name.length > maxNameChars ? item.name.slice(0, maxNameChars) + '…' : item.name;
+        doc.setFontSize(nameFontSz);
         doc.setTextColor(30);
-        doc.text(name, centerX, y + qrSize + 4, { align: 'center' });
+        doc.text(name, centerX, qrY + qrSize + nameFontSz * 0.38, { align: 'center' });
 
-        if(item.serial_number) {
-            doc.setFontSize(5.5);
+        const subtitle = mode === 'kits' ? 'Kit' : (item.serial_number || '');
+        if(subtitle) {
+            doc.setFontSize(subFontSz);
             doc.setTextColor(130);
-            doc.text(item.serial_number, centerX, y + qrSize + 6.5, { align: 'center' });
+            doc.text(subtitle, centerX, qrY + qrSize + nameFontSz * 0.38 + subFontSz * 0.48, { align: 'center' });
         }
     });
 
-    doc.save(`QR_Inventario_CBM_${new Date().toISOString().slice(0, 10)}.pdf`);
-}
-
-async function printAllKitQRs() {
-    if(dbInventoryKits.length === 0) { showToast('No hay kits en el inventario', 'error'); return; }
-    if(typeof window.jspdf === 'undefined' && typeof jsPDF === 'undefined') {
-        showToast('La librería PDF está cargando. Intenta en unos segundos.', 'error'); return;
-    }
-    showToast('Generando PDF de kits…', 'success');
-
-    const hiddenContainer = document.createElement('div');
-    hiddenContainer.style.position = 'fixed';
-    hiddenContainer.style.left = '-9999px';
-    document.body.appendChild(hiddenContainer);
-
-    const QR_RENDER_PX = 180;
-    const qrData = dbInventoryKits.map(kit => {
-        const box = document.createElement('div');
-        hiddenContainer.appendChild(box);
-        new QRCode(box, { text: `kit:${kit.id}`, width: QR_RENDER_PX, height: QR_RENDER_PX, correctLevel: QRCode.CorrectLevel.M });
-        const canvasEl = box.querySelector('canvas');
-        const imgEl    = box.querySelector('img');
-        const dataUrl  = canvasEl ? canvasEl.toDataURL('image/png') : (imgEl ? imgEl.src : '');
-        return { kit, dataUrl };
-    });
-    document.body.removeChild(hiddenContainer);
-
-    const { jsPDF: JSPDF } = window.jspdf || {};
-    const doc = JSPDF ? new JSPDF({ unit: 'mm', format: 'letter' }) : new jsPDF({ unit: 'mm', format: 'letter' });
-
-    const pageW = 215.9, pageH = 279.4;
-    const marginX = 12, marginY = 14;
-    const qrSize = 15;
-    const cellW  = qrSize + 6;
-    const cellH  = qrSize + 9;
-
-    const cols = Math.max(1, Math.floor((pageW - marginX * 2) / cellW));
-    const rows = Math.max(1, Math.floor((pageH - marginY * 2) / cellH));
-    const perPage = cols * rows;
-
-    doc.setFont('helvetica', 'normal');
-    const _setDash = (on) => {
-        try { doc.setLineDash(on ? [1, 1.5] : [], 0); } catch(e) {
-            try { doc.setLineDashPattern(on ? [1, 1.5] : [], 0); } catch(e2) {}
-        }
-    };
-
-    qrData.forEach(({ kit, dataUrl }, idx) => {
-        const idxInPage = idx % perPage;
-        if(idx > 0 && idxInPage === 0) doc.addPage();
-
-        const col = idxInPage % cols;
-        const row = Math.floor(idxInPage / cols);
-        const x = marginX + col * cellW;
-        const y = marginY + row * cellH;
-        const qrX     = x + (cellW - qrSize) / 2;
-        const centerX = x + cellW / 2;
-
-        // Línea de corte punteada
-        doc.setDrawColor(180, 180, 180);
-        doc.setLineWidth(0.15);
-        _setDash(true);
-        doc.rect(x, y, cellW, cellH, 'S');
-        doc.setDrawColor(0, 0, 0);
-        doc.setLineWidth(0.2);
-        _setDash(false);
-
-        doc.addImage(dataUrl, 'PNG', qrX, y + 1, qrSize, qrSize);
-
-        const name = kit.name.length > 18 ? kit.name.slice(0, 18) + '…' : kit.name;
-        doc.setFontSize(6.5);
-        doc.setTextColor(30);
-        doc.text(name, centerX, y + qrSize + 4, { align: 'center' });
-
-        doc.setFontSize(5.5);
-        doc.setTextColor(130);
-        doc.text('Kit', centerX, y + qrSize + 6.5, { align: 'center' });
-    });
-
-    doc.save(`QR_Kits_CBM_${new Date().toISOString().slice(0, 10)}.pdf`);
+    const filename = mode === 'kits'
+        ? `QR_Kits_CBM_${new Date().toISOString().slice(0, 10)}.pdf`
+        : `QR_Inventario_CBM_${new Date().toISOString().slice(0, 10)}.pdf`;
+    doc.save(filename);
 }
 
 // ── Escáner QR ────────────────────────────────────────────────────────────────
