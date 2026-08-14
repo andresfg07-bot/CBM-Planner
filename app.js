@@ -7031,7 +7031,7 @@ function renderInventoryEnCampo() {
         return `
         <tr>
             <td><strong>${loan.analyst_name}</strong></td>
-            <td>${item.name}<div style="font-size:0.72rem;color:#64748b;">${_invCatLabel[item.category]||item.category}</div></td>
+            <td>${item.name}${item.serial_number ? ` <span style="color:#94a3b8;font-weight:400;">(${item.serial_number})</span>` : ''}<div style="font-size:0.72rem;color:#64748b;">${_invCatLabel[item.category]||item.category}</div></td>
             <td>${since}</td>
             <td style="${alertStyle}">${days} día${days!==1?'s':''}</td>
             <td style="text-align:center;">
@@ -7331,7 +7331,7 @@ function _renderInventoryHistorialFiltered() {
                     <td style="color:#94a3b8;font-size:0.75rem;padding-left:1.5rem;">${iOut}</td>
                     <td></td>
                     <td style="padding-left:2rem;">
-                        <span style="font-size:0.83rem;">${item?.name || '(ítem eliminado)'}</span>
+                        <span style="font-size:0.83rem;">${item?.name || '(ítem eliminado)'}${item?.serial_number ? ` <span style="color:#94a3b8;font-weight:400;">(${item.serial_number})</span>` : ''}</span>
                         <div style="font-size:0.7rem;color:#94a3b8;">${item ? (_invCatLabel[item.category]||item.category) : ''}</div>
                     </td>
                     <td style="color:#94a3b8;font-size:0.75rem;">${iIn}</td>
@@ -7349,7 +7349,7 @@ function _renderInventoryHistorialFiltered() {
         <tr>
             <td style="color:#64748b;">${out}</td>
             <td><strong>${loan.analyst_name}</strong></td>
-            <td>${item?.name || '(ítem eliminado)'}<div style="font-size:0.72rem;color:#94a3b8;">${item ? (_invCatLabel[item.category]||item.category) : ''}</div></td>
+            <td>${item?.name || '(ítem eliminado)'}${item?.serial_number ? ` <span style="color:#94a3b8;font-weight:400;">(${item.serial_number})</span>` : ''}<div style="font-size:0.72rem;color:#94a3b8;">${item ? (_invCatLabel[item.category]||item.category) : ''}</div></td>
             <td style="color:#64748b;">${inn}</td>
             <td style="color:#64748b;">${days} día${days!==1?'s':''}</td>
         </tr>`;
