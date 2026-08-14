@@ -7903,10 +7903,10 @@ function openInventoryScannerModal() {
 
     setTimeout(() => {
         try {
-            _invHtml5Scanner = new Html5Qrcode('inv-qr-reader');
+            _invHtml5Scanner = new Html5Qrcode('inv-qr-reader', { experimentalFeatures: { useBarCodeDetectorIfSupported: true } });
             _invHtml5Scanner.start(
                 { facingMode: 'environment' },
-                { fps: 10, qrbox: { width: 250, height: 250 } },
+                { fps: 15, qrbox: { width: 250, height: 250 } },
                 (decodedText) => {
                     _invHtml5Scanner.stop().catch(() => {});
                     handleInventoryQRScanned(decodedText);
@@ -7945,10 +7945,10 @@ function resetInventoryScanner() {
     _invScanAction = null;
     setTimeout(() => {
         try {
-            _invHtml5Scanner = new Html5Qrcode('inv-qr-reader');
+            _invHtml5Scanner = new Html5Qrcode('inv-qr-reader', { experimentalFeatures: { useBarCodeDetectorIfSupported: true } });
             _invHtml5Scanner.start(
                 { facingMode: 'environment' },
-                { fps: 10, qrbox: { width: 250, height: 250 } },
+                { fps: 15, qrbox: { width: 250, height: 250 } },
                 (decodedText) => {
                     _invHtml5Scanner.stop().catch(() => {});
                     handleInventoryQRScanned(decodedText);
