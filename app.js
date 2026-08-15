@@ -7894,6 +7894,107 @@ async function _generateQRPDF(items, qrSize, mode) {
 }
 
 // ── Escáner QR ────────────────────────────────────────────────────────────────
+// Estrategia dual:
+//   Android Chrome  → BarcodeDetector nativo directo (misma API que la cámara del sistema)
+//   iOS / resto     → html5-qrcode como fallback
+
+let _nativeScanStream   = null; // MediaStream activo en el escáner nativo
+let _nativeScanInterval = null; // handle del setInterval de detección
+let _nativeScanBusy     = false;
+
+async function _startNativeBarcodeScanner(onSuccess) {
+    const box = document.getElementById('inv-qr-reader');
+    if(!box) return;
+
+    // Construir el viewfinder nativo con video + mira de encuadre
+    box.innerHTML = `
+        <div style="position:relative;width:100%;background:#000;border-radius:8px;overflow:hidden;min-height:280px;">
+            <video id="_invNativeVideo" playsinline autoplay muted
+                style="width:100%;display:block;max-height:340px;object-fit:cover;"></video>
+            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;">
+                <div style="width:210px;height:210px;position:relative;">
+                    <div style="position:absolute;inset:0;box-shadow:0 0 0 9999px rgba(0,0,0,0.45);border-radius:4px;"></div>
+                    <!-- esquinas de la mira -->
+                    <div style="position:absolute;top:0;left:0;width:24px;height:24px;border-top:3px solid #fff;border-left:3px solid #fff;border-radius:3px 0 0 0;"></div>
+                    <div style="position:absolute;top:0;right:0;width:24px;height:24px;border-top:3px solid #fff;border-right:3px solid #fff;border-radius:0 3px 0 0;"></div>
+                    <div style="position:absolute;bottom:0;left:0;width:24px;height:24px;border-bottom:3px solid #fff;border-left:3px solid #fff;border-radius:0 0 0 3px;"></div>
+                    <div style="position:absolute;bottom:0;right:0;width:24px;height:24px;border-bottom:3px solid #fff;border-right:3px solid #fff;border-radius:0 0 3px 0;"></div>
+                </div>
+            </div>
+            <div style="position:absolute;bottom:8px;left:0;right:0;text-align:center;font-size:0.7rem;color:rgba(255,255,255,0.7);">Apunta el QR hacia la mira</div>
+        </div>`;
+
+    try {
+        _nativeScanStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: { ideal: 'environment' },
+                width:  { ideal: 1920, min: 640 },
+                height: { ideal: 1080, min: 480 }
+            }
+        });
+        const video = document.getElementById('_invNativeVideo');
+        if(!video) { _stopNativeBarcodeScanner(); return; }
+        video.srcObject = _nativeScanStream;
+        await video.play();
+
+        const detector = new BarcodeDetector({ formats: ['qr_code'] });
+
+        _nativeScanInterval = setInterval(async () => {
+            if(_nativeScanBusy || !_nativeScanStream) return;
+            const v = document.getElementById('_invNativeVideo');
+            if(!v || v.readyState < 2) return;
+            _nativeScanBusy = true;
+            try {
+                const codes = await detector.detect(v);
+                if(codes.length > 0) {
+                    clearInterval(_nativeScanInterval);
+                    _nativeScanInterval = null;
+                    _stopNativeBarcodeScanner();
+                    onSuccess(codes[0].rawValue);
+                }
+            } catch(e) { /* frame sin QR, seguir */ }
+            _nativeScanBusy = false;
+        }, 180); // ~5-6 fps de detección
+
+    } catch(err) {
+        showToast('No se pudo acceder a la cámara: ' + err, 'error');
+        closeInventoryScanner();
+    }
+}
+
+function _stopNativeBarcodeScanner() {
+    if(_nativeScanInterval) { clearInterval(_nativeScanInterval); _nativeScanInterval = null; }
+    _nativeScanBusy = false;
+    if(_nativeScanStream) {
+        _nativeScanStream.getTracks().forEach(t => t.stop());
+        _nativeScanStream = null;
+    }
+    const box = document.getElementById('inv-qr-reader');
+    if(box) box.innerHTML = '';
+}
+
+function _startHtml5Scanner(onSuccess, onError) {
+    try {
+        _invHtml5Scanner = new Html5Qrcode('inv-qr-reader', {
+            experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+        });
+        _invHtml5Scanner.start(
+            { facingMode: 'environment' },
+            { fps: 15, qrbox: { width: 250, height: 250 } },
+            (decodedText) => {
+                _invHtml5Scanner.stop().catch(() => {});
+                onSuccess(decodedText);
+            },
+            () => {}
+        ).catch(err => { if(onError) onError(err); });
+    } catch(e) {
+        if(onError) onError(e);
+    }
+}
+
+function _useNativeScanner() {
+    return typeof BarcodeDetector !== 'undefined';
+}
 
 function openInventoryScannerModal() {
     document.getElementById('inventoryScanModal').classList.add('active');
@@ -7902,38 +8003,26 @@ function openInventoryScannerModal() {
     _invScanAction = null;
 
     setTimeout(() => {
-        try {
-            _invHtml5Scanner = new Html5Qrcode('inv-qr-reader', { experimentalFeatures: { useBarCodeDetectorIfSupported: true } });
-            _invHtml5Scanner.start(
-                { facingMode: 'environment' },
-                { fps: 15, qrbox: { width: 250, height: 250 } },
-                (decodedText) => {
-                    _invHtml5Scanner.stop().catch(() => {});
-                    handleInventoryQRScanned(decodedText);
-                },
-                () => {}
-            ).catch(err => {
-                showToast('No se pudo acceder a la cámara: ' + err, 'error');
-                closeInventoryScanner();
-            });
-        } catch(e) {
-            showToast('Error iniciando escáner: ' + e, 'error');
+        if(_useNativeScanner()) {
+            _startNativeBarcodeScanner((text) => handleInventoryQRScanned(text));
+        } else {
+            _startHtml5Scanner(
+                (text) => handleInventoryQRScanned(text),
+                (err)  => { showToast('No se pudo acceder a la cámara: ' + err, 'error'); closeInventoryScanner(); }
+            );
         }
     }, 200);
 }
 
 function closeInventoryScanner() {
+    _stopNativeBarcodeScanner();
     if(_invHtml5Scanner) {
         try {
             const scanner = _invHtml5Scanner;
-            // stop()/clear() lanzan sincrónicamente si el escáner nunca llegó a iniciar
-            // (ej: cámara denegada). Deben quedar aislados para no bloquear el cierre del modal.
             Promise.resolve()
-                .then(() => scanner.stop())
-                .catch(() => {})
-                .then(() => scanner.clear())
-                .catch(() => {});
-        } catch(e) { /* ignorar: el escáner nunca llegó a iniciar */ }
+                .then(() => scanner.stop()).catch(() => {})
+                .then(() => scanner.clear()).catch(() => {});
+        } catch(e) {}
         _invHtml5Scanner = null;
     }
     closeModal('inventoryScanModal');
@@ -7943,19 +8032,20 @@ function resetInventoryScanner() {
     document.getElementById('invScan_scannerBox').style.display = 'block';
     document.getElementById('invScan_result').style.display = 'none';
     _invScanAction = null;
+
+    // Detener lo que esté corriendo antes de reiniciar
+    _stopNativeBarcodeScanner();
+    if(_invHtml5Scanner) {
+        try { _invHtml5Scanner.stop().catch(() => {}); } catch(e) {}
+        _invHtml5Scanner = null;
+    }
+
     setTimeout(() => {
-        try {
-            _invHtml5Scanner = new Html5Qrcode('inv-qr-reader', { experimentalFeatures: { useBarCodeDetectorIfSupported: true } });
-            _invHtml5Scanner.start(
-                { facingMode: 'environment' },
-                { fps: 15, qrbox: { width: 250, height: 250 } },
-                (decodedText) => {
-                    _invHtml5Scanner.stop().catch(() => {});
-                    handleInventoryQRScanned(decodedText);
-                },
-                () => {}
-            ).catch(() => {});
-        } catch(e) {}
+        if(_useNativeScanner()) {
+            _startNativeBarcodeScanner((text) => handleInventoryQRScanned(text));
+        } else {
+            _startHtml5Scanner((text) => handleInventoryQRScanned(text), () => {});
+        }
     }, 200);
 }
 
