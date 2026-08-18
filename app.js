@@ -1063,7 +1063,15 @@ function renderMyWorkCard(task) {
             <div class="mywork-card-actions">
                 ${canExecute ? `<button class="mywork-btn btn-execute" onclick="analystMarkExecuted('${task.id}')">✓ Marcar como Ejecutada</button>` : ''}
                 ${canCsat    ? `<button class="mywork-btn btn-csat"    onclick="analystOpenCsat('${task.id}')">📋 Llenar Encuesta CSAT</button>` : ''}
-                ${csatDone && task.clientNoResponse ? `<div class="mywork-csat-done" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa;">⚠️ Sin calificación — Cliente no respondió</div>` : ''}
+                ${csatDone && task.clientNoResponse ? `
+                    <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                        <div class="mywork-csat-done" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa;">⚠️ Sin calificación — Cliente no respondió</div>
+                        <button onclick="reopenCsat('${task.id}')"
+                            title="El cliente respondió — toca aquí para reabrir y llenar el CSAT"
+                            style="font-size:0.65rem;padding:0.18rem 0.5rem;background:transparent;color:#6b7280;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;white-space:nowrap;">
+                            🔄 Ya respondió
+                        </button>
+                    </div>` : ''}
                 ${csatDone && !task.clientNoResponse ? `<div class="mywork-csat-done">⭐ CSAT completada — ${task.csatScore}/5</div>` : ''}
             </div>` : ''}
         </div>`;
