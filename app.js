@@ -7919,22 +7919,30 @@ async function _startNativeBarcodeScanner(onSuccess) {
     const box = document.getElementById('inv-qr-reader');
     if(!box) return;
 
-    // Construir el viewfinder nativo con video + mira de encuadre
     box.innerHTML = `
-        <div style="position:relative;width:100%;background:#000;border-radius:8px;overflow:hidden;min-height:280px;">
+        <div id="_invScanWrap" style="position:relative;width:100%;background:#000;border-radius:8px;overflow:hidden;min-height:280px;">
             <video id="_invNativeVideo" playsinline autoplay muted
-                style="width:100%;display:block;max-height:340px;object-fit:cover;"></video>
+                style="width:100%;display:block;max-height:340px;object-fit:cover;cursor:crosshair;"></video>
             <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;">
                 <div style="width:210px;height:210px;position:relative;">
                     <div style="position:absolute;inset:0;box-shadow:0 0 0 9999px rgba(0,0,0,0.45);border-radius:4px;"></div>
-                    <!-- esquinas de la mira -->
                     <div style="position:absolute;top:0;left:0;width:24px;height:24px;border-top:3px solid #fff;border-left:3px solid #fff;border-radius:3px 0 0 0;"></div>
                     <div style="position:absolute;top:0;right:0;width:24px;height:24px;border-top:3px solid #fff;border-right:3px solid #fff;border-radius:0 3px 0 0;"></div>
                     <div style="position:absolute;bottom:0;left:0;width:24px;height:24px;border-bottom:3px solid #fff;border-left:3px solid #fff;border-radius:0 0 0 3px;"></div>
                     <div style="position:absolute;bottom:0;right:0;width:24px;height:24px;border-bottom:3px solid #fff;border-right:3px solid #fff;border-radius:0 0 3px 0;"></div>
                 </div>
             </div>
-            <div style="position:absolute;bottom:8px;left:0;right:0;text-align:center;font-size:0.7rem;color:rgba(255,255,255,0.7);">Apunta el QR hacia la mira</div>
+            <!-- barra inferior: hint + zoom -->
+            <div style="position:absolute;bottom:0;left:0;right:0;padding:5px 10px;display:flex;align-items:center;justify-content:space-between;background:rgba(0,0,0,0.4);">
+                <span style="font-size:0.65rem;color:rgba(255,255,255,0.7);">Toca la imagen para enfocar</span>
+                <div id="_invZoomControls" style="display:none;align-items:center;gap:4px;">
+                    <button id="_invZoomOut" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.25);color:#fff;border-radius:5px;width:28px;height:28px;font-size:1.1rem;cursor:pointer;line-height:1;touch-action:manipulation;">−</button>
+                    <span id="_invZoomLabel" style="font-size:0.65rem;color:#fff;min-width:30px;text-align:center;">1×</span>
+                    <button id="_invZoomIn"  style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.25);color:#fff;border-radius:5px;width:28px;height:28px;font-size:1.1rem;cursor:pointer;line-height:1;touch-action:manipulation;">+</button>
+                </div>
+            </div>
+            <!-- anillo de tap-to-focus -->
+            <div id="_invFocusRing" style="display:none;position:absolute;width:48px;height:48px;border:2px solid #a4e5ff;border-radius:50%;pointer-events:none;transform:translate(-50%,-50%);transition:opacity 0.4s;box-shadow:0 0 8px rgba(164,229,255,0.6);"></div>
         </div>`;
 
     try {
@@ -7949,6 +7957,56 @@ async function _startNativeBarcodeScanner(onSuccess) {
         if(!video) { _stopNativeBarcodeScanner(); return; }
         video.srcObject = _nativeScanStream;
         await video.play();
+
+        const track = _nativeScanStream.getVideoTracks()[0];
+
+        // Activar autofoco continuo al arrancar (ayuda en Samsung Galaxy A-series)
+        if(track) {
+            try { await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch(e) {}
+        }
+
+        // Controles de zoom (solo si el dispositivo los soporta)
+        if(track) {
+            try {
+                const caps = track.getCapabilities ? track.getCapabilities() : {};
+                if(caps.zoom && caps.zoom.max > caps.zoom.min) {
+                    let zoomVal = caps.zoom.min;
+                    const step = (caps.zoom.max - caps.zoom.min) / 8;
+                    const zoomLabel    = document.getElementById('_invZoomLabel');
+                    const zoomControls = document.getElementById('_invZoomControls');
+                    if(zoomControls) zoomControls.style.display = 'flex';
+
+                    const applyZoom = async (v) => {
+                        zoomVal = Math.max(caps.zoom.min, Math.min(caps.zoom.max, v));
+                        try { await track.applyConstraints({ advanced: [{ zoom: zoomVal }] }); } catch(e) {}
+                        if(zoomLabel) zoomLabel.textContent = zoomVal.toFixed(1) + '×';
+                    };
+
+                    document.getElementById('_invZoomIn') ?.addEventListener('click', e => { e.stopPropagation(); applyZoom(zoomVal + step); });
+                    document.getElementById('_invZoomOut')?.addEventListener('click', e => { e.stopPropagation(); applyZoom(zoomVal - step); });
+                }
+            } catch(e) {}
+        }
+
+        // Tap para enfocar: dispara single-shot AF y muestra anillo visual
+        video.addEventListener('click', async (e) => {
+            const wrap = document.getElementById('_invScanWrap');
+            const ring = document.getElementById('_invFocusRing');
+            if(ring && wrap) {
+                const rect = wrap.getBoundingClientRect();
+                ring.style.left    = (e.clientX - rect.left) + 'px';
+                ring.style.top     = (e.clientY - rect.top)  + 'px';
+                ring.style.display = 'block';
+                ring.style.opacity = '1';
+                setTimeout(() => {
+                    ring.style.opacity = '0';
+                    setTimeout(() => { ring.style.display = 'none'; }, 400);
+                }, 700);
+            }
+            if(track) {
+                try { await track.applyConstraints({ advanced: [{ focusMode: 'single-shot' }] }); } catch(e) {}
+            }
+        });
 
         const detector = new BarcodeDetector({ formats: ['qr_code'] });
 
@@ -7967,7 +8025,7 @@ async function _startNativeBarcodeScanner(onSuccess) {
                 }
             } catch(e) { /* frame sin QR, seguir */ }
             _nativeScanBusy = false;
-        }, 180); // ~5-6 fps de detección
+        }, 180);
 
     } catch(err) {
         showToast('No se pudo acceder a la cámara: ' + err, 'error');
