@@ -1848,17 +1848,22 @@ function renderTasksTable(container) {
                                 ` : (role === 'commercial' || role === 'viewer') ? `
                                     ${serviceDetailsIcon(t)}
                                 ` : role === 'assistant' ? `
-                                    <div style="display:flex;gap:0.3rem;align-items:center;">
+                                    <div style="display:flex;gap:0.3rem;align-items:center;flex-wrap:wrap;">
                                         ${t.status === 'ejecutada' ? `
                                             <button class="mywork-btn btn-execute" style="font-size:0.68rem;padding:0.25rem 0.5rem;white-space:nowrap;"
                                                 onclick="updateTaskStatus('${t.id}','facturada')">
-                                                💰 Facturar
+                                                💰 A Facturada
                                             </button>` : `
                                             <span style="font-size:0.68rem;color:var(--clr-green);font-weight:600;white-space:nowrap;">✓ Facturada</span>`}
                                         <button class="mywork-btn" style="font-size:0.68rem;padding:0.25rem 0.5rem;background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;border-radius:6px;cursor:pointer;white-space:nowrap;"
                                             onclick="openEditBudgetModal('${t.id}')">
                                             ✏️ Editar valor
                                         </button>
+                                        ${getClientCompanyBase(t.client) === 'metro' ? `
+                                        <button class="mywork-btn" style="font-size:0.68rem;padding:0.25rem 0.5rem;background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;border-radius:6px;cursor:pointer;white-space:nowrap;"
+                                            onclick="openClosingMeetingModal('${t.id}')">
+                                            📋 CSAT
+                                        </button>` : ''}
                                     </div>
                                 ` : ''}
                             </div>

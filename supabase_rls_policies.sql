@@ -39,18 +39,31 @@ ON public.client_analyst_preferences FOR SELECT TO authenticated USING (true);
 -- ======================================================================================
 
 -- === Tabla: tasks ===
-CREATE POLICY "Permitir insert a admin (tasks)" 
-ON public.tasks FOR INSERT TO authenticated 
+CREATE POLICY "Permitir insert a admin (tasks)"
+ON public.tasks FOR INSERT TO authenticated
 WITH CHECK (auth.jwt() ->> 'email' IN ('agonzalez@a-maq.com'));
 
-CREATE POLICY "Permitir update a admin (tasks)" 
-ON public.tasks FOR UPDATE TO authenticated 
-USING (auth.jwt() ->> 'email' IN ('agonzalez@a-maq.com')) 
+CREATE POLICY "Permitir update a admin (tasks)"
+ON public.tasks FOR UPDATE TO authenticated
+USING (auth.jwt() ->> 'email' IN ('agonzalez@a-maq.com'))
 WITH CHECK (auth.jwt() ->> 'email' IN ('agonzalez@a-maq.com'));
 
-CREATE POLICY "Permitir delete a admin (tasks)" 
-ON public.tasks FOR DELETE TO authenticated 
+CREATE POLICY "Permitir delete a admin (tasks)"
+ON public.tasks FOR DELETE TO authenticated
 USING (auth.jwt() ->> 'email' IN ('agonzalez@a-maq.com'));
+
+-- Asistente (ypalacio@a-maq.com): puede actualizar gestiones del cliente METRO
+-- Cubre: cambiar estado a 'facturada', registrar CSAT y editar valor presupuestal.
+CREATE POLICY "Permitir update a asistente en tareas METRO (tasks)"
+ON public.tasks FOR UPDATE TO authenticated
+USING (
+    auth.jwt() ->> 'email' = 'ypalacio@a-maq.com'
+    AND client = 'METRO'
+)
+WITH CHECK (
+    auth.jwt() ->> 'email' = 'ypalacio@a-maq.com'
+    AND client = 'METRO'
+);
 
 
 -- === Tabla: clients ===
