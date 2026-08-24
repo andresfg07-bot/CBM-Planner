@@ -8127,6 +8127,10 @@ async function handleInventoryQRScanned(scannedId) {
         return;
     }
 
+    // Refrescar datos antes de decidir salida vs devolución,
+    // para que el estado en memoria nunca esté desactualizado.
+    await loadInventoryData();
+
     document.getElementById('invScan_scannerBox').style.display = 'none';
     document.getElementById('invScan_result').style.display = 'block';
 
@@ -8154,15 +8158,21 @@ async function handleInventoryQRScanned(scannedId) {
         ${activeLoan ? `<div style="font-size:0.78rem;color:#d97706;margin-top:0.5rem;">En poder de: <strong>${activeLoan.analyst_name}</strong></div>` : ''}
     `;
 
-    if(item.status === 'disponible') {
+    // activeLoan es fuente de verdad: si hay préstamo activo en DB → siempre es devolución,
+    // sin importar si item.status en caché local quedó desactualizado.
+    if(activeLoan) {
+        _invScanAction = { type: 'checkin', itemId: item.id, loanId: activeLoan.id };
+        const sameAnalyst = activeLoan.analyst_name === analystName;
+        actionBtn.textContent = sameAnalyst ? `↩️ Devolver "${item.name}"` : `↩️ Registrar devolución (era de ${activeLoan.analyst_name})`;
+        actionBtn.style.display = '';
+    } else if(item.status === 'disponible') {
         _invScanAction = { type: 'checkout', itemId: item.id };
         actionBtn.textContent = `✅ Llevar "${item.name}"`;
         actionBtn.style.display = '';
     } else if(item.status === 'prestado') {
-        _invScanAction = { type: 'checkin', itemId: item.id, loanId: activeLoan?.id };
-        const sameAnalyst = activeLoan?.analyst_name === analystName;
-        actionBtn.textContent = sameAnalyst ? `↩️ Devolver "${item.name}"` : `↩️ Registrar devolución (era de ${activeLoan?.analyst_name})`;
-        actionBtn.style.display = '';
+        // Estado inconsistente: item marcado prestado pero sin préstamo activo en DB
+        actionBtn.style.display = 'none';
+        card.innerHTML += `<div style="margin-top:0.75rem;font-size:0.8rem;color:#d97706;">⚠️ Este ítem aparece como prestado pero no tiene un préstamo activo registrado. Consulta al administrador.</div>`;
     } else {
         actionBtn.style.display = 'none';
         card.innerHTML += `<div style="margin-top:0.75rem;font-size:0.8rem;color:#dc2626;">Este ítem está marcado como <strong>${_invStatusLabel[item.status]}</strong> y no puede prestarse.</div>`;
