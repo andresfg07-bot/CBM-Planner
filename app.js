@@ -5848,6 +5848,7 @@ function getCsatTableData() {
 }
 
 function _csatEstadoCierre(t) {
+    if(t.serviceType === 'Calibración') return { label: '— No aplica', color: '#94a3b8', bg: '#f8fafc' };
     // Fallback para gestiones antiguas ejecutadas antes de registrar executedAt:
     // usan el último día de informe programado como referencia, igual que antes.
     const startRef = t.executedAt
