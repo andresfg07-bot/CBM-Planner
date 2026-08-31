@@ -279,7 +279,7 @@ function setMyWorkFilter(filter) {
 function getCsatOverdueTasks(analystName) {
     const today = Date.now();
     return tasks.filter(t => {
-        if(t.isAbsence || t.serviceType === 'Metro Administrativo' || t.serviceType === 'Metro Terceros') return false;
+        if(t.isAbsence || t.serviceType === 'Metro Administrativo' || t.serviceType === 'Metro Terceros' || t.serviceType === 'Calibración') return false;
         if(t.status !== 'ejecutada') return false;
         if(t.csatScore || t.clientNoResponse) return false;
         if(analystName && !t.analysts_assignment?.some(a => a.name === analystName)) return false;
@@ -644,7 +644,7 @@ async function runNotificationsCheck() {
     if(role === 'admin') {
         const today = Date.now();
         const veryOverdue = tasks.filter(t => {
-            if(t.isAbsence || t.serviceType === 'Metro Administrativo' || t.serviceType === 'Metro Terceros') return false;
+            if(t.isAbsence || t.serviceType === 'Metro Administrativo' || t.serviceType === 'Metro Terceros' || t.serviceType === 'Calibración') return false;
             if(t.status !== 'ejecutada') return false;
             if(t.csatScore || t.clientNoResponse) return false;
             const startRef = t.executedAt
@@ -1029,7 +1029,7 @@ function renderMyWorkCard(task) {
     const canExecute   = task.status === 'programada';
     // El cierre CSAT puede hacerse antes o después de facturar
     const closable     = task.status === 'ejecutada' || task.status === 'facturada';
-    const canCsat      = closable && !task.csatScore && !task.clientNoResponse;
+    const canCsat      = closable && !task.csatScore && !task.clientNoResponse && task.serviceType !== 'Calibración';
     const csatDone     = closable && (task.csatScore || task.clientNoResponse);
 
     return `
@@ -1848,7 +1848,7 @@ function renderTasksTable(container) {
                             <div class="action-icons">
                                 ${role === 'admin' ? `
                                     ${actionIcon('edit',   `openEditTaskModal('${t.id}')`,       'Editar')}
-                                    ${actionIcon('csat',   `openClosingMeetingModal('${t.id}')`, 'Reunión de Cierre')}
+                                    ${t.serviceType !== 'Calibración' ? actionIcon('csat',   `openClosingMeetingModal('${t.id}')`, 'Reunión de Cierre') : ''}
                                     ${serviceDetailsIcon(t)}
                                     ${(t.csatScore || t.clientNoResponse) ? actionIcon('reopen', `reopenCsat('${t.id}')`, 'Reabrir CSAT (para que el analista lo llene de nuevo)') : ''}
                                     ${t.status === 'programada' ? actionIcon('revert', `revertToProjected('${t.id}')`, 'Revertir a Proyectada') : ''}
@@ -1867,7 +1867,7 @@ function renderTasksTable(container) {
                                             onclick="openEditBudgetModal('${t.id}')">
                                             ✏️ Editar valor
                                         </button>
-                                        ${getClientCompanyBase(t.client) === 'metro' ? `
+                                        ${getClientCompanyBase(t.client) === 'metro' && t.serviceType !== 'Calibración' ? `
                                         <button class="mywork-btn" style="font-size:0.68rem;padding:0.25rem 0.5rem;background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;border-radius:6px;cursor:pointer;white-space:nowrap;"
                                             onclick="openClosingMeetingModal('${t.id}')">
                                             📋 CSAT
