@@ -1582,7 +1582,7 @@ function updatePeriodDisplay() {
     if(!display) return;
 
     if (calendarView === 'month') {
-        display.textContent = `${monthNames[currentMonth - 1]} ${currentYear}`;
+        display.textContent = `${monthNames[currentMonth - 1]} ${currentYear} ▾`;
         display.style.cursor = 'pointer';
         display.title = 'Clic para elegir mes';
         if(title) title.textContent = "Cronograma Mensual";
