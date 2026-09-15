@@ -1583,6 +1583,8 @@ function updatePeriodDisplay() {
 
     if (calendarView === 'month') {
         display.textContent = `${monthNames[currentMonth - 1]} ${currentYear}`;
+        display.style.cursor = 'pointer';
+        display.title = 'Clic para elegir mes';
         if(title) title.textContent = "Cronograma Mensual";
     } else {
         const start = currentWeekStart;
@@ -1591,8 +1593,10 @@ function updatePeriodDisplay() {
         const startMonth = monthNames[start.getMonth()].substring(0, 3);
         const endDay = end.getDate();
         const endMonth = monthNames[end.getMonth()].substring(0, 3);
-        
+
         display.textContent = `${startDay} ${startMonth} - ${endDay} ${endMonth} ${end.getFullYear()}`;
+        display.style.cursor = 'default';
+        display.title = '';
         if(title) title.textContent = "Cronograma Semanal";
     }
 }
@@ -1643,6 +1647,70 @@ async function changePeriod(delta) {
         renderMyWorkView();
     }
 }
+
+// ── Period Picker ─────────────────────────────────────────────────────────────
+let _ppYear = currentYear; // año que se está viendo en el picker
+
+function togglePeriodPicker() {
+    if (calendarView !== 'month') return;
+    const pop = document.getElementById('periodPickerPopover');
+    if (!pop) return;
+    if (pop.style.display === 'none') {
+        _ppYear = currentYear;
+        _renderPeriodPicker();
+        pop.style.display = 'block';
+    } else {
+        pop.style.display = 'none';
+    }
+}
+
+function _renderPeriodPicker() {
+    const pop = document.getElementById('periodPickerPopover');
+    if (!pop) return;
+    const short = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    const monthBtns = short.map((m, i) => {
+        const active = (_ppYear === currentYear && i + 1 === currentMonth);
+        return `<button onclick="jumpToPeriod(${_ppYear},${i+1})"
+            style="padding:0.35rem 0; border-radius:6px; border:none; cursor:pointer; font-size:0.82rem; font-weight:${active?'700':'500'};
+                   background:${active?'var(--clr-blue)':'transparent'}; color:${active?'#fff':'var(--text-primary)'};
+                   transition:background 0.15s;"
+            onmouseover="if(!${active})this.style.background='var(--bg-hover)'"
+            onmouseout="if(!${active})this.style.background='transparent'">${m}</button>`;
+    }).join('');
+    pop.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;gap:0.5rem;">
+            <button onclick="_ppYear--;_renderPeriodPicker()"
+                style="background:none;border:none;cursor:pointer;font-size:1.1rem;color:var(--text-secondary);padding:0 0.4rem;line-height:1;">‹</button>
+            <span style="font-weight:700;color:var(--clr-blue);font-size:0.95rem;">${_ppYear}</span>
+            <button onclick="_ppYear++;_renderPeriodPicker()"
+                style="background:none;border:none;cursor:pointer;font-size:1.1rem;color:var(--text-secondary);padding:0 0.4rem;line-height:1;">›</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.3rem;">${monthBtns}</div>`;
+}
+
+async function jumpToPeriod(year, month) {
+    document.getElementById('periodPickerPopover').style.display = 'none';
+    currentYear  = year;
+    currentMonth = month;
+    updatePeriodDisplay();
+    if (supabaseClient) await loadTasksFromSupabase();
+    renderDashboardStats();
+    renderCalendar();
+    renderPlanningSidebar();
+    renderTasksView();
+    renderFinanceView();
+    if (document.getElementById('view-mywork')?.classList.contains('active-view')) renderMyWorkView();
+}
+
+// Cerrar el picker al hacer clic fuera de él
+document.addEventListener('click', e => {
+    const anchor = document.getElementById('periodPickerAnchor');
+    const pop    = document.getElementById('periodPickerPopover');
+    if (pop && pop.style.display !== 'none' && anchor && !anchor.contains(e.target)) {
+        pop.style.display = 'none';
+    }
+});
+// ──────────────────────────────────────────────────────────────────────────────
 
 // Initial State & Persistence
 let tasks = JSON.parse(localStorage.getItem('cbm_tasks')) || [];
