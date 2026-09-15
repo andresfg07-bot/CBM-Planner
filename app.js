@@ -1581,8 +1581,13 @@ function updatePeriodDisplay() {
     const title = document.getElementById('calendar-title');
     if(!display) return;
 
+    const calIcon = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
+        <rect x="1" y="3" width="14" height="11" rx="2" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M1 7h14" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M5 1v3M11 1v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    </svg>`;
     if (calendarView === 'month') {
-        display.textContent = `${monthNames[currentMonth - 1]} ${currentYear} ▾`;
+        display.innerHTML = `${calIcon}<span>${monthNames[currentMonth - 1]} ${currentYear}</span><span style="font-size:0.7rem;opacity:0.8;">▾</span>`;
         display.style.cursor = 'pointer';
         display.title = 'Clic para elegir mes';
         if(title) title.textContent = "Cronograma Mensual";
@@ -1594,7 +1599,7 @@ function updatePeriodDisplay() {
         const endDay = end.getDate();
         const endMonth = monthNames[end.getMonth()].substring(0, 3);
 
-        display.textContent = `${startDay} ${startMonth} - ${endDay} ${endMonth} ${end.getFullYear()}`;
+        display.innerHTML = `${calIcon}<span>${startDay} ${startMonth} – ${endDay} ${endMonth} ${end.getFullYear()}</span>`;
         display.style.cursor = 'default';
         display.title = '';
         if(title) title.textContent = "Cronograma Semanal";
