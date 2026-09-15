@@ -7193,7 +7193,7 @@ function renderInventoryEnCampo() {
 }
 
 let _invHistorialCache = [];
-let _invHistorialFilters = { analyst: '', item: '', dateFrom: '', dateTo: '' };
+let _invHistorialFilters = { analyst: '', service: '', dateFrom: '', dateTo: '' };
 let _invShowUsageRanking = false;
 let _invRankingExpanded  = new Set(); // categorías expandidas en el ranking (vacío = todas colapsadas)
 let _invHistGroupExpanded = new Set(); // kit_loan_id de grupos expandidos en el historial
@@ -7247,13 +7247,13 @@ async function renderInventoryHistorial() {
 }
 
 function clearInvHistorialFilters() {
-    _invHistorialFilters = { analyst: '', item: '', dateFrom: '', dateTo: '' };
+    _invHistorialFilters = { analyst: '', service: '', dateFrom: '', dateTo: '' };
     _renderInventoryHistorialFiltered();
 }
 
 function applyInvHistorialFilters() {
     _invHistorialFilters.analyst  = document.getElementById('invHist_filterAnalyst')?.value || '';
-    _invHistorialFilters.item     = document.getElementById('invHist_filterItem')?.value || '';
+    _invHistorialFilters.service  = document.getElementById('invHist_filterService')?.value || '';
     _invHistorialFilters.dateFrom = document.getElementById('invHist_filterFrom')?.value || '';
     _invHistorialFilters.dateTo   = document.getElementById('invHist_filterTo')?.value || '';
     _renderInventoryHistorialFiltered();
@@ -7271,7 +7271,10 @@ function _renderInventoryHistorialFiltered() {
     const f = _invHistorialFilters;
     let data = _invHistorialCache.filter(loan => {
         if(f.analyst && loan.analyst_name !== f.analyst) return false;
-        if(f.item && loan.item_id !== f.item) return false;
+        if(f.service) {
+            const itm = dbInventoryItems.find(i => i.id === loan.item_id);
+            if(!itm || itm.category !== f.service) return false;
+        }
         if(f.dateFrom && loan.checked_out_at < f.dateFrom) return false;
         if(f.dateTo && loan.checked_out_at > f.dateTo + 'T23:59:59') return false;
         return true;
@@ -7344,10 +7347,10 @@ function _renderInventoryHistorialFiltered() {
                 </select>
             </div>
             <div style="flex:1;min-width:150px;">
-                <label class="filter-label">Ítem</label><br>
-                <select id="invHist_filterItem" onchange="applyInvHistorialFilters()" class="filter-select" style="width:100%;margin-top:4px;">
+                <label class="filter-label">Servicio</label><br>
+                <select id="invHist_filterService" onchange="applyInvHistorialFilters()" class="filter-select" style="width:100%;margin-top:4px;">
                     <option value="">Todos</option>
-                    ${dbInventoryItems.map(i => `<option value="${i.id}" ${f.item===i.id?'selected':''}>${i.name}</option>`).join('')}
+                    ${_invCategories.map(c => `<option value="${c}" ${f.service===c?'selected':''}>${c}</option>`).join('')}
                 </select>
             </div>
             <div style="min-width:130px;">
@@ -7367,8 +7370,7 @@ function _renderInventoryHistorialFiltered() {
     }
 
     // ── Agrupar por kit_loan_id ──────────────────────────────────────────────
-    // Si hay filtro por ítem específico, no agrupar (el usuario quiere ver ese ítem solo)
-    const shouldGroup = !f.item;
+    const shouldGroup = true;
     const kitGroupMap = new Map();
     const singleLoans = [];
     if(shouldGroup) {
