@@ -5151,6 +5151,9 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
         if(editId) {
             const idx = tasks.findIndex(t => t.id === editId);
             if(idx !== -1) {
+                const oldDaysField  = tasks[idx].daysField  ?? 1;
+                const oldDaysReport = tasks[idx].daysReport ?? 0;
+
                 tasks[idx].client = finalClientName;
                 tasks[idx].clientId = clientId;
                 tasks[idx].analyst = displayAnalyst || mainAnalyst;
@@ -5167,6 +5170,45 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
                 tasks[idx].mesFacturacion = document.getElementById('taskBillingMonth').value;
                 tasks[idx].period = document.getElementById('taskPeriodMonth')?.value || tasks[idx].period;
 
+                // Ajustar scheduledDays si la tarea ya está programada y cambió el conteo de días
+                if ((tasks[idx].scheduledDays || []).length > 0 && (oldDaysField !== dField || oldDaysReport !== dReport)) {
+                    const adjustScheduledType = (type, oldCount, newCount) => {
+                        if (oldCount === newCount) return;
+                        // Índices del tipo, ordenados cronológicamente
+                        const byDate = tasks[idx].scheduledDays
+                            .map((d, i) => ({ ...d, _i: i }))
+                            .filter(d => d.type === type)
+                            .sort((a, b) => a.date.localeCompare(b.date));
+                        if (newCount < oldCount) {
+                            // Recortar los últimos (oldCount - newCount) del tipo
+                            const toRemove = new Set(byDate.slice(newCount).map(d => d._i));
+                            tasks[idx].scheduledDays = tasks[idx].scheduledDays.filter((_, i) => !toRemove.has(i));
+                        } else {
+                            // Añadir (newCount - oldCount) días laborables después del último del tipo
+                            const lastDate = byDate.length > 0 ? byDate[byDate.length - 1].date : null;
+                            if (!lastDate) return;
+                            let cursor = new Date(lastDate + 'T12:00:00');
+                            let added = 0;
+                            const needed = newCount - oldCount;
+                            while (added < needed) {
+                                cursor.setDate(cursor.getDate() + 1);
+                                const y = cursor.getFullYear();
+                                const m = cursor.getMonth() + 1;
+                                const d = cursor.getDate();
+                                if (!isHolidayOrWeekend(y, m, d)) {
+                                    tasks[idx].scheduledDays.push({
+                                        day: d,
+                                        date: `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`,
+                                        type
+                                    });
+                                    added++;
+                                }
+                            }
+                        }
+                    };
+                    adjustScheduledType('field',  oldDaysField,  dField);
+                    adjustScheduledType('report', oldDaysReport, dReport);
+                }
 
                 await saveTaskToSupabase(tasks[idx]);
             }
