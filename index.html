@@ -160,13 +160,18 @@
                 </div>
                 <div class="header-right">
                     <!-- PERIOD CONTROLS -->
-                    <div id="periodPickerAnchor" style="position:relative; display:flex; align-items:center; gap:0.3rem; margin-right:1.5rem;">
-                        <button onclick="changePeriod(-1)" style="background:none; border:none; cursor:pointer; font-size:1.1rem; color:var(--text-secondary); padding:0.2rem 0.4rem; line-height:1;">&#8592;</button>
-                        <button id="currentPeriodDisplay" onclick="togglePeriodPicker()"
-                            style="display:flex; align-items:center; gap:0.55rem; background:#64748b; color:#fff; border:none; border-radius:999px; padding:0.42rem 1rem 0.42rem 0.8rem; cursor:pointer; font-weight:600; font-size:0.88rem; font-family:inherit; white-space:nowrap; box-shadow:0 2px 8px rgba(100,116,139,0.4); transition:background 0.15s;"
-                            onmouseover="this.style.background='#475569'" onmouseout="this.style.background='#64748b'"
-                            title="Clic para elegir mes">Marzo 2026</button>
-                        <button onclick="changePeriod(1)" style="background:none; border:none; cursor:pointer; font-size:1.1rem; color:var(--text-secondary); padding:0.2rem 0.4rem; line-height:1;">&#8594;</button>
+                    <div id="periodPickerAnchor" style="position:relative; display:inline-flex; align-items:center; background:#64748b; border-radius:999px; box-shadow:0 2px 8px rgba(100,116,139,0.4); margin-right:1.5rem; overflow:hidden;">
+                        <button onclick="changePeriod(-1)" title="Mes anterior"
+                            style="background:none; border:none; cursor:pointer; color:rgba(255,255,255,0.75); padding:0.42rem 0.65rem; font-size:0.6rem; line-height:1; transition:background 0.15s;"
+                            onmouseover="this.style.background='rgba(255,255,255,0.15)'" onmouseout="this.style.background='none'">&#9664;</button>
+                        <span style="width:1px; height:16px; background:rgba(255,255,255,0.2); flex-shrink:0;"></span>
+                        <button id="currentPeriodDisplay" onclick="togglePeriodPicker()" title="Elegir mes"
+                            style="display:flex; align-items:center; gap:0.5rem; background:none; border:none; cursor:pointer; color:#fff; padding:0.42rem 0.85rem; font-weight:600; font-size:0.88rem; font-family:inherit; white-space:nowrap; transition:background 0.15s;"
+                            onmouseover="this.style.background='rgba(255,255,255,0.12)'" onmouseout="this.style.background='none'">Marzo 2026</button>
+                        <span style="width:1px; height:16px; background:rgba(255,255,255,0.2); flex-shrink:0;"></span>
+                        <button onclick="changePeriod(1)" title="Mes siguiente"
+                            style="background:none; border:none; cursor:pointer; color:rgba(255,255,255,0.75); padding:0.42rem 0.65rem; font-size:0.6rem; line-height:1; transition:background 0.15s;"
+                            onmouseover="this.style.background='rgba(255,255,255,0.15)'" onmouseout="this.style.background='none'">&#9654;</button>
                         <div id="periodPickerPopover" style="display:none; position:absolute; top:calc(100% + 8px); left:50%; transform:translateX(-50%); background:var(--card-bg); border:1px solid var(--border-color); border-radius:12px; box-shadow:0 8px 30px rgba(0,0,0,0.18); padding:1rem; z-index:9999; min-width:230px;"></div>
                     </div>
                 

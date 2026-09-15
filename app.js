@@ -1602,6 +1602,8 @@ function updatePeriodDisplay() {
         display.innerHTML = `${calIcon}<span>${startDay} ${startMonth} – ${endDay} ${endMonth} ${end.getFullYear()}</span>`;
         display.style.cursor = 'default';
         display.title = '';
+        display.onmouseover = null;
+        display.onmouseout  = null;
         if(title) title.textContent = "Cronograma Semanal";
     }
 }
