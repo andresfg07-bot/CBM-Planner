@@ -1677,22 +1677,26 @@ function _renderPeriodPicker() {
     const short = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
     const monthBtns = short.map((m, i) => {
         const active = (_ppYear === currentYear && i + 1 === currentMonth);
-        return `<button onclick="jumpToPeriod(${_ppYear},${i+1})"
-            style="padding:0.35rem 0; border-radius:6px; border:none; cursor:pointer; font-size:0.82rem; font-weight:${active?'700':'500'};
-                   background:${active?'var(--clr-blue)':'transparent'}; color:${active?'#fff':'var(--text-primary)'};
-                   transition:background 0.15s;"
-            onmouseover="if(!${active})this.style.background='var(--bg-hover)'"
-            onmouseout="if(!${active})this.style.background='transparent'">${m}</button>`;
+        return `<button data-pp-month="${i + 1}"
+            style="padding:0.35rem 0; border-radius:6px; border:none; cursor:pointer; font-size:0.82rem; font-weight:${active ? '700' : '500'};
+                   background:${active ? 'var(--clr-blue)' : 'transparent'}; color:${active ? '#fff' : 'var(--text-primary)'};
+                   transition:background 0.15s;">${m}</button>`;
     }).join('');
     pop.innerHTML = `
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;gap:0.5rem;">
-            <button onclick="_ppYear--;_renderPeriodPicker()"
-                style="background:none;border:none;cursor:pointer;font-size:1.1rem;color:var(--text-secondary);padding:0 0.4rem;line-height:1;">‹</button>
+            <button data-pp-prev style="background:none;border:none;cursor:pointer;font-size:1.1rem;color:var(--text-secondary);padding:0 0.4rem;line-height:1;">‹</button>
             <span style="font-weight:700;color:var(--clr-blue);font-size:0.95rem;">${_ppYear}</span>
-            <button onclick="_ppYear++;_renderPeriodPicker()"
-                style="background:none;border:none;cursor:pointer;font-size:1.1rem;color:var(--text-secondary);padding:0 0.4rem;line-height:1;">›</button>
+            <button data-pp-next style="background:none;border:none;cursor:pointer;font-size:1.1rem;color:var(--text-secondary);padding:0 0.4rem;line-height:1;">›</button>
         </div>
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.3rem;">${monthBtns}</div>`;
+
+    // Usar addEventListener para evitar que `let _ppYear` quede fuera de scope en onclick inline
+    pop.querySelector('[data-pp-prev]').addEventListener('click', e => { e.stopPropagation(); _ppYear--; _renderPeriodPicker(); });
+    pop.querySelector('[data-pp-next]').addEventListener('click', e => { e.stopPropagation(); _ppYear++; _renderPeriodPicker(); });
+    pop.querySelectorAll('[data-pp-month]').forEach(btn => {
+        const m = parseInt(btn.dataset.ppMonth);
+        btn.addEventListener('click', () => jumpToPeriod(_ppYear, m));
+    });
 }
 
 async function jumpToPeriod(year, month) {
