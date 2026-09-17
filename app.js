@@ -5839,19 +5839,37 @@ async function updateEquipment(e, equipmentId) {
 
 let reportFilters    = { analyst: '', client: '', serviceType: '', dateFrom: '', dateTo: '', csatStatus: '' };
 let reportActiveTab  = 'gestiones'; // 'gestiones' | 'csat'
+let reportTimeScope  = 'year';      // 'year' | 'all' | 'months'
 
 let reportsDefaultApplied = false;
 
+function setReportTimeScope(scope) {
+    reportTimeScope = scope;
+    ['year','all','months'].forEach(s => {
+        document.getElementById(`rpt-scope-${s}`)?.classList.toggle('active', s === scope);
+    });
+    const rangeEl = document.getElementById('rpt-month-range');
+    if(rangeEl) rangeEl.style.display = scope === 'months' ? 'flex' : 'none';
+
+    if(scope === 'year') {
+        const y = new Date().getFullYear();
+        reportFilters.dateFrom = `${y}-01`;
+        reportFilters.dateTo   = `${y}-12`;
+    } else if(scope === 'all') {
+        reportFilters.dateFrom = '';
+        reportFilters.dateTo   = '';
+    } else {
+        reportFilters.dateFrom = document.getElementById('report-filter-from')?.value || '';
+        reportFilters.dateTo   = document.getElementById('report-filter-to')?.value || '';
+    }
+    if(reportActiveTab === 'csat') renderCsatTable();
+    else renderReportsTable();
+}
+
 function initReportsView() {
-    // Por defecto, filtrar al mes ACTUAL real (de hoy), independiente de la
-    // navegación de mes del calendario/dashboard. Solo se aplica la primera vez;
-    // luego respeta lo que el usuario haya escogido (o limpiado).
     if(!reportsDefaultApplied) {
-        const now = new Date();
-        const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        reportFilters.dateFrom = ym;
-        reportFilters.dateTo   = ym;
-        reportsDefaultApplied  = true;
+        reportsDefaultApplied = true;
+        // El scope 'year' se aplica abajo vía setReportTimeScope
     }
     const fromEl = document.getElementById('report-filter-from');
     const toEl   = document.getElementById('report-filter-to');
@@ -5875,17 +5893,21 @@ function initReportsView() {
         });
         clientSel.value = reportFilters.client;
     }
-    // Restaurar estado del tab activo
+    // Restaurar estado del tab activo y aplicar scope actual
     switchReportTab(reportActiveTab);
+    setReportTimeScope(reportTimeScope);
 }
 
 function applyReportFilters() {
     reportFilters.analyst     = document.getElementById('report-filter-analyst').value;
     reportFilters.client      = document.getElementById('report-filter-client').value;
     reportFilters.serviceType = document.getElementById('report-filter-service')?.value || '';
-    reportFilters.dateFrom    = document.getElementById('report-filter-from').value;
-    reportFilters.dateTo      = document.getElementById('report-filter-to').value;
     reportFilters.csatStatus  = document.getElementById('report-filter-csat-status')?.value || '';
+    // Fechas solo se leen del input cuando el usuario está en modo Meses
+    if(reportTimeScope === 'months') {
+        reportFilters.dateFrom = document.getElementById('report-filter-from')?.value || '';
+        reportFilters.dateTo   = document.getElementById('report-filter-to')?.value || '';
+    }
     if(reportActiveTab === 'csat') renderCsatTable();
     else renderReportsTable();
 }
@@ -5893,12 +5915,12 @@ function applyReportFilters() {
 function clearReportFilters() {
     reportFilters = { analyst:'', client:'', serviceType:'', dateFrom:'', dateTo:'', csatStatus:'' };
     ['report-filter-analyst','report-filter-client','report-filter-service',
-     'report-filter-from','report-filter-to','report-filter-csat-status'].forEach(id => {
+     'report-filter-csat-status'].forEach(id => {
         const el = document.getElementById(id);
         if(el) el.value = '';
     });
-    if(reportActiveTab === 'csat') renderCsatTable();
-    else renderReportsTable();
+    // Volver al scope por defecto
+    setReportTimeScope('year');
 }
 
 function switchReportTab(tab) {

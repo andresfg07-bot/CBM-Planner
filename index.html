@@ -582,13 +582,23 @@
                             <option value="pendiente">🕐 Pendiente</option>
                         </select>
                     </div>
-                    <div style="flex:1; min-width:150px;">
-                        <label class="filter-label">Desde (mes)</label><br>
-                        <input type="month" id="report-filter-from" onchange="applyReportFilters()" class="filter-select" style="width:100%; margin-top:4px;">
+                    <div style="display:flex; flex-direction:column; gap:0.3rem;">
+                        <label class="filter-label">Período</label>
+                        <div class="view-toggle-group" style="margin-top:2px;">
+                            <button id="rpt-scope-year"   onclick="setReportTimeScope('year')"   class="active">Este Año</button>
+                            <button id="rpt-scope-all"    onclick="setReportTimeScope('all')">Todo</button>
+                            <button id="rpt-scope-months" onclick="setReportTimeScope('months')">Meses</button>
+                        </div>
                     </div>
-                    <div style="flex:1; min-width:150px;">
-                        <label class="filter-label">Hasta (mes)</label><br>
-                        <input type="month" id="report-filter-to" onchange="applyReportFilters()" class="filter-select" style="width:100%; margin-top:4px;">
+                    <div id="rpt-month-range" style="display:none; align-items:flex-end; gap:0.4rem;">
+                        <div>
+                            <label class="filter-label">Desde</label><br>
+                            <input type="month" id="report-filter-from" onchange="applyReportFilters()" class="filter-select" style="width:130px; margin-top:4px;">
+                        </div>
+                        <div>
+                            <label class="filter-label">Hasta</label><br>
+                            <input type="month" id="report-filter-to" onchange="applyReportFilters()" class="filter-select" style="width:130px; margin-top:4px;">
+                        </div>
                     </div>
                     <button onclick="clearReportFilters()" class="filter-clear-btn">✕ Limpiar</button>
                 </div>
