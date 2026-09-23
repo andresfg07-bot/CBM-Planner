@@ -2094,6 +2094,10 @@ body.role-viewer .viewer-hide { display: none !important; }
 
 body.role-assistant .role-hide-assistant { display: none !important; }
 body.role-commercial .role-hide-assistant { display: none !important; }
+/* Visible SOLO para el rol asistente */
+.assistant-only { display: none !important; }
+body.role-assistant .assistant-only,
+body.role-admin    .assistant-only { display: inline-flex !important; }
 
 /* ── Planning: solo lectura para analistas, comerciales y asistentes ─────── */
 body.role-analyst .calendar-task-pill,

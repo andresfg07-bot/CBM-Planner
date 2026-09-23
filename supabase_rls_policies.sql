@@ -65,6 +65,15 @@ WITH CHECK (
     AND client = 'METRO'
 );
 
+-- Asistente (ypalacio@a-maq.com): puede crear gestiones de ausencia (isAbsence = true)
+-- Cubre: registrar vacaciones, incapacidades, compensatorios y entrenamientos del equipo.
+CREATE POLICY "Permitir insert de ausencias a asistente (tasks)"
+ON public.tasks FOR INSERT TO authenticated
+WITH CHECK (
+    auth.jwt() ->> 'email' = 'ypalacio@a-maq.com'
+    AND (is_absence = true OR (service_type IN ('Vacaciones','Incapacidad','Compensatorio','Entrenamiento o Curso')))
+);
+
 
 -- === Tabla: clients ===
 CREATE POLICY "Permitir insert a admin (clients)" 

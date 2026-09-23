@@ -5925,24 +5925,140 @@ function clearReportFilters() {
 
 function switchReportTab(tab) {
     reportActiveTab = tab;
-    // Actualizar botones
-    document.getElementById('tab-btn-gestiones')?.classList.toggle('active', tab === 'gestiones');
-    document.getElementById('tab-btn-csat')?.classList.toggle('active', tab === 'csat');
-    // Mostrar/ocultar filtros específicos
-    document.getElementById('filter-service-wrap')?.style.setProperty('display', tab === 'gestiones' ? '' : 'none');
-    document.getElementById('filter-csat-status-wrap')?.style.setProperty('display', tab === 'csat' ? '' : 'none');
-    // Actualizar títulos
+    ['gestiones','csat','ausencias'].forEach(t =>
+        document.getElementById(`tab-btn-${t}`)?.classList.toggle('active', t === tab)
+    );
+    document.getElementById('filter-service-wrap')?.style.setProperty('display',     tab === 'gestiones' ? '' : 'none');
+    document.getElementById('filter-csat-status-wrap')?.style.setProperty('display', tab === 'csat'      ? '' : 'none');
+    // Ocultar filtros de analista/cliente en ausencias (tiene los suyos propios)
+    document.getElementById('reports-export-btns')?.style.setProperty('display', tab === 'ausencias' ? 'none' : '');
+
     const title = document.getElementById('reports-view-title');
     const sub   = document.getElementById('reports-view-subtitle');
-    if(tab === 'csat') {
-        if(title) title.textContent = 'Cierres CSAT';
-        if(sub)   sub.textContent  = 'Resultados de encuestas de satisfacción y evidencias de no-respuesta.';
-    } else {
-        if(title) title.textContent = 'Reportes Históricos';
-        if(sub)   sub.textContent  = 'Busca, filtra y exporta gestiones de cualquier período.';
-    }
-    if(tab === 'csat') renderCsatTable();
+    const msgs = {
+        gestiones: ['Reportes Históricos',  'Busca, filtra y exporta gestiones de cualquier período.'],
+        csat:      ['Cierres CSAT',          'Resultados de encuestas de satisfacción y evidencias de no-respuesta.'],
+        ausencias: ['Ausencias del Equipo',  'Registro histórico de vacaciones, incapacidades y ausencias por analista.'],
+    };
+    if(title) title.textContent = msgs[tab][0];
+    if(sub)   sub.textContent   = msgs[tab][1];
+
+    if(tab === 'csat')      renderCsatTable();
+    else if(tab === 'ausencias') renderAusenciasTable();
     else renderReportsTable();
+}
+
+// ── Tabla de ausencias ────────────────────────────────────────────────────────
+const _absenceTypeIcon = { Vacaciones:'🌴', Incapacidad:'💊', Compensatorio:'🔄', 'Entrenamiento o Curso':'🎓' };
+
+function renderAusenciasTable() {
+    const el = document.getElementById('reports-table-container');
+    if(!el) return;
+
+    const f = _invHistorialFilters; // reutilizar scope de tiempo ya calculado en reportFilters
+    let data = tasks.filter(t => {
+        if(!t.isAbsence) return false;
+        const period = t.mesFacturacion || t.period || '';
+        if(reportFilters.dateFrom && period < reportFilters.dateFrom) return false;
+        if(reportFilters.dateTo   && period > reportFilters.dateTo)   return false;
+        return true;
+    });
+
+    // Aplanar a filas por día de ausencia
+    const rows = [];
+    data.forEach(t => {
+        const days = t.scheduledDays || [];
+        if(days.length === 0) return;
+        const sorted = [...days].sort((a, b) => (a.date||'').localeCompare(b.date||''));
+        const desde  = sorted[0]?.date || '—';
+        const hasta  = sorted[sorted.length - 1]?.date || '—';
+        const analyst = t.analysts_assignment?.[0]?.name || t.analyst || '—';
+        const type    = t.serviceType || '—';
+        rows.push({ analyst, type, days: days.length, desde, hasta, period: t.period || t.mesFacturacion || '—' });
+    });
+
+    rows.sort((a, b) => a.desde.localeCompare(b.desde));
+
+    if(rows.length === 0) {
+        el.innerHTML = `<div style="text-align:center;padding:3rem;color:#94a3b8;">No hay ausencias registradas en este período.</div>`;
+        return;
+    }
+
+    // Resumen por analista
+    const byAnalyst = {};
+    rows.forEach(r => {
+        byAnalyst[r.analyst] = (byAnalyst[r.analyst] || 0) + r.days;
+    });
+    const summaryChips = Object.entries(byAnalyst)
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, d]) => `<span style="display:inline-flex;align-items:center;gap:0.3rem;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:99px;padding:0.2rem 0.6rem;font-size:0.78rem;font-weight:600;">${name} <span style="background:#64748b;color:#fff;border-radius:99px;padding:0 5px;font-size:0.7rem;">${d}d</span></span>`)
+        .join('');
+
+    el.innerHTML = `
+        <div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:1rem;align-items:center;">
+            <span style="font-size:0.78rem;color:#94a3b8;font-weight:600;margin-right:0.2rem;">Días totales:</span>
+            ${summaryChips}
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-bottom:0.5rem;">
+            <button onclick="exportAusenciasCSV()" style="display:flex;align-items:center;gap:0.4rem;padding:0.4rem 0.9rem;background:#16a34a;color:#fff;border:none;border-radius:6px;font-weight:700;font-size:0.8rem;cursor:pointer;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Exportar CSV
+            </button>
+        </div>
+        <div class="table-wrapper">
+        <table class="reports-table">
+            <thead><tr>
+                <th>Analista</th><th>Tipo</th><th>Días</th><th>Desde</th><th>Hasta</th><th>Período</th>
+            </tr></thead>
+            <tbody>
+                ${rows.map(r => `<tr>
+                    <td><strong>${r.analyst}</strong></td>
+                    <td>${_absenceTypeIcon[r.type] || '•'} ${r.type}</td>
+                    <td style="text-align:center;font-weight:700;">${r.days}</td>
+                    <td>${r.desde}</td>
+                    <td>${r.hasta}</td>
+                    <td>${r.period}</td>
+                </tr>`).join('')}
+            </tbody>
+        </table>
+        </div>`;
+}
+
+function exportAusenciasCSV() {
+    const headers = ['Analista','Tipo','Días','Desde','Hasta','Período'];
+    const data = tasks.filter(t => {
+        if(!t.isAbsence) return false;
+        const period = t.mesFacturacion || t.period || '';
+        if(reportFilters.dateFrom && period < reportFilters.dateFrom) return false;
+        if(reportFilters.dateTo   && period > reportFilters.dateTo)   return false;
+        return true;
+    }).flatMap(t => {
+        const days   = t.scheduledDays || [];
+        if(!days.length) return [];
+        const sorted = [...days].sort((a,b) => (a.date||'').localeCompare(b.date||''));
+        const analyst = t.analysts_assignment?.[0]?.name || t.analyst || '';
+        return [[analyst, t.serviceType, days.length, sorted[0]?.date||'', sorted[sorted.length-1]?.date||'', t.period||'']];
+    });
+    const csv = [headers, ...data].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8'}));
+    a.download = `ausencias_cbm_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+}
+
+// ── Modal de ausencia para asistente ─────────────────────────────────────────
+function openNewAbsenceModal() {
+    openNewTaskModal();
+    // Restringir selector de tipo de servicio solo a tipos de ausencia
+    const sel = document.getElementById('taskServiceType');
+    if(!sel) return;
+    sel.innerHTML = `
+        <option value="">Seleccione tipo…</option>
+        <option value="Vacaciones">🌴 Vacaciones</option>
+        <option value="Incapacidad">💊 Incapacidad</option>
+        <option value="Compensatorio">🔄 Compensatorio</option>
+        <option value="Entrenamiento o Curso">🎓 Entrenamiento o Curso</option>`;
+    document.getElementById('taskModalTitle').textContent = 'Registrar Ausencia';
 }
 
 // ── Exportación según pestaña activa ────────────────────────────────────────
