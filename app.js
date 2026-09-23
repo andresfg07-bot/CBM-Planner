@@ -2778,9 +2778,17 @@ function isPlanningReadOnly() {
     return r === 'analyst' || r === 'commercial' || r === 'assistant' || r === 'viewer';
 }
 
+/** El asistente puede arrastrar al calendario solo tareas de ausencia */
+function isAssistantAllowed(taskId) {
+    if(currentUserProfile?.role !== 'assistant') return false;
+    const t = tasks.find(x => x.id === taskId);
+    return !!(t?.isAbsence);
+}
+
 function handleDragStart(e) {
-    // Analistas/Comerciales no pueden arrastrar — planning es solo lectura para ellos
-    if (isPlanningReadOnly()) {
+    // Analistas/Comerciales/Asistente no pueden arrastrar, salvo el asistente con ausencias
+    const _dragId = this.id || this.getAttribute('data-task-id');
+    if (isPlanningReadOnly() && !isAssistantAllowed(_dragId)) {
         e.preventDefault();
         return;
     }
@@ -2808,25 +2816,29 @@ function renderPlanningSidebar() {
     if(!sidebarContainer) return;
 
     // Para analistas/comerciales: ocultar el panel de backlog — solo pueden ver el calendario
+    // El asistente puede ver y arrastrar solo las ausencias
+    const role = currentUserProfile?.role;
+    const isAssistant = role === 'assistant';
     const unassignedBar = sidebarContainer.closest('.unassigned-sidebar');
-    if (isPlanningReadOnly()) {
+    if (isPlanningReadOnly() && !isAssistant) {
         if (unassignedBar) unassignedBar.style.display = 'none';
         return;
     }
     if (unassignedBar) unassignedBar.style.display = '';
 
     sidebarContainer.innerHTML = '';
-    
+
     // Filtrado estricto: Una gestión en 'Por programar' NO DEBE tener días programados.
     // Metro Administrativo se excluye siempre (va directo a facturada, no necesita programarse).
-    let filteredTasks = tasks.filter(t =>
-        t.status &&
-        t.status.toLowerCase() === 'proyectada' &&
-        (!t.scheduledDays || t.scheduledDays.length === 0) &&
-        t.serviceType !== 'Metro Administrativo' &&
-        t.serviceType !== 'Metro Terceros' &&
-        isTaskInCurrentPeriod(t)
-    );
+    let filteredTasks = tasks.filter(t => {
+        if(!t.status || t.status.toLowerCase() !== 'proyectada') return false;
+        if(t.scheduledDays && t.scheduledDays.length > 0) return false;
+        if(t.serviceType === 'Metro Administrativo' || t.serviceType === 'Metro Terceros') return false;
+        if(!isTaskInCurrentPeriod(t)) return false;
+        // El asistente solo ve ausencias en el sidebar
+        if(isAssistant && !t.isAbsence) return false;
+        return true;
+    });
 
     if(dashboardFilters.analyst) filteredTasks = filteredTasks.filter(t => t.analyst === dashboardFilters.analyst);
     if(dashboardFilters.client) { const _base = getClientCompanyBase(dashboardFilters.client); filteredTasks = filteredTasks.filter(t => getClientCompanyBase(t.client) === _base); }
@@ -3238,11 +3250,14 @@ function setupCalendarListeners() {
 
     document.querySelectorAll('.calendar-task-pill').forEach(pill => {
         // Para analistas/comerciales: planning es solo lectura, no se puede arrastrar nada
-        if (isPlanningReadOnly()) {
+        // El asistente puede mover pills de ausencias
+        const _pillTaskId = pill.id || pill.getAttribute('data-task-id');
+        if (isPlanningReadOnly() && !isAssistantAllowed(_pillTaskId)) {
             pill.draggable = false;
         }
         pill.addEventListener('dragstart', function(e) {
-            if (isPlanningReadOnly()) {
+            const _tid = this.id || this.getAttribute('data-task-id');
+            if (isPlanningReadOnly() && !isAssistantAllowed(_tid)) {
                 e.preventDefault();
                 return;
             }
@@ -3577,7 +3592,6 @@ async function processDrop(target, taskId) {
 }
 
 async function handleCalendarDrop(cell, dragInfo) {
-    if (isPlanningReadOnly()) return;
     let isPillMove = dragInfo && dragInfo.startsWith('pill-');
     let taskId = dragInfo;
     if (isPillMove) {
@@ -3594,6 +3608,9 @@ async function handleCalendarDrop(cell, dragInfo) {
     // Si sigue siendo nulo, intentar con el global como último recurso
     if (!taskId) taskId = draggedTaskId;
     if (!taskId) return;
+
+    // Verificar permisos: read-only salvo asistente con ausencias
+    if (isPlanningReadOnly() && !isAssistantAllowed(taskId)) return;
 
     const taskIndex = tasks.findIndex(t => t.id === taskId);
     if (taskIndex === -1) {
