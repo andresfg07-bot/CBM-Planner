@@ -5972,7 +5972,7 @@ const _shortMonths = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct
 function _fmtDate(iso) {
     if(!iso || iso === '—') return '—';
     const [y, m, d] = iso.split('-');
-    const label = `${_shortMonths[parseInt(m,10)-1]} ${parseInt(d,10)}/${String(y).slice(2)}`;
+    const label = `${_shortMonths[parseInt(m,10)-1]} ${parseInt(d,10)}`;
     return `<span style="display:inline-flex;align-items:center;gap:3px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:6px;padding:1px 7px;font-size:0.75rem;font-weight:700;white-space:nowrap;">${label}</span>`;
 }
 
