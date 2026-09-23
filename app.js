@@ -12,6 +12,16 @@ try {
     console.error("Error initializing Supabase", e);
 }
 
+// Evitar que el scroll del mouse cambie el valor de un <input type="number"> con foco.
+// Al hacer scroll sobre un campo numérico enfocado (por accidente al desplazar la página),
+// Chrome/Edge incrementan/decrementan el valor. Se le quita el foco al detectar wheel para
+// que el scroll se comporte como en cualquier otro elemento de la página.
+document.addEventListener('wheel', (e) => {
+    if (document.activeElement && document.activeElement.type === 'number') {
+        document.activeElement.blur();
+    }
+}, { passive: true });
+
 // Banner de ambiente de pruebas
 if (window.IS_STAGING) {
     document.addEventListener('DOMContentLoaded', () => {
