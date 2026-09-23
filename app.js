@@ -5966,6 +5966,22 @@ function switchReportTab(tab) {
 
 // ── Tabla de ausencias ────────────────────────────────────────────────────────
 const _absenceTypeIcon = { Vacaciones:'🌴', Incapacidad:'💊', Compensatorio:'🔄', 'Entrenamiento o Curso':'🎓' };
+const _shortMonths = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+// "2026-02-13" → "Feb 13/26"
+function _fmtDate(iso) {
+    if(!iso || iso === '—') return '—';
+    const [y, m, d] = iso.split('-');
+    return `${_shortMonths[parseInt(m,10)-1]} ${parseInt(d,10)}/${String(y).slice(2)}`;
+}
+
+// "2026-02" → chip estilizado  "Feb · 2026"
+function _fmtPeriodChip(period) {
+    if(!period || period === '—') return '—';
+    const [y, m] = period.split('-');
+    if(!y || !m) return period;
+    return `<span style="display:inline-flex;align-items:center;gap:3px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:6px;padding:1px 7px;font-size:0.75rem;font-weight:700;white-space:nowrap;">${_shortMonths[parseInt(m,10)-1]}<span style="opacity:.5;">·</span>${y}</span>`;
+}
 
 let _ausFilters = { analyst: '', type: '', dateFrom: '', dateTo: '', scope: 'year' };
 
@@ -6106,9 +6122,9 @@ function renderAusenciasTable() {
                     <td><strong>${r.analyst}</strong></td>
                     <td>${_absenceTypeIcon[r.type] || '•'} ${r.type}</td>
                     <td style="text-align:center;font-weight:700;">${r.days}${!r.habil ? `<span title="Aún sin programar en calendario — días ingresados, no verificados como hábiles" style="margin-left:4px;font-size:0.7rem;color:#f59e0b;cursor:help;">⚠</span>` : ''}</td>
-                    <td>${r.desde}</td>
-                    <td>${r.hasta}</td>
-                    <td>${r.period}</td>
+                    <td style="font-variant-numeric:tabular-nums;white-space:nowrap;">${_fmtDate(r.desde)}</td>
+                    <td style="font-variant-numeric:tabular-nums;white-space:nowrap;">${_fmtDate(r.hasta)}</td>
+                    <td>${_fmtPeriodChip(r.period)}</td>
                 </tr>`).join('')}
             </tbody>
         </table>
