@@ -6154,7 +6154,7 @@ function renderAusenciasTable() {
             <thead><tr>
                 <th>Analista</th><th>Tipo</th>
                 <th title="Días hábiles (programadas en calendario) o días ingresados (sin programar)">Días hábiles</th>
-                <th>Desde</th><th>Hasta</th><th>Período</th><th>Observaciones</th>
+                <th>Desde</th><th>Hasta</th><th>Período</th><th style="min-width:220px;">Observaciones</th>
             </tr></thead>
             <tbody>
                 ${rows.map(r => `<tr>
