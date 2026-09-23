@@ -761,6 +761,11 @@
                         <option value="">Sin equipo asignado</option>
                     </select>
                 </div>
+                <!-- Observaciones (solo visible para tipos de ausencia) -->
+                <div class="form-group" id="group-absence-notes" style="display:none;">
+                    <label>Observaciones <span style="font-weight:400;color:#64748b;font-size:0.72rem;">(opcional)</span></label>
+                    <textarea id="taskAbsenceNotes" rows="2" placeholder="Ej: Incapacidad por cirugía programada, regresa el lunes 17..." style="width:100%;resize:vertical;border:1px solid #e2e8f0;border-radius:6px;padding:0.5rem;font-size:0.85rem;font-family:inherit;"></textarea>
+                </div>
                 <button type="submit" id="taskFormSubmit" class="btn-primary">Crear Gestión</button>
             </form>
         </div>

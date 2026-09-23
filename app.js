@@ -4171,6 +4171,10 @@ function onTaskServiceTypeChange() {
         if(el) el.style.display = isAbsence ? 'none' : 'block';
     });
 
+    // Campo de observaciones: solo en ausencias
+    const notesGroup = document.getElementById('group-absence-notes');
+    if(notesGroup) notesGroup.style.display = isAbsence ? 'block' : 'none';
+
     const container = document.getElementById('taskAnalystsContainer');
     const clientSel = document.getElementById('taskClient');
 
@@ -4696,6 +4700,7 @@ async function saveTaskToSupabase(task) {
             equipment_id: task.equipmentId || null,
             service_type: task.serviceType,
             is_absence: task.isAbsence || false,
+            absence_notes: task.absenceNotes || null,
             csat_score: task.csatScore || null,
             csat_observations: task.csatObservations || null,
             alertvox_checked: task.alertvoxChecked || false,
@@ -4782,6 +4787,7 @@ async function loadTasksFromSupabase() {
                 mesFacturacion: t.mes_facturacion || t.period || formatPeriod(),
                 csatScore: t.csat_score || null,
                 csatObservations: t.csat_observations || '',
+                absenceNotes: t.absence_notes || '',
                 alertvoxChecked: t.alertvox_checked || false,
                 clientNoResponse: t.client_no_response || false,
                 evidenceNotes: t.evidence_notes || '',
@@ -4899,7 +4905,13 @@ function openNewTaskModal() {
         
         const editIdEl = document.getElementById('editTaskId');
         if (editIdEl) editIdEl.value = '';
-        
+
+        // Limpiar campo de observaciones y ocultarlo
+        const notesEl    = document.getElementById('taskAbsenceNotes');
+        const notesGroup = document.getElementById('group-absence-notes');
+        if(notesEl)    notesEl.value           = '';
+        if(notesGroup) notesGroup.style.display = 'none';
+
         const modalTitle = document.getElementById('taskModalTitle');
         if (modalTitle) modalTitle.textContent = 'Nueva Gestión';
         
@@ -5052,6 +5064,12 @@ function openEditTaskModal(taskId) {
             periodMonthEl.value = task.period || formatPeriod();
         }
 
+        // Observaciones de ausencia
+        const notesEl    = document.getElementById('taskAbsenceNotes');
+        const notesGroup = document.getElementById('group-absence-notes');
+        if(notesEl)    notesEl.value           = task.absenceNotes || '';
+        if(notesGroup) notesGroup.style.display = task.isAbsence ? 'block' : 'none';
+
         const modal = document.getElementById('taskModal');
         if (modal) modal.classList.add('active');
     } catch (error) {
@@ -5197,6 +5215,7 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
         const isAdminContract = (serviceType === 'Metro Administrativo');
         const isThirdParty    = (serviceType === 'Metro Terceros');
         const finalClientName = isAbsence ? `AUSENCIA: ${serviceType}` : clientName;
+        const absenceNotes    = isAbsence ? (document.getElementById('taskAbsenceNotes')?.value.trim() || '') : '';
 
         // Planta / Sede: dropdown (con ID) o texto libre
         const plantSelEl  = document.getElementById('taskPlant');
@@ -5265,6 +5284,7 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
                 tasks[idx].plantName = plantName || '';
                 tasks[idx].mesFacturacion = document.getElementById('taskBillingMonth').value;
                 tasks[idx].period = document.getElementById('taskPeriodMonth')?.value || tasks[idx].period;
+                if(isAbsence) tasks[idx].absenceNotes = absenceNotes;
 
                 // Ajustar scheduledDays si la tarea ya está programada y cambió el conteo de días
                 if ((tasks[idx].scheduledDays || []).length > 0 && (oldDaysField !== dField || oldDaysReport !== dReport)) {
@@ -5327,7 +5347,8 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
                 scheduledDays: [],
                 status: isAdminContract ? 'facturada' : (isThirdParty ? 'programada' : 'proyectada'),
                 period: document.getElementById('taskPeriodMonth')?.value || formatPeriod(),
-                mesFacturacion: document.getElementById('taskBillingMonth').value
+                mesFacturacion: document.getElementById('taskBillingMonth').value,
+                absenceNotes: absenceNotes || ''
             };
             tasks.push(newTask);
 
@@ -6083,12 +6104,12 @@ function renderAusenciasTable() {
         const period  = t.period || t.mesFacturacion || '—';
         if(scheduledDays.length > 0) {
             const sorted = [...scheduledDays].sort((a, b) => (a.date||'').localeCompare(b.date||''));
-            rows.push({ analyst, type, days: scheduledDays.length, desde: sorted[0]?.date || '—', hasta: sorted[sorted.length-1]?.date || '—', period, habil: true });
+            rows.push({ analyst, type, days: scheduledDays.length, desde: sorted[0]?.date || '—', hasta: sorted[sorted.length-1]?.date || '—', period, habil: true, notes: t.absenceNotes || '' });
         } else {
             // Tarea en backlog: usar daysField como referencia
             const dField = t.daysField || 0;
             if(dField > 0) {
-                rows.push({ analyst, type, days: dField, desde: '—', hasta: '—', period, habil: false });
+                rows.push({ analyst, type, days: dField, desde: '—', hasta: '—', period, habil: false, notes: t.absenceNotes || '' });
             }
         }
     });
@@ -6133,7 +6154,7 @@ function renderAusenciasTable() {
             <thead><tr>
                 <th>Analista</th><th>Tipo</th>
                 <th title="Días hábiles (programadas en calendario) o días ingresados (sin programar)">Días hábiles</th>
-                <th>Desde</th><th>Hasta</th><th>Período</th>
+                <th>Desde</th><th>Hasta</th><th>Período</th><th>Observaciones</th>
             </tr></thead>
             <tbody>
                 ${rows.map(r => `<tr>
@@ -6143,6 +6164,7 @@ function renderAusenciasTable() {
                     <td style="font-variant-numeric:tabular-nums;white-space:nowrap;">${_fmtDate(r.desde)}</td>
                     <td style="font-variant-numeric:tabular-nums;white-space:nowrap;">${_fmtDate(r.hasta)}</td>
                     <td>${_fmtPeriodChip(r.period)}</td>
+                    <td style="font-size:0.82rem;color:#475569;max-width:220px;">${r.notes ? `<span title="${r.notes.replace(/"/g,'&quot;')}">${r.notes.length > 60 ? r.notes.slice(0,57)+'…' : r.notes}</span>` : '<span style="color:#cbd5e1;">—</span>'}</td>
                 </tr>`).join('')}
             </tbody>
         </table>
@@ -6150,13 +6172,18 @@ function renderAusenciasTable() {
 }
 
 function exportAusenciasCSV() {
-    const headers = ['Analista','Tipo','Días','Desde','Hasta','Período'];
+    const headers = ['Analista','Tipo','Días','Desde','Hasta','Período','Observaciones'];
     const rows = _ausFilteredTasks().flatMap(t => {
-        const days = t.scheduledDays || [];
-        if(!days.length) return [];
-        const sorted  = [...days].sort((a,b) => (a.date||'').localeCompare(b.date||''));
+        const sDays   = (t.scheduledDays||[]).filter(d => d.type === 'field' || !d.type);
         const analyst = t.analysts_assignment?.[0]?.name || t.analyst || '';
-        return [[analyst, t.serviceType, days.length, sorted[0]?.date||'', sorted[sorted.length-1]?.date||'', t.period||'']];
+        const notes   = t.absenceNotes || '';
+        if(sDays.length > 0) {
+            const sorted = [...sDays].sort((a,b) => (a.date||'').localeCompare(b.date||''));
+            return [[analyst, t.serviceType, sDays.length, sorted[0]?.date||'', sorted[sorted.length-1]?.date||'', t.period||'', notes]];
+        } else if(t.daysField > 0) {
+            return [[analyst, t.serviceType, t.daysField, '—', '—', t.period||'', notes]];
+        }
+        return [];
     });
     const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
     const a = document.createElement('a');
