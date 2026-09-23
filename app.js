@@ -5968,11 +5968,12 @@ function switchReportTab(tab) {
 const _absenceTypeIcon = { Vacaciones:'🌴', Incapacidad:'💊', Compensatorio:'🔄', 'Entrenamiento o Curso':'🎓' };
 const _shortMonths = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
-// "2026-02-13" → "Feb 13/26"
+// "2026-02-13" → chip estilizado "Feb 13/26"
 function _fmtDate(iso) {
     if(!iso || iso === '—') return '—';
     const [y, m, d] = iso.split('-');
-    return `${_shortMonths[parseInt(m,10)-1]} ${parseInt(d,10)}/${String(y).slice(2)}`;
+    const label = `${_shortMonths[parseInt(m,10)-1]} ${parseInt(d,10)}/${String(y).slice(2)}`;
+    return `<span style="display:inline-flex;align-items:center;gap:3px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:6px;padding:1px 7px;font-size:0.75rem;font-weight:700;white-space:nowrap;">${label}</span>`;
 }
 
 // "2026-02" → chip estilizado  "Feb · 2026"
