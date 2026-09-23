@@ -6043,14 +6043,20 @@ function renderAusenciasTable() {
     const data = _ausFilteredTasks();
     const rows = [];
     data.forEach(t => {
-        const days = t.scheduledDays || [];
-        if(days.length === 0) return;
-        const sorted = [...days].sort((a, b) => (a.date||'').localeCompare(b.date||''));
-        const desde   = sorted[0]?.date || '—';
-        const hasta   = sorted[sorted.length - 1]?.date || '—';
+        const scheduledDays = (t.scheduledDays || []).filter(d => d.type === 'field' || !d.type);
         const analyst = t.analysts_assignment?.[0]?.name || t.analyst || '—';
         const type    = t.serviceType || '—';
-        rows.push({ analyst, type, days: days.length, desde, hasta, period: t.period || t.mesFacturacion || '—' });
+        const period  = t.period || t.mesFacturacion || '—';
+        if(scheduledDays.length > 0) {
+            const sorted = [...scheduledDays].sort((a, b) => (a.date||'').localeCompare(b.date||''));
+            rows.push({ analyst, type, days: scheduledDays.length, desde: sorted[0]?.date || '—', hasta: sorted[sorted.length-1]?.date || '—', period, habil: true });
+        } else {
+            // Tarea en backlog: usar daysField como referencia
+            const dField = t.daysField || 0;
+            if(dField > 0) {
+                rows.push({ analyst, type, days: dField, desde: '—', hasta: '—', period, habil: false });
+            }
+        }
     });
 
     rows.sort((a, b) => a.desde.localeCompare(b.desde));
@@ -6061,10 +6067,20 @@ function renderAusenciasTable() {
     }
 
     const byAnalyst = {};
-    rows.forEach(r => { byAnalyst[r.analyst] = (byAnalyst[r.analyst] || 0) + r.days; });
+    rows.forEach(r => {
+        if(!byAnalyst[r.analyst]) byAnalyst[r.analyst] = { habil: 0, pending: 0 };
+        if(r.habil) byAnalyst[r.analyst].habil   += r.days;
+        else        byAnalyst[r.analyst].pending += r.days;
+    });
     const summaryChips = Object.entries(byAnalyst)
-        .sort((a, b) => b[1] - a[1])
-        .map(([name, d]) => `<span style="display:inline-flex;align-items:center;gap:0.3rem;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:99px;padding:0.2rem 0.6rem;font-size:0.78rem;font-weight:600;">${name} <span style="background:#64748b;color:#fff;border-radius:99px;padding:0 5px;font-size:0.7rem;">${d}d</span></span>`)
+        .sort((a, b) => (b[1].habil + b[1].pending) - (a[1].habil + a[1].pending))
+        .map(([name, v]) => {
+            const total = v.habil + v.pending;
+            const badge = v.pending > 0
+                ? `<span title="${v.habil} confirmados + ${v.pending} sin programar" style="background:#64748b;color:#fff;border-radius:99px;padding:0 5px;font-size:0.7rem;">${total}d ⚠</span>`
+                : `<span style="background:#64748b;color:#fff;border-radius:99px;padding:0 5px;font-size:0.7rem;">${total}d</span>`;
+            return `<span style="display:inline-flex;align-items:center;gap:0.3rem;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:99px;padding:0.2rem 0.6rem;font-size:0.78rem;font-weight:600;">${name} ${badge}</span>`;
+        })
         .join('');
 
     el.innerHTML = `
@@ -6081,13 +6097,15 @@ function renderAusenciasTable() {
         <div class="table-wrapper">
         <table class="reports-table">
             <thead><tr>
-                <th>Analista</th><th>Tipo</th><th>Días</th><th>Desde</th><th>Hasta</th><th>Período</th>
+                <th>Analista</th><th>Tipo</th>
+                <th title="Días hábiles (programadas en calendario) o días ingresados (sin programar)">Días hábiles</th>
+                <th>Desde</th><th>Hasta</th><th>Período</th>
             </tr></thead>
             <tbody>
                 ${rows.map(r => `<tr>
                     <td><strong>${r.analyst}</strong></td>
                     <td>${_absenceTypeIcon[r.type] || '•'} ${r.type}</td>
-                    <td style="text-align:center;font-weight:700;">${r.days}</td>
+                    <td style="text-align:center;font-weight:700;">${r.days}${!r.habil ? `<span title="Aún sin programar en calendario — días ingresados, no verificados como hábiles" style="margin-left:4px;font-size:0.7rem;color:#f59e0b;cursor:help;">⚠</span>` : ''}</td>
                     <td>${r.desde}</td>
                     <td>${r.hasta}</td>
                     <td>${r.period}</td>
