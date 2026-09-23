@@ -4890,8 +4890,38 @@ async function syncAllToSupabase() {
     }
 }
 
+// Lista maestra de opciones del selector "Tipo de Servicio" (gestiones normales, sin ausencias).
+// openNewAbsenceModal() sustituye temporalmente el innerHTML de #taskServiceType por los tipos
+// de ausencia; esta constante permite restaurarlo siempre que se abre una gestión normal,
+// evitando que la mutación quede pegada y borre el tipo de servicio al editar (bug reportado).
+const _taskServiceTypeOptionsHTML = `
+    <option value="">Seleccione tipo...</option>
+    <option value="Balanceo">⚖️ Balanceo</option>
+    <option value="Alineación">📐 Alineación</option>
+    <option value="Vibraciones">〰️ Vibraciones</option>
+    <option value="Termografía">🌡️ Termografía</option>
+    <option value="Ultrasonido">🔊 Ultrasonido</option>
+    <option value="Rotodinámico">⚙️ Rotodinámico</option>
+    <option value="Capacitación">📚 Capacitación</option>
+    <option value="Calibración">🔬 Calibración</option>
+    <option value="Metro Administrativo">🏢 Metro Administrativo</option>
+    <option value="Metro Terceros">🤝 Metro Terceros</option>`;
+
+const _absenceServiceTypeOptionsHTML = `
+    <option value="">Seleccione tipo…</option>
+    <option value="Vacaciones">🌴 Vacaciones</option>
+    <option value="Incapacidad">💊 Incapacidad</option>
+    <option value="Compensatorio">🔄 Compensatorio</option>
+    <option value="Entrenamiento o Curso">🎓 Entrenamiento o Curso</option>`;
+
+function _resetTaskServiceTypeOptions() {
+    const sel = document.getElementById('taskServiceType');
+    if(sel) sel.innerHTML = _taskServiceTypeOptionsHTML;
+}
+
 function openNewTaskModal() {
     try {
+        _resetTaskServiceTypeOptions();
         const form = document.getElementById('taskForm');
         if(form) form.reset();
 
@@ -4969,6 +4999,14 @@ function openEditTaskModal(taskId) {
     try {
         const task = tasks.find(t => t.id === taskId);
         if (!task) return;
+
+        // Restaurar lista completa de tipos de servicio (openNewAbsenceModal pudo haberla
+        // reducido a solo tipos de ausencia en una apertura previa del modal)
+        _resetTaskServiceTypeOptions();
+        if(task.isAbsence) {
+            const sel = document.getElementById('taskServiceType');
+            if(sel) sel.innerHTML = _absenceServiceTypeOptionsHTML;
+        }
 
         closeModal('taskInfoModal');
         
@@ -6198,12 +6236,7 @@ function openNewAbsenceModal() {
     // Restringir selector de tipo de servicio solo a tipos de ausencia
     const sel = document.getElementById('taskServiceType');
     if(!sel) return;
-    sel.innerHTML = `
-        <option value="">Seleccione tipo…</option>
-        <option value="Vacaciones">🌴 Vacaciones</option>
-        <option value="Incapacidad">💊 Incapacidad</option>
-        <option value="Compensatorio">🔄 Compensatorio</option>
-        <option value="Entrenamiento o Curso">🎓 Entrenamiento o Curso</option>`;
+    sel.innerHTML = _absenceServiceTypeOptionsHTML;
     document.getElementById('taskModalTitle').textContent = 'Registrar Ausencia';
 }
 
