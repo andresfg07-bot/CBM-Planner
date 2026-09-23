@@ -5640,7 +5640,8 @@ function switchView(viewName) {
             else if(viewName === 'tasks')   { renderTasksView(); }
             else if(viewName === 'finance') { renderFinanceView(); }
             else if(viewName === 'reports') {
-                if(reportActiveTab === 'csat') renderCsatTable();
+                if(reportActiveTab === 'csat')           renderCsatTable();
+                else if(reportActiveTab === 'ausencias') renderAusenciasTable();
                 else renderReportsTable();
             }
             else { renderBoard(); }
@@ -5928,10 +5929,25 @@ function switchReportTab(tab) {
     ['gestiones','csat','ausencias'].forEach(t =>
         document.getElementById(`tab-btn-${t}`)?.classList.toggle('active', t === tab)
     );
+
+    // Mostrar barra de filtros correcta
+    const commonBar  = document.getElementById('reports-common-filters');
+    const ausBar     = document.getElementById('reports-ausencias-filters');
+    const exportBtns = document.getElementById('reports-export-btns');
+    if(tab === 'ausencias') {
+        if(commonBar)  commonBar.style.display  = 'none';
+        if(ausBar)     ausBar.style.display     = '';
+        if(exportBtns) exportBtns.style.display = 'none';
+        // Inicializar scope por defecto si no se ha hecho
+        setAusenciasScope(_ausFilters.scope || 'year');
+    } else {
+        if(commonBar)  commonBar.style.display  = '';
+        if(ausBar)     ausBar.style.display     = 'none';
+        if(exportBtns) exportBtns.style.display = '';
+    }
+
     document.getElementById('filter-service-wrap')?.style.setProperty('display',     tab === 'gestiones' ? '' : 'none');
     document.getElementById('filter-csat-status-wrap')?.style.setProperty('display', tab === 'csat'      ? '' : 'none');
-    // Ocultar filtros de analista/cliente en ausencias (tiene los suyos propios)
-    document.getElementById('reports-export-btns')?.style.setProperty('display', tab === 'ausencias' ? 'none' : '');
 
     const title = document.getElementById('reports-view-title');
     const sub   = document.getElementById('reports-view-subtitle');
@@ -5951,27 +5967,87 @@ function switchReportTab(tab) {
 // ── Tabla de ausencias ────────────────────────────────────────────────────────
 const _absenceTypeIcon = { Vacaciones:'🌴', Incapacidad:'💊', Compensatorio:'🔄', 'Entrenamiento o Curso':'🎓' };
 
+let _ausFilters = { analyst: '', type: '', dateFrom: '', dateTo: '', scope: 'year' };
+
+function _ausFilteredTasks() {
+    const f = _ausFilters;
+    return tasks.filter(t => {
+        if(!t.isAbsence) return false;
+        const analyst = t.analysts_assignment?.[0]?.name || t.analyst || '';
+        if(f.analyst && analyst !== f.analyst) return false;
+        if(f.type && t.serviceType !== f.type) return false;
+        const period = t.mesFacturacion || t.period || '';
+        if(f.dateFrom && period < f.dateFrom) return false;
+        if(f.dateTo   && period > f.dateTo)   return false;
+        return true;
+    });
+}
+
+function applyAusenciasFilters() {
+    _ausFilters.analyst  = document.getElementById('ausencias-filter-analyst')?.value || '';
+    _ausFilters.type     = document.getElementById('ausencias-filter-type')?.value    || '';
+    if(_ausFilters.scope === 'months') {
+        _ausFilters.dateFrom = document.getElementById('ausencias-filter-from')?.value || '';
+        _ausFilters.dateTo   = document.getElementById('ausencias-filter-to')?.value   || '';
+    }
+    renderAusenciasTable();
+}
+
+function setAusenciasScope(scope) {
+    _ausFilters.scope = scope;
+    ['year','all','months'].forEach(s =>
+        document.getElementById(`aus-scope-${s}`)?.classList.toggle('active', s === scope)
+    );
+    const rangeEl = document.getElementById('aus-month-range');
+    if(rangeEl) rangeEl.style.display = scope === 'months' ? 'flex' : 'none';
+    if(scope === 'year') {
+        const y = new Date().getFullYear();
+        _ausFilters.dateFrom = `${y}-01`;
+        _ausFilters.dateTo   = `${y}-12`;
+    } else if(scope === 'all') {
+        _ausFilters.dateFrom = '';
+        _ausFilters.dateTo   = '';
+    } else {
+        _ausFilters.dateFrom = document.getElementById('ausencias-filter-from')?.value || '';
+        _ausFilters.dateTo   = document.getElementById('ausencias-filter-to')?.value   || '';
+    }
+    renderAusenciasTable();
+}
+
+function clearAusenciasFilters() {
+    _ausFilters = { analyst: '', type: '', dateFrom: '', dateTo: '', scope: 'year' };
+    const selA = document.getElementById('ausencias-filter-analyst');
+    const selT = document.getElementById('ausencias-filter-type');
+    if(selA) selA.value = '';
+    if(selT) selT.value = '';
+    setAusenciasScope('year');
+}
+
+function _populateAusenciasAnalystSelect() {
+    const sel = document.getElementById('ausencias-filter-analyst');
+    if(!sel || sel.options.length > 1) return; // ya poblado
+    const names = [...new Set(tasks.filter(t => t.isAbsence)
+        .map(t => t.analysts_assignment?.[0]?.name || t.analyst).filter(Boolean))].sort();
+    names.forEach(n => {
+        const o = document.createElement('option');
+        o.value = n; o.textContent = n;
+        sel.appendChild(o);
+    });
+}
+
 function renderAusenciasTable() {
     const el = document.getElementById('reports-table-container');
     if(!el) return;
+    _populateAusenciasAnalystSelect();
 
-    const f = _invHistorialFilters; // reutilizar scope de tiempo ya calculado en reportFilters
-    let data = tasks.filter(t => {
-        if(!t.isAbsence) return false;
-        const period = t.mesFacturacion || t.period || '';
-        if(reportFilters.dateFrom && period < reportFilters.dateFrom) return false;
-        if(reportFilters.dateTo   && period > reportFilters.dateTo)   return false;
-        return true;
-    });
-
-    // Aplanar a filas por día de ausencia
+    const data = _ausFilteredTasks();
     const rows = [];
     data.forEach(t => {
         const days = t.scheduledDays || [];
         if(days.length === 0) return;
         const sorted = [...days].sort((a, b) => (a.date||'').localeCompare(b.date||''));
-        const desde  = sorted[0]?.date || '—';
-        const hasta  = sorted[sorted.length - 1]?.date || '—';
+        const desde   = sorted[0]?.date || '—';
+        const hasta   = sorted[sorted.length - 1]?.date || '—';
         const analyst = t.analysts_assignment?.[0]?.name || t.analyst || '—';
         const type    = t.serviceType || '—';
         rows.push({ analyst, type, days: days.length, desde, hasta, period: t.period || t.mesFacturacion || '—' });
@@ -5980,26 +6056,23 @@ function renderAusenciasTable() {
     rows.sort((a, b) => a.desde.localeCompare(b.desde));
 
     if(rows.length === 0) {
-        el.innerHTML = `<div style="text-align:center;padding:3rem;color:#94a3b8;">No hay ausencias registradas en este período.</div>`;
+        el.innerHTML = `<div style="text-align:center;padding:3rem;color:#94a3b8;">No hay ausencias registradas para los filtros seleccionados.</div>`;
         return;
     }
 
-    // Resumen por analista
     const byAnalyst = {};
-    rows.forEach(r => {
-        byAnalyst[r.analyst] = (byAnalyst[r.analyst] || 0) + r.days;
-    });
+    rows.forEach(r => { byAnalyst[r.analyst] = (byAnalyst[r.analyst] || 0) + r.days; });
     const summaryChips = Object.entries(byAnalyst)
         .sort((a, b) => b[1] - a[1])
         .map(([name, d]) => `<span style="display:inline-flex;align-items:center;gap:0.3rem;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:99px;padding:0.2rem 0.6rem;font-size:0.78rem;font-weight:600;">${name} <span style="background:#64748b;color:#fff;border-radius:99px;padding:0 5px;font-size:0.7rem;">${d}d</span></span>`)
         .join('');
 
     el.innerHTML = `
-        <div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:1rem;align-items:center;">
+        <div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:1rem;align-items:center;padding:1rem 1rem 0;">
             <span style="font-size:0.78rem;color:#94a3b8;font-weight:600;margin-right:0.2rem;">Días totales:</span>
             ${summaryChips}
         </div>
-        <div style="display:flex;justify-content:flex-end;margin-bottom:0.5rem;">
+        <div style="display:flex;justify-content:flex-end;padding:0.5rem 1rem;">
             <button onclick="exportAusenciasCSV()" style="display:flex;align-items:center;gap:0.4rem;padding:0.4rem 0.9rem;background:#16a34a;color:#fff;border:none;border-radius:6px;font-weight:700;font-size:0.8rem;cursor:pointer;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 Exportar CSV
@@ -6026,20 +6099,14 @@ function renderAusenciasTable() {
 
 function exportAusenciasCSV() {
     const headers = ['Analista','Tipo','Días','Desde','Hasta','Período'];
-    const data = tasks.filter(t => {
-        if(!t.isAbsence) return false;
-        const period = t.mesFacturacion || t.period || '';
-        if(reportFilters.dateFrom && period < reportFilters.dateFrom) return false;
-        if(reportFilters.dateTo   && period > reportFilters.dateTo)   return false;
-        return true;
-    }).flatMap(t => {
-        const days   = t.scheduledDays || [];
+    const rows = _ausFilteredTasks().flatMap(t => {
+        const days = t.scheduledDays || [];
         if(!days.length) return [];
-        const sorted = [...days].sort((a,b) => (a.date||'').localeCompare(b.date||''));
+        const sorted  = [...days].sort((a,b) => (a.date||'').localeCompare(b.date||''));
         const analyst = t.analysts_assignment?.[0]?.name || t.analyst || '';
         return [[analyst, t.serviceType, days.length, sorted[0]?.date||'', sorted[sorted.length-1]?.date||'', t.period||'']];
     });
-    const csv = [headers, ...data].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+    const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8'}));
     a.download = `ausencias_cbm_${new Date().toISOString().slice(0,10)}.csv`;

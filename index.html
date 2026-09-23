@@ -544,8 +544,8 @@
                     </div>
                 </div>
 
-                <!-- Filtros comunes -->
-                <div class="filter-toolbar" style="align-items:flex-end;">
+                <!-- Filtros comunes (gestiones + csat) -->
+                <div id="reports-common-filters" class="filter-toolbar" style="align-items:flex-end;">
                     <div style="flex:1; min-width:160px;">
                         <label class="filter-label">Analista</label><br>
                         <select id="report-filter-analyst" onchange="applyReportFilters()" class="filter-select" style="width:100%; margin-top:4px;">
@@ -603,6 +603,45 @@
                         </div>
                     </div>
                     <button onclick="clearReportFilters()" class="filter-clear-btn">✕ Limpiar</button>
+                </div>
+
+                <!-- Filtros de Ausencias (solo visible en pestaña Ausencias) -->
+                <div id="reports-ausencias-filters" class="filter-toolbar" style="align-items:flex-end; display:none;">
+                    <div style="flex:1; min-width:160px;">
+                        <label class="filter-label">Analista</label><br>
+                        <select id="ausencias-filter-analyst" onchange="applyAusenciasFilters()" class="filter-select" style="width:100%; margin-top:4px;">
+                            <option value="">Todos los Analistas</option>
+                        </select>
+                    </div>
+                    <div style="flex:1; min-width:180px;">
+                        <label class="filter-label">Tipo de Ausencia</label><br>
+                        <select id="ausencias-filter-type" onchange="applyAusenciasFilters()" class="filter-select" style="width:100%; margin-top:4px;">
+                            <option value="">Todos los Tipos</option>
+                            <option value="Vacaciones">🌴 Vacaciones</option>
+                            <option value="Incapacidad">💊 Incapacidad</option>
+                            <option value="Compensatorio">🔄 Compensatorio</option>
+                            <option value="Entrenamiento o Curso">🎓 Entrenamiento o Curso</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:0.3rem;">
+                        <label class="filter-label">Período</label>
+                        <div class="view-toggle-group" style="margin-top:2px;">
+                            <button id="aus-scope-year"   onclick="setAusenciasScope('year')"   class="active">Este Año</button>
+                            <button id="aus-scope-all"    onclick="setAusenciasScope('all')">Todo</button>
+                            <button id="aus-scope-months" onclick="setAusenciasScope('months')">Meses</button>
+                        </div>
+                    </div>
+                    <div id="aus-month-range" style="display:none; align-items:flex-end; gap:0.4rem;">
+                        <div>
+                            <label class="filter-label">Desde</label><br>
+                            <input type="month" id="ausencias-filter-from" onchange="applyAusenciasFilters()" class="filter-select" style="width:130px; margin-top:4px;">
+                        </div>
+                        <div>
+                            <label class="filter-label">Hasta</label><br>
+                            <input type="month" id="ausencias-filter-to" onchange="applyAusenciasFilters()" class="filter-select" style="width:130px; margin-top:4px;">
+                        </div>
+                    </div>
+                    <button onclick="clearAusenciasFilters()" class="filter-clear-btn">✕ Limpiar</button>
                 </div>
 
                 <!-- Botones de Exportación -->
