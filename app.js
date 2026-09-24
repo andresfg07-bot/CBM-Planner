@@ -6062,14 +6062,6 @@ function _fmtDate(iso) {
     return `<span style="display:inline-flex;align-items:center;gap:3px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:6px;padding:1px 7px;font-size:0.75rem;font-weight:700;white-space:nowrap;">${label}</span>`;
 }
 
-// "2026-02" → chip estilizado  "Feb · 2026"
-function _fmtPeriodChip(period) {
-    if(!period || period === '—') return '—';
-    const [y, m] = period.split('-');
-    if(!y || !m) return period;
-    return `<span style="display:inline-flex;align-items:center;gap:3px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:6px;padding:1px 7px;font-size:0.75rem;font-weight:700;white-space:nowrap;">${_shortMonths[parseInt(m,10)-1]}<span style="opacity:.5;">·</span>${y}</span>`;
-}
-
 let _ausFilters = { analyst: '', type: '', dateFrom: '', dateTo: '', scope: 'year' };
 
 function _ausFilteredTasks() {
@@ -6150,14 +6142,15 @@ function renderAusenciasTable() {
         const analyst = t.analysts_assignment?.[0]?.name || t.analyst || '—';
         const type    = t.serviceType || '—';
         const period  = t.period || t.mesFacturacion || '—';
+        const year    = period.split('-')[0] || '—';
         if(scheduledDays.length > 0) {
             const sorted = [...scheduledDays].sort((a, b) => (a.date||'').localeCompare(b.date||''));
-            rows.push({ analyst, type, days: scheduledDays.length, desde: sorted[0]?.date || '—', hasta: sorted[sorted.length-1]?.date || '—', period, habil: true, notes: t.absenceNotes || '' });
+            rows.push({ analyst, type, days: scheduledDays.length, desde: sorted[0]?.date || '—', hasta: sorted[sorted.length-1]?.date || '—', year, habil: true, notes: t.absenceNotes || '' });
         } else {
             // Tarea en backlog: usar daysField como referencia
             const dField = t.daysField || 0;
             if(dField > 0) {
-                rows.push({ analyst, type, days: dField, desde: '—', hasta: '—', period, habil: false, notes: t.absenceNotes || '' });
+                rows.push({ analyst, type, days: dField, desde: '—', hasta: '—', year, habil: false, notes: t.absenceNotes || '' });
             }
         }
     });
@@ -6169,41 +6162,27 @@ function renderAusenciasTable() {
         return;
     }
 
-    const byAnalyst = {};
-    rows.forEach(r => {
-        if(!byAnalyst[r.analyst]) byAnalyst[r.analyst] = { habil: 0, pending: 0 };
-        if(r.habil) byAnalyst[r.analyst].habil   += r.days;
-        else        byAnalyst[r.analyst].pending += r.days;
-    });
-    const summaryChips = Object.entries(byAnalyst)
-        .sort((a, b) => (b[1].habil + b[1].pending) - (a[1].habil + a[1].pending))
-        .map(([name, v]) => {
-            const total = v.habil + v.pending;
-            const badge = v.pending > 0
-                ? `<span title="${v.habil} confirmados + ${v.pending} sin programar" style="background:#64748b;color:#fff;border-radius:99px;padding:0 5px;font-size:0.7rem;">${total}d ⚠</span>`
-                : `<span style="background:#64748b;color:#fff;border-radius:99px;padding:0 5px;font-size:0.7rem;">${total}d</span>`;
-            return `<span style="display:inline-flex;align-items:center;gap:0.3rem;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:99px;padding:0.2rem 0.6rem;font-size:0.78rem;font-weight:600;">${name} ${badge}</span>`;
-        })
-        .join('');
+    const totalDays = rows.reduce((s, r) => s + r.days, 0);
 
     el.innerHTML = `
-        <div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:1rem;align-items:center;padding:1rem 1rem 0;">
-            <span style="font-size:0.78rem;color:#94a3b8;font-weight:600;margin-right:0.2rem;">Días totales:</span>
-            ${summaryChips}
-        </div>
-        <div style="display:flex;justify-content:flex-end;padding:0.5rem 1rem;">
+        <div style="display:flex;justify-content:flex-end;padding:1rem 1rem 0;">
             <button onclick="exportAusenciasCSV()" style="display:flex;align-items:center;gap:0.4rem;padding:0.4rem 0.9rem;background:#16a34a;color:#fff;border:none;border-radius:6px;font-weight:700;font-size:0.8rem;cursor:pointer;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 Exportar CSV
             </button>
         </div>
-        <div class="table-wrapper">
-        <table class="reports-table">
-            <thead><tr>
-                <th>Analista</th><th>Tipo</th>
-                <th title="Días hábiles (programadas en calendario) o días ingresados (sin programar)">Días hábiles</th>
-                <th>Desde</th><th>Hasta</th><th>Período</th><th style="min-width:220px;">Observaciones</th>
-            </tr></thead>
+        <table class="data-table" style="font-size:0.8rem; width:100%;">
+            <thead>
+                <tr>
+                    <th style="min-width:140px;">Analista</th>
+                    <th style="min-width:150px;">Tipo</th>
+                    <th style="min-width:110px;" title="Días hábiles (programadas en calendario) o días ingresados (sin programar)">Días hábiles</th>
+                    <th style="min-width:80px;">Desde</th>
+                    <th style="min-width:80px;">Hasta</th>
+                    <th style="min-width:70px;">Año</th>
+                    <th style="min-width:220px;">Observaciones</th>
+                </tr>
+            </thead>
             <tbody>
                 ${rows.map(r => `<tr>
                     <td><strong>${r.analyst}</strong></td>
@@ -6211,28 +6190,37 @@ function renderAusenciasTable() {
                     <td style="text-align:center;font-weight:700;">${r.days}${!r.habil ? `<span title="Aún sin programar en calendario — días ingresados, no verificados como hábiles" style="margin-left:4px;font-size:0.7rem;color:#f59e0b;cursor:help;">⚠</span>` : ''}</td>
                     <td style="font-variant-numeric:tabular-nums;white-space:nowrap;">${_fmtDate(r.desde)}</td>
                     <td style="font-variant-numeric:tabular-nums;white-space:nowrap;">${_fmtDate(r.hasta)}</td>
-                    <td>${_fmtPeriodChip(r.period)}</td>
+                    <td>${r.year !== '—' ? `<span style="display:inline-flex;align-items:center;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:6px;padding:1px 7px;font-size:0.75rem;font-weight:700;">${r.year}</span>` : '—'}</td>
                     <td style="font-size:0.82rem;color:#475569;max-width:220px;">${r.notes ? `<span title="${r.notes.replace(/"/g,'&quot;')}">${r.notes.length > 60 ? r.notes.slice(0,57)+'…' : r.notes}</span>` : '<span style="color:#cbd5e1;">—</span>'}</td>
                 </tr>`).join('')}
             </tbody>
-        </table>
-        </div>`;
+            <tfoot>
+                <tr style="background:#f0f9ff; font-weight:800; border-top:2px solid var(--clr-blue);">
+                    <td colspan="2" style="padding:0.75rem; font-size:0.85rem; color:var(--clr-blue)">TOTAL (${rows.length} registros)</td>
+                    <td style="text-align:center; color:var(--clr-blue); font-size:1rem; padding:0.75rem;">${totalDays}d</td>
+                    <td colspan="4"></td>
+                </tr>
+            </tfoot>
+        </table>`;
 }
 
 function exportAusenciasCSV() {
-    const headers = ['Analista','Tipo','Días','Desde','Hasta','Período','Observaciones'];
+    const headers = ['Analista','Tipo','Días','Desde','Hasta','Año','Observaciones'];
     const rows = _ausFilteredTasks().flatMap(t => {
         const sDays   = (t.scheduledDays||[]).filter(d => d.type === 'field' || !d.type);
         const analyst = t.analysts_assignment?.[0]?.name || t.analyst || '';
         const notes   = t.absenceNotes || '';
+        const year    = (t.period || t.mesFacturacion || '').split('-')[0] || '';
         if(sDays.length > 0) {
             const sorted = [...sDays].sort((a,b) => (a.date||'').localeCompare(b.date||''));
-            return [[analyst, t.serviceType, sDays.length, sorted[0]?.date||'', sorted[sorted.length-1]?.date||'', t.period||'', notes]];
+            return [[analyst, t.serviceType, sDays.length, sorted[0]?.date||'', sorted[sorted.length-1]?.date||'', year, notes]];
         } else if(t.daysField > 0) {
-            return [[analyst, t.serviceType, t.daysField, '—', '—', t.period||'', notes]];
+            return [[analyst, t.serviceType, t.daysField, '—', '—', year, notes]];
         }
         return [];
     });
+    const totalDays = rows.reduce((s, r) => s + (parseInt(r[2]) || 0), 0);
+    rows.push(['TOTAL', '', totalDays, '', '', '', '']);
     const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8'}));
