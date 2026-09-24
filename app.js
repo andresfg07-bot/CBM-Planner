@@ -6594,7 +6594,7 @@ async function exportCsatPDF() {
         headStyles: { fillColor:BLUE, textColor:[255,255,255], fontStyle:'bold' },
         alternateRowStyles: { fillColor:[239,246,255] },
         columnStyles: { 0:{cellWidth:20}, 1:{cellWidth:42}, 2:{cellWidth:38}, 3:{cellWidth:26}, 4:{cellWidth:28}, 5:{cellWidth:'auto'}, 6:{cellWidth:40} },
-        margin: { left:mX, right:mX, bottom:25 },
+        margin: { left:mX, right:mX, bottom:25, top:35 },
         didDrawPage: d => { if(d.pageNumber>1) drawLayout(d.pageNumber); }
     });
 
@@ -6923,7 +6923,7 @@ async function exportReportPDF() {
             5: { cellWidth: 34 },
             6: { cellWidth: 21, halign:'center' }
         },
-        margin: { left: mX, right: mX, bottom: 26 },
+        margin: { left: mX, right: mX, bottom: 26, top: 35 },
         didDrawPage: function(d) {
             if(d.pageNumber > 1) drawPageLayout(d.pageNumber);
         },
