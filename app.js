@@ -5932,13 +5932,18 @@ let reportsDefaultApplied = false;
 
 function setReportTimeScope(scope) {
     reportTimeScope = scope;
-    ['year','all','months'].forEach(s => {
+    ['month','year','all','months'].forEach(s => {
         document.getElementById(`rpt-scope-${s}`)?.classList.toggle('active', s === scope);
     });
     const rangeEl = document.getElementById('rpt-month-range');
     if(rangeEl) rangeEl.style.display = scope === 'months' ? 'flex' : 'none';
 
-    if(scope === 'year') {
+    if(scope === 'month') {
+        const now = new Date();
+        const ym = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+        reportFilters.dateFrom = ym;
+        reportFilters.dateTo   = ym;
+    } else if(scope === 'year') {
         const y = new Date().getFullYear();
         reportFilters.dateFrom = `${y}-01`;
         reportFilters.dateTo   = `${y}-12`;
@@ -6090,12 +6095,17 @@ function applyAusenciasFilters() {
 
 function setAusenciasScope(scope) {
     _ausFilters.scope = scope;
-    ['year','all','months'].forEach(s =>
+    ['month','year','all','months'].forEach(s =>
         document.getElementById(`aus-scope-${s}`)?.classList.toggle('active', s === scope)
     );
     const rangeEl = document.getElementById('aus-month-range');
     if(rangeEl) rangeEl.style.display = scope === 'months' ? 'flex' : 'none';
-    if(scope === 'year') {
+    if(scope === 'month') {
+        const now = new Date();
+        const ym = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+        _ausFilters.dateFrom = ym;
+        _ausFilters.dateTo   = ym;
+    } else if(scope === 'year') {
         const y = new Date().getFullYear();
         _ausFilters.dateFrom = `${y}-01`;
         _ausFilters.dateTo   = `${y}-12`;
