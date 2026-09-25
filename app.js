@@ -1981,6 +1981,53 @@ function renderTasksView() {
     renderTasksTable(listContainer);
 }
 
+// ── Checklist obligatorio de cierre de campo (antes de programada → ejecutada) ──
+let _execChecklistResolve = null;
+
+function confirmExecutionChecklist() {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('executionChecklistModal');
+        const confirmBtn = document.getElementById('execChecklistConfirmBtn');
+        if(!modal || !confirmBtn) { resolve(true); return; } // fallback si el modal no existe
+
+        const checkboxes = modal.querySelectorAll('.exec-check');
+        checkboxes.forEach(cb => { cb.checked = false; });
+        confirmBtn.disabled = true;
+
+        const updateBtn = () => {
+            confirmBtn.disabled = !Array.from(checkboxes).every(cb => cb.checked);
+        };
+        checkboxes.forEach(cb => cb.addEventListener('change', updateBtn));
+        modal._execUpdateBtn = updateBtn; // para poder desengancharlo al cerrar
+
+        _execChecklistResolve = resolve;
+        modal.classList.add('active');
+    });
+}
+
+function _closeExecutionChecklistModal() {
+    const modal = document.getElementById('executionChecklistModal');
+    if(!modal) return;
+    if(modal._execUpdateBtn) {
+        modal.querySelectorAll('.exec-check').forEach(cb => cb.removeEventListener('change', modal._execUpdateBtn));
+        modal._execUpdateBtn = null;
+    }
+    modal.classList.remove('active');
+}
+
+function _confirmExecutionChecklist() {
+    const modal = document.getElementById('executionChecklistModal');
+    const checkboxes = modal ? modal.querySelectorAll('.exec-check') : [];
+    if(!Array.from(checkboxes).every(cb => cb.checked)) return; // guard extra
+    _closeExecutionChecklistModal();
+    if(_execChecklistResolve) { _execChecklistResolve(true); _execChecklistResolve = null; }
+}
+
+function _cancelExecutionChecklist() {
+    _closeExecutionChecklistModal();
+    if(_execChecklistResolve) { _execChecklistResolve(false); _execChecklistResolve = null; }
+}
+
 async function updateTaskStatus(taskId, newStatus) {
     const task = tasks.find(t => t.id === taskId);
     if(!task) return;
@@ -1996,16 +2043,16 @@ async function updateTaskStatus(taskId, newStatus) {
         renderBoard();
         return;
     }
-    // Confirmación irreversible: programada → ejecutada
+    // Confirmación irreversible: programada → ejecutada.
+    // Antes de permitir el paso, se exige el checklist del protocolo de cierre de campo
+    // (subir base de datos de vibraciones al servidor, enviar informe, programar cierre),
+    // porque esas tareas se estaban olvidando y generaban huecos entre gestiones.
     if(task.status === 'programada' && newStatus === 'ejecutada') {
-        const confirmed = confirm(
-            '⚠️ ACCIÓN IRREVERSIBLE\n\n' +
-            'Estás a punto de marcar esta gestión como EJECUTADA.\n\n' +
-            'Una vez ejecutada, no podrá volver a estado Programada o Proyectada.\n\n' +
-            '¿Confirmas que el trabajo de campo fue realizado?'
-        );
+        const confirmed = await confirmExecutionChecklist();
         if(!confirmed) {
             renderBoard();
+            renderTasksView();
+            if(typeof renderMyWorkView === 'function') renderMyWorkView();
             return;
         }
     }

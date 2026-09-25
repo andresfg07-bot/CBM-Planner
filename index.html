@@ -804,6 +804,35 @@
         </div>
     </div>
 
+    <!-- Checklist de Cierre de Campo (obligatorio antes de pasar a Ejecutada) -->
+    <div id="executionChecklistModal" class="modal">
+        <div class="modal-content" style="max-width: 460px;">
+            <span class="close-btn" onclick="_cancelExecutionChecklist()">&times;</span>
+            <h2>Antes de marcar como Ejecutada</h2>
+            <p style="color:var(--text-secondary); font-size:0.85rem; margin-bottom:1rem;">
+                Confirma que ya realizaste estas tres tareas del protocolo de cierre de campo:
+            </p>
+
+            <div class="form-group checkbox-group" style="align-items:flex-start;">
+                <input type="checkbox" class="exec-check" id="execCheck1" style="margin-top:3px;">
+                <label for="execCheck1">Pasaste la base de datos de vibraciones al servidor.</label>
+            </div>
+            <div class="form-group checkbox-group" style="align-items:flex-start;">
+                <input type="checkbox" class="exec-check" id="execCheck2" style="margin-top:3px;">
+                <label for="execCheck2">Enviaste el correo de informe a Cliente, Comercial y Asistente.</label>
+            </div>
+            <div class="form-group checkbox-group" style="align-items:flex-start;">
+                <input type="checkbox" class="exec-check" id="execCheck3" style="margin-top:3px;">
+                <label for="execCheck3">Ya programaste el cierre de gestión.</label>
+            </div>
+
+            <div style="display:flex; gap:0.75rem; margin-top:1.25rem;">
+                <button type="button" class="btn-secondary" style="flex:1;" onclick="_cancelExecutionChecklist()">Cancelar</button>
+                <button type="button" class="btn-primary" style="flex:1;" id="execChecklistConfirmBtn" disabled onclick="_confirmExecutionChecklist()">✓ Confirmar Ejecución</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Cierre/CSAT Modal -->
     <!-- Modal para Reunión de Cierre y CSAT -->
     <div id="csatModal" class="modal">
