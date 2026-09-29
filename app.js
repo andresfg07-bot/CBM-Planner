@@ -5730,6 +5730,16 @@ document.getElementById('csatForm').addEventListener('submit', async e => {
 });
 
 function switchView(viewName) {
+    // La vista Semana del cronograma solo tiene sentido dentro de "planning": si se sale
+    // de esa vista con Semana activa, se vuelve a Mes para no dejar el selector de período
+    // global (usado por todas las demás pantallas) atascado en modo semana.
+    if (viewName !== 'planning' && calendarView === 'week') {
+        calendarView = 'month';
+        updatePeriodDisplay();
+        document.querySelectorAll('#view-planning .view-toggle-group button').forEach(btn => btn.classList.remove('active'));
+        document.getElementById('btn-view-month')?.classList.add('active');
+    }
+
     document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active-view'));
     const targetView = document.getElementById(`view-${viewName}`);
     if(targetView) {
