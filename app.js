@@ -1982,16 +1982,49 @@ function renderTasksView() {
 }
 
 // ── Checklist obligatorio de cierre de campo (antes de programada → ejecutada) ──
+// Cada tipo de servicio tiene su propio checklist. Los tipos que no aparecen aquí
+// usan la confirmación simple de siempre (sin checklist específico).
+const _executionChecklistsByService = {
+    'Vibraciones': [
+        'Pasaste la base de datos de vibraciones al servidor.',
+        'Enviaste el correo de informe a Cliente, Comercial y Asistente.',
+        'Ya programaste el cierre de gestión.'
+    ],
+    'Rotodinámico': [
+        'Generaste el Backup en los dos discos duros de Respaldo.',
+        'Enviaste el correo de informe a Cliente, Comercial y Asistente.',
+        'Ya programaste el cierre de gestión.'
+    ]
+};
+
 let _execChecklistResolve = null;
 
-function confirmExecutionChecklist() {
+function confirmExecutionChecklist(serviceType) {
+    const items = _executionChecklistsByService[serviceType];
+
+    // Sin checklist específico para este servicio: confirmación simple de siempre
+    if(!items) {
+        return Promise.resolve(confirm(
+            '⚠️ ACCIÓN IRREVERSIBLE\n\n' +
+            'Estás a punto de marcar esta gestión como EJECUTADA.\n\n' +
+            'Una vez ejecutada, no podrá volver a estado Programada o Proyectada.\n\n' +
+            '¿Confirmas que el trabajo de campo fue realizado?'
+        ));
+    }
+
     return new Promise((resolve) => {
         const modal = document.getElementById('executionChecklistModal');
         const confirmBtn = document.getElementById('execChecklistConfirmBtn');
-        if(!modal || !confirmBtn) { resolve(true); return; } // fallback si el modal no existe
+        const itemsContainer = document.getElementById('execChecklistItems');
+        if(!modal || !confirmBtn || !itemsContainer) { resolve(true); return; } // fallback si el modal no existe
 
-        const checkboxes = modal.querySelectorAll('.exec-check');
-        checkboxes.forEach(cb => { cb.checked = false; });
+        itemsContainer.innerHTML = items.map((label, i) => `
+            <div class="form-group checkbox-group" style="align-items:flex-start;">
+                <input type="checkbox" class="exec-check" id="execCheck${i}" style="margin-top:3px;">
+                <label for="execCheck${i}">${label}</label>
+            </div>`).join('');
+
+        const checkboxes = itemsContainer.querySelectorAll('.exec-check');
         confirmBtn.disabled = true;
 
         const updateBtn = () => {
@@ -2045,10 +2078,11 @@ async function updateTaskStatus(taskId, newStatus) {
     }
     // Confirmación irreversible: programada → ejecutada.
     // Antes de permitir el paso, se exige el checklist del protocolo de cierre de campo
-    // (subir base de datos de vibraciones al servidor, enviar informe, programar cierre),
+    // (subir base de datos al servidor / backup, enviar informe, programar cierre),
     // porque esas tareas se estaban olvidando y generaban huecos entre gestiones.
+    // El checklist mostrado depende del tipo de servicio (ver _executionChecklistsByService).
     if(task.status === 'programada' && newStatus === 'ejecutada') {
-        const confirmed = await confirmExecutionChecklist();
+        const confirmed = await confirmExecutionChecklist(task.serviceType);
         if(!confirmed) {
             renderBoard();
             renderTasksView();
