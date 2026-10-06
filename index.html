@@ -723,7 +723,7 @@
                 </div>
                 <div id="group-days" style="display: flex; gap: 1rem;">
                     <div class="form-group" style="flex: 1;">
-                        <label>Días Planta</label>
+                        <label id="label-days-field">Días Planta</label>
                         <input type="number" id="taskDaysField" min="0" value="1" required>
                     </div>
                     <div class="form-group" id="group-report" style="flex: 1;">
@@ -741,12 +741,12 @@
                 </div>
                 <div style="display: flex; gap: 1rem;">
                     <div class="form-group" style="flex: 1;">
-                        <label>Mes de Gestión <span style="font-weight:400; color:#64748b; font-size:0.72rem;">(en qué mes va a aparecer)</span></label>
+                        <label id="label-period-month">Mes de Gestión <span style="font-weight:400; color:#64748b; font-size:0.72rem;">(en qué mes va a aparecer)</span></label>
                         <select id="taskPeriodMonth" required>
                             <!-- Poblado por JS -->
                         </select>
                     </div>
-                    <div class="form-group" style="flex: 1;">
+                    <div class="form-group" id="group-billing" style="flex: 1;">
                         <label>Mes de Facturación</label>
                         <select id="taskBillingMonth" required>
                             <!-- Poblado por JS -->

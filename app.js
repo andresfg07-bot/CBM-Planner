@@ -4249,18 +4249,32 @@ async function onTaskClientChange() {
     }
 }
 
+// true mientras el modal se usa en modo "Registrar Ausencia": el formulario debe mostrar
+// los campos de ausencia desde el inicio, aunque aún no se haya elegido el tipo.
+let _absenceModalActive = false;
+
 function onTaskServiceTypeChange() {
     const serviceType = document.getElementById('taskServiceType').value;
-    const isAbsence       = (serviceType === 'Vacaciones' || serviceType === 'Incapacidad' || serviceType === 'Compensatorio' || serviceType === 'Entrenamiento o Curso');
+    const isAbsence       = _absenceModalActive || (serviceType === 'Vacaciones' || serviceType === 'Incapacidad' || serviceType === 'Compensatorio' || serviceType === 'Entrenamiento o Curso');
     const isAdminContract = (serviceType === 'Metro Administrativo');
     const isThirdParty    = (serviceType === 'Metro Terceros');
 
     // Campos que se ocultan solo en ausencias
-    const fieldsToToggle = ['group-client', 'group-budget', 'group-equipment', 'group-report'];
+    const fieldsToToggle = ['group-client', 'group-budget', 'group-equipment', 'group-report', 'group-billing'];
     fieldsToToggle.forEach(id => {
         const el = document.getElementById(id);
         if(el) el.style.display = isAbsence ? 'none' : 'block';
     });
+
+    // Etiquetas propias de ausencia
+    const lblDays   = document.getElementById('label-days-field');
+    const lblPeriod = document.getElementById('label-period-month');
+    if(lblDays)   lblDays.textContent = isAbsence ? 'Días de Ausencia' : 'Días Planta';
+    if(lblPeriod) lblPeriod.innerHTML = isAbsence
+        ? 'Mes de Ausencia'
+        : 'Mes de Gestión <span style="font-weight:400; color:#64748b; font-size:0.72rem;">(en qué mes va a aparecer)</span>';
+    const billingSel = document.getElementById('taskBillingMonth');
+    if(billingSel) billingSel.required = !isAbsence;
 
     // Campo de observaciones: solo en ausencias
     const notesGroup = document.getElementById('group-absence-notes');
@@ -5012,6 +5026,7 @@ function _resetTaskServiceTypeOptions() {
 
 function openNewTaskModal() {
     try {
+        _absenceModalActive = false;
         _resetTaskServiceTypeOptions();
         const form = document.getElementById('taskForm');
         if(form) form.reset();
@@ -5032,6 +5047,18 @@ function openNewTaskModal() {
         const notesGroup = document.getElementById('group-absence-notes');
         if(notesEl)    notesEl.value           = '';
         if(notesGroup) notesGroup.style.display = 'none';
+
+        // Restaurar el layout de gestión normal (por si el modal se usó antes como "Registrar Ausencia")
+        ['group-client', 'group-budget', 'group-report', 'group-billing'].forEach(id => {
+            const el = document.getElementById(id);
+            if(el) el.style.display = '';
+        });
+        const _lblDays = document.getElementById('label-days-field');
+        if(_lblDays) _lblDays.textContent = 'Días Planta';
+        const _lblPeriod = document.getElementById('label-period-month');
+        if(_lblPeriod) _lblPeriod.innerHTML = 'Mes de Gestión <span style="font-weight:400; color:#64748b; font-size:0.72rem;">(en qué mes va a aparecer)</span>';
+        const _billSel = document.getElementById('taskBillingMonth');
+        if(_billSel) _billSel.required = true;
 
         const modalTitle = document.getElementById('taskModalTitle');
         if (modalTitle) modalTitle.textContent = 'Nueva Gestión';
@@ -5093,6 +5120,7 @@ function openEditTaskModal(taskId) {
 
         // Restaurar lista completa de tipos de servicio (openNewAbsenceModal pudo haberla
         // reducido a solo tipos de ausencia en una apertura previa del modal)
+        _absenceModalActive = false;
         _resetTaskServiceTypeOptions();
         if(task.isAbsence) {
             const sel = document.getElementById('taskServiceType');
@@ -5411,8 +5439,8 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
                 tasks[idx].isAbsence = isAbsence;
                 tasks[idx].plantId   = plantId   || null;
                 tasks[idx].plantName = plantName || '';
-                tasks[idx].mesFacturacion = document.getElementById('taskBillingMonth').value;
                 tasks[idx].period = document.getElementById('taskPeriodMonth')?.value || tasks[idx].period;
+                tasks[idx].mesFacturacion = isAbsence ? tasks[idx].period : document.getElementById('taskBillingMonth').value;
                 if(isAbsence) tasks[idx].absenceNotes = absenceNotes;
 
                 // Ajustar scheduledDays si la tarea ya está programada y cambió el conteo de días
@@ -5476,7 +5504,9 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
                 scheduledDays: [],
                 status: isAdminContract ? 'facturada' : (isThirdParty ? 'programada' : 'proyectada'),
                 period: document.getElementById('taskPeriodMonth')?.value || formatPeriod(),
-                mesFacturacion: document.getElementById('taskBillingMonth').value,
+                mesFacturacion: isAbsence
+                    ? (document.getElementById('taskPeriodMonth')?.value || formatPeriod())
+                    : document.getElementById('taskBillingMonth').value,
                 absenceNotes: absenceNotes || ''
             };
             tasks.push(newTask);
@@ -6337,6 +6367,8 @@ function openNewAbsenceModal() {
     if(!sel) return;
     sel.innerHTML = _absenceServiceTypeOptionsHTML;
     document.getElementById('taskModalTitle').textContent = 'Registrar Ausencia';
+    _absenceModalActive = true;
+    onTaskServiceTypeChange();
 }
 
 // ── Exportación según pestaña activa ────────────────────────────────────────
