@@ -7634,17 +7634,23 @@ function renderInventoryEnCampo() {
     const kitGroups = new Map();
     const singles = [];
     dbInventoryLoans.forEach(loan => {
-        if(loan.kit_loan_id) {
-            if(!kitGroups.has(loan.kit_loan_id)) kitGroups.set(loan.kit_loan_id, []);
-            kitGroups.get(loan.kit_loan_id).push(loan);
+        // Préstamo registrado como kit, o ítem escaneado suelto que pertenece a un kit
+        // (mismo analista + mismo kit → se muestran juntos).
+        const itemKitId = dbInventoryItems.find(i => i.id === loan.item_id)?.kit_id;
+        const groupKey = loan.kit_loan_id
+            || (itemKitId ? `k_${itemKitId}_${String(loan.analyst_name || '').replace(/[^a-zA-Z0-9]/g, '')}` : null);
+        if(groupKey) {
+            if(!kitGroups.has(groupKey)) kitGroups.set(groupKey, []);
+            kitGroups.get(groupKey).push(loan);
         } else singles.push(loan);
     });
 
     const kitRows = [...kitGroups.entries()].map(([groupId, loans]) => {
-        const kit = dbInventoryKits.find(k => k.id === loans[0].kit_id);
+        const kitId = loans[0].kit_id || dbInventoryItems.find(i => i.id === loans[0].item_id)?.kit_id;
+        const kit = dbInventoryKits.find(k => k.id === kitId);
         const out = loans.map(l => l.checked_out_at).sort()[0];
         const days = daysOut(out);
-        const totalItems = dbInventoryItems.filter(i => i.kit_id === loans[0].kit_id).length;
+        const totalItems = dbInventoryItems.filter(i => i.kit_id === kitId).length;
         const countLabel = totalItems && totalItems !== loans.length ? `${loans.length} de ${totalItems} ítems` : `${loans.length} ítem${loans.length!==1?'s':''}`;
         const open = _invEnCampoExpanded.has(groupId);
         const detail = open ? loans.map(l => {
