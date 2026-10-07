@@ -7596,6 +7596,14 @@ function showKitItems(kitId) {
     document.getElementById('inventoryKitItemsModal').classList.add('active');
 }
 
+let _invEnCampoExpanded = new Set(); // kit_loan_id de kits desplegados en "En campo"
+
+function toggleInvEnCampoKit(groupId) {
+    if(_invEnCampoExpanded.has(groupId)) _invEnCampoExpanded.delete(groupId);
+    else _invEnCampoExpanded.add(groupId);
+    renderInventoryEnCampo();
+}
+
 function renderInventoryEnCampo() {
     const el = document.getElementById('inv-tab-content');
     if(!el) return;
@@ -7605,22 +7613,59 @@ function renderInventoryEnCampo() {
         return;
     }
 
-    const rows = dbInventoryLoans.map(loan => {
-        const item = dbInventoryItems.find(i => i.id === loan.item_id);
-        if(!item) return '';
-        const days = Math.floor((Date.now() - new Date(loan.checked_out_at)) / 86400000);
-        const since = new Date(loan.checked_out_at).toLocaleDateString('es-CO', { day:'numeric', month:'short' });
-        const alertStyle = days >= 7 ? 'color:#dc2626;font-weight:700;' : days >= 3 ? 'color:#d97706;' : '';
+    const daysOut = (iso) => Math.floor((Date.now() - new Date(iso)) / 86400000);
+    const alertStyleFor = (days) => days >= 7 ? 'color:#dc2626;font-weight:700;' : days >= 3 ? 'color:#d97706;' : '';
+    const sinceFmt = (iso) => new Date(iso).toLocaleDateString('es-CO', { day:'numeric', month:'short' });
+
+    const itemRow = (loan, item, nested) => {
+        const days = daysOut(loan.checked_out_at);
         return `
-        <tr>
-            <td><strong>${loan.analyst_name}</strong></td>
-            <td>${item.name}${item.serial_number ? ` <span style="color:#94a3b8;font-weight:400;">(${item.serial_number})</span>` : ''}<div style="font-size:0.72rem;color:#64748b;">${_invCatLabel[item.category]||item.category}</div></td>
-            <td>${since}</td>
-            <td style="${alertStyle}">${days} día${days!==1?'s':''}</td>
+        <tr style="${nested ? 'background:#faf5ff;' : ''}">
+            <td>${nested ? '' : `<strong>${loan.analyst_name}</strong>`}</td>
+            <td${nested ? ' style="padding-left:2rem;"' : ''}>${nested ? '↳ ' : ''}${item.name}${item.serial_number ? ` <span style="color:#94a3b8;font-weight:400;">(${item.serial_number})</span>` : ''}<div style="font-size:0.72rem;color:#64748b;">${_invCatLabel[item.category]||item.category}</div></td>
+            <td>${sinceFmt(loan.checked_out_at)}</td>
+            <td style="${alertStyleFor(days)}">${days} día${days!==1?'s':''}</td>
             <td style="text-align:center;">
                 <button class="btn-secondary viewer-hide" onclick="adminCheckIn('${loan.id}','${item.id}')" style="font-size:0.75rem;padding:4px 10px;">Registrar devolución</button>
             </td>
         </tr>`;
+    };
+
+    const kitGroups = new Map();
+    const singles = [];
+    dbInventoryLoans.forEach(loan => {
+        if(loan.kit_loan_id) {
+            if(!kitGroups.has(loan.kit_loan_id)) kitGroups.set(loan.kit_loan_id, []);
+            kitGroups.get(loan.kit_loan_id).push(loan);
+        } else singles.push(loan);
+    });
+
+    const kitRows = [...kitGroups.entries()].map(([groupId, loans]) => {
+        const kit = dbInventoryKits.find(k => k.id === loans[0].kit_id);
+        const out = loans.map(l => l.checked_out_at).sort()[0];
+        const days = daysOut(out);
+        const totalItems = dbInventoryItems.filter(i => i.kit_id === loans[0].kit_id).length;
+        const countLabel = totalItems && totalItems !== loans.length ? `${loans.length} de ${totalItems} ítems` : `${loans.length} ítem${loans.length!==1?'s':''}`;
+        const open = _invEnCampoExpanded.has(groupId);
+        const detail = open ? loans.map(l => {
+            const item = dbInventoryItems.find(i => i.id === l.item_id);
+            return item ? itemRow(l, item, true) : '';
+        }).join('') : '';
+        return `
+        <tr style="background:#f5f3ff;">
+            <td><strong>${loans[0].analyst_name}</strong></td>
+            <td><span style="font-weight:700;color:#7c3aed;">🧰 ${kit?.name || 'Kit'}</span> <span style="font-size:0.72rem;color:#64748b;">· ${countLabel}</span></td>
+            <td>${sinceFmt(out)}</td>
+            <td style="${alertStyleFor(days)}">${days} día${days!==1?'s':''}</td>
+            <td style="text-align:center;">
+                <button class="btn-secondary" onclick="toggleInvEnCampoKit('${groupId}')" style="font-size:0.75rem;padding:4px 10px;">${open ? '▲ Ocultar detalle' : '▼ Ver detalle'}</button>
+            </td>
+        </tr>${detail}`;
+    }).join('');
+
+    const singleRows = singles.map(loan => {
+        const item = dbInventoryItems.find(i => i.id === loan.item_id);
+        return item ? itemRow(loan, item, false) : '';
     }).join('');
 
     el.innerHTML = `
@@ -7629,13 +7674,13 @@ function renderInventoryEnCampo() {
                 <thead>
                     <tr>
                         <th>Analista</th>
-                        <th>Ítem</th>
+                        <th>Ítem / Kit</th>
                         <th>Salida</th>
                         <th>Días fuera</th>
                         <th style="text-align:center;">Acción</th>
                     </tr>
                 </thead>
-                <tbody>${rows}</tbody>
+                <tbody>${kitRows}${singleRows}</tbody>
             </table>
         </div>`;
 }
