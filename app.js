@@ -3159,7 +3159,7 @@ function renderCalendar() {
                 
                 let label = t.isAbsence
                     ? (t.serviceType || 'Ausencia')
-                    : (t.plantName || t.client);
+                    : t.client;
                 const tooltipClient = t.isAbsence ? label : (t.plantName ? `${t.client} – ${t.plantName}` : t.client);
                 pill.textContent = label;
                 pill.title = `${tooltipClient} (${dayInfo.type === 'field' ? 'Campo' : 'Informe'})`;
