@@ -461,7 +461,8 @@ function renderNotificationsPanel() {
         'gestion_ejecutada':   { s:'Gestión ejecutada',           p:'gestiones ejecutadas' },
         'nuevos_detalles':     { s:'Nuevos detalles del servicio', p:'nuevos detalles del servicio' },
         'csat_admin_vencidos': { s:'Lista de CSAT vencidos',      p:'listas de CSAT vencidos' },
-        'resumen_mensual':     { s:'Resumen mensual',             p:'resúmenes mensuales' }
+        'resumen_mensual':     { s:'Resumen mensual',             p:'resúmenes mensuales' },
+        'consumible_bajo':     { s:'Consumible por agotarse',     p:'consumibles por agotarse' }
     };
 
     let html = '';
@@ -7079,7 +7080,8 @@ let dbInventoryItems = [];
 let dbInventoryLoans = []; // préstamos activos (checked_in_at IS NULL)
 let dbInventoryIncidents = []; // incidentes abiertos (resolved_at IS NULL)
 let dbInventoryKits = []; // kits (maletas/equipos compuestos) con checklist propio
-let _inventoryTab    = 'catalogo'; // 'catalogo' | 'encampo' | 'historial' | 'kits'
+let dbInventoryConsumables = []; // consumibles con stock (masas de balanceo, Loctite, shims...)
+let _inventoryTab    = 'catalogo'; // 'catalogo' | 'encampo' | 'historial' | 'kits' | 'consumibles'
 let _invScanAction          = null; // { type: 'checkout'|'checkin', itemId, loanId }
 let _kitChecklistSubmitting = false; // guard contra doble envío del checklist
 let _invHtml5Scanner = null;
@@ -7175,12 +7177,14 @@ const _invStatusBg    = { disponible:'#f0fdf4', prestado:'#fffbeb', dañado:'#fe
 
 async function loadInventoryData() {
     if(!supabaseClient) return;
-    const [{ data: items }, { data: loans }, { data: incidents }, { data: kits }] = await Promise.all([
+    const [{ data: items }, { data: loans }, { data: incidents }, { data: kits }, { data: consumables }] = await Promise.all([
         supabaseClient.from('inventory_items').select('*').order('category').order('name'),
         supabaseClient.from('inventory_loans').select('*').is('checked_in_at', null).order('checked_out_at', { ascending: false }),
         supabaseClient.from('inventory_incidents').select('*').is('resolved_at', null).order('created_at', { ascending: false }),
-        supabaseClient.from('inventory_kits').select('*').order('name')
+        supabaseClient.from('inventory_kits').select('*').order('name'),
+        supabaseClient.from('inventory_consumables').select('*').order('category').order('name')
     ]);
+    if(consumables) dbInventoryConsumables = consumables;
     if(items) dbInventoryItems = items;
     if(loans) dbInventoryLoans = loans;
     if(incidents) dbInventoryIncidents = incidents;
@@ -7228,11 +7232,13 @@ function renderInventoryView() {
         return;
     }
 
+    const consLow = dbInventoryConsumables.filter(c => _consumableStatus(c).low).length;
     const tabs = [
-        { id:'catalogo',  label:'📦 Catálogo' },
-        { id:'kits',      label:'🧰 Kits' },
-        { id:'encampo',   label:'🚚 En Campo' },
-        { id:'historial', label:'📋 Historial' }
+        { id:'catalogo',    label:'📦 Catálogo' },
+        { id:'kits',        label:'🧰 Kits' },
+        { id:'consumibles', label:`🧪 Consumibles${consLow ? ` <span style="background:#dc2626;color:#fff;border-radius:99px;padding:0 6px;font-size:0.7rem;margin-left:4px;">${consLow}</span>` : ''}` },
+        { id:'encampo',     label:'🚚 En Campo' },
+        { id:'historial',   label:'📋 Historial' }
     ];
 
     container.innerHTML = `
@@ -7254,6 +7260,7 @@ function renderInventoryView() {
 
     if(_inventoryTab === 'catalogo')   renderInventoryCatalog();
     else if(_inventoryTab === 'kits')      renderInventoryKits();
+    else if(_inventoryTab === 'consumibles') renderInventoryConsumables();
     else if(_inventoryTab === 'encampo')   renderInventoryEnCampo();
     else if(_inventoryTab === 'historial') renderInventoryHistorial();
 }
@@ -7305,6 +7312,13 @@ function renderAnalystInventory(container) {
                 </div>
             `).join('')}
         </div>` : ''}
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:var(--radius-lg);padding:1.5rem;margin-top:1.25rem;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;margin-bottom:1rem;flex-wrap:wrap;">
+                <h4 style="margin:0;color:#0f766e;">🧪 Consumibles</h4>
+                <button class="btn-primary" onclick="openConsumableMovementModal('consumo')" style="font-size:0.8rem;padding:0.4rem 0.9rem;">− Registrar consumo</button>
+            </div>
+            ${_consumablesListHTML(false)}
+        </div>
     `;
 }
 
@@ -7689,6 +7703,353 @@ function renderInventoryEnCampo() {
                 <tbody>${kitRows}${singleRows}</tbody>
             </table>
         </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CONSUMIBLES (masas de balanceo, Loctite, shims, ...): stock que se gasta, con alerta
+// ══════════════════════════════════════════════════════════════════════════════
+
+function _escHtml(str) {
+    return String(str ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
+}
+
+function _fmtQty(n) {
+    const v = Number(n) || 0;
+    return Number.isInteger(v) ? String(v) : String(parseFloat(v.toFixed(2)));
+}
+
+/** Nivel del consumible: porcentaje de la barra, etiqueta y si está en alerta. */
+function _consumableStatus(c) {
+    const stock = Number(c.stock) || 0;
+    const min = Number(c.min_stock) || 0;
+    const reorder = Number(c.reorder_qty) || 0;
+    const target = Math.max(min + reorder, stock, 1);
+    const pct = Math.max(0, Math.min(100, (stock / target) * 100));
+    if(stock <= 0)   return { label:'Agotado',    color:'#dc2626', bg:'#fef2f2', pct, low:true };
+    if(stock <= min) return { label:'Stock bajo', color:'#dc2626', bg:'#fef2f2', pct, low:true };
+    if(min > 0 && stock <= min * 1.5) return { label:'Próximo a agotarse', color:'#d97706', bg:'#fffbeb', pct, low:false };
+    return { label:'OK', color:'#16a34a', bg:'#f0fdf4', pct, low:false };
+}
+
+/** Tabla de consumibles; la usan la pestaña del admin y la vista del analista. */
+function _consumablesListHTML(isAdmin) {
+    const list = dbInventoryConsumables;
+    if(list.length === 0) {
+        return `<div style="text-align:center;padding:2rem;color:#94a3b8;font-size:0.85rem;">${isAdmin ? 'Aún no hay consumibles. Crea el primero con "+ Nuevo consumible".' : 'No hay consumibles registrados.'}</div>`;
+    }
+    const low = list.filter(c => _consumableStatus(c).low);
+    const banner = low.length ? `
+        <div style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;padding:0.6rem 0.9rem;margin-bottom:1rem;font-size:0.82rem;font-weight:600;">
+            ⚠️ ${low.length} consumible${low.length !== 1 ? 's' : ''} en nivel bajo: ${low.map(c => _escHtml(c.name)).join(', ')}
+        </div>` : '';
+
+    const rows = list.map(c => {
+        const st = _consumableStatus(c);
+        const unit = _escHtml(c.unit || 'unidades');
+        const actions = `
+            <button class="btn-secondary viewer-hide" onclick="openConsumableMovementModal('consumo','${c.id}')" style="font-size:0.72rem;padding:3px 9px;">− Consumo</button>
+            ${isAdmin ? `
+            <button class="btn-secondary" onclick="openConsumableMovementModal('entrada','${c.id}')" style="font-size:0.72rem;padding:3px 9px;">＋ Entrada</button>
+            <button class="btn-secondary" onclick="openConsumableMovementModal('ajuste','${c.id}')" title="Corregir el stock con un conteo físico" style="font-size:0.72rem;padding:3px 9px;">Ajustar</button>` : ''}
+            <button class="btn-secondary" onclick="openConsumableHistory('${c.id}')" title="Ver movimientos" style="font-size:0.72rem;padding:3px 9px;">📋</button>
+            ${isAdmin ? `
+            <button class="btn-secondary" onclick="openEditInventoryConsumableModal('${c.id}')" title="Editar" style="font-size:0.72rem;padding:3px 9px;">✏️</button>
+            <button class="btn-secondary" onclick="deleteInventoryConsumable('${c.id}')" title="Eliminar" style="font-size:0.72rem;padding:3px 9px;color:#dc2626;">🗑</button>` : ''}`;
+        return `
+        <tr>
+            <td>
+                <strong>${_escHtml(c.name)}</strong>
+                <div style="font-size:0.72rem;color:#64748b;">${_invCatLabel[c.category] || _escHtml(c.category || '')}${c.description ? ` · ${_escHtml(c.description)}` : ''}</div>
+            </td>
+            <td style="min-width:130px;">
+                <div style="background:#e2e8f0;border-radius:99px;height:8px;overflow:hidden;">
+                    <div style="width:${st.pct}%;height:100%;background:${st.color};"></div>
+                </div>
+            </td>
+            <td style="text-align:right;font-weight:700;white-space:nowrap;">${_fmtQty(c.stock)} <span style="font-weight:400;color:#64748b;font-size:0.75rem;">${unit}</span></td>
+            <td style="font-size:0.74rem;color:#64748b;white-space:nowrap;">Alerta ≤ ${_fmtQty(c.min_stock)}${Number(c.reorder_qty) > 0 ? `<br>Reponer ${_fmtQty(c.reorder_qty)}` : ''}</td>
+            <td><span style="background:${st.bg};color:${st.color};border:1px solid ${st.color}33;border-radius:99px;padding:2px 9px;font-size:0.72rem;font-weight:700;white-space:nowrap;">${st.label}</span></td>
+            <td style="text-align:right;white-space:nowrap;">${actions}</td>
+        </tr>`;
+    }).join('');
+
+    return `
+        ${banner}
+        <div style="overflow-x:auto;">
+            <table class="data-table" style="font-size:0.82rem;">
+                <thead>
+                    <tr>
+                        <th>Consumible</th>
+                        <th>Nivel</th>
+                        <th style="text-align:right;">Stock</th>
+                        <th>Alerta / reposición</th>
+                        <th>Estado</th>
+                        <th style="text-align:right;">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+}
+
+function renderInventoryConsumables() {
+    const el = document.getElementById('inv-tab-content');
+    if(!el) return;
+    const isAdmin = currentUserProfile?.role === 'admin';
+    el.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;margin-bottom:1rem;flex-wrap:wrap;">
+            <p style="font-size:0.82rem;color:#64748b;margin:0;">Materiales que se gastan (no se devuelven). Cuando el stock baja del nivel de alerta, el sistema te notifica.</p>
+            <div style="display:flex;gap:0.5rem;">
+                <button class="btn-secondary viewer-hide" onclick="openConsumableMovementModal('consumo')">− Registrar consumo</button>
+                ${isAdmin ? `<button class="btn-primary" onclick="openAddInventoryConsumableModal()">+ Nuevo consumible</button>` : ''}
+            </div>
+        </div>
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:var(--radius-lg);padding:1.25rem;">
+            ${_consumablesListHTML(isAdmin)}
+        </div>`;
+}
+
+// ── Crear / editar consumible (admin) ─────────────────────────────────────────
+function _fillConsumableCategorySelect(selected) {
+    const sel = document.getElementById('invCons_category');
+    sel.innerHTML = _invCategories.map(c => `<option value="${c}">${_invCatLabel[c] || c}</option>`).join('');
+    sel.value = _invCategories.includes(selected) ? selected : 'General';
+}
+
+function openAddInventoryConsumableModal() {
+    document.getElementById('invCons_modalTitle').textContent = 'Agregar Consumible';
+    document.getElementById('invCons_editId').value = '';
+    document.getElementById('invCons_name').value = '';
+    _fillConsumableCategorySelect('Balanceo');
+    document.getElementById('invCons_unit').value = 'unidades';
+    document.getElementById('invCons_stock').value = '0';
+    document.getElementById('invCons_stockRow').style.display = '';
+    document.getElementById('invCons_min').value = '0';
+    document.getElementById('invCons_reorder').value = '0';
+    document.getElementById('invCons_description').value = '';
+    document.getElementById('inventoryConsumableModal').classList.add('active');
+}
+
+function openEditInventoryConsumableModal(id) {
+    const c = dbInventoryConsumables.find(x => x.id === id);
+    if(!c) return;
+    document.getElementById('invCons_modalTitle').textContent = 'Editar Consumible';
+    document.getElementById('invCons_editId').value = id;
+    document.getElementById('invCons_name').value = c.name || '';
+    _fillConsumableCategorySelect(c.category);
+    document.getElementById('invCons_unit').value = c.unit || 'unidades';
+    // El stock solo cambia con movimientos (entrada / ajuste) para conservar el historial
+    document.getElementById('invCons_stockRow').style.display = 'none';
+    document.getElementById('invCons_min').value = c.min_stock ?? 0;
+    document.getElementById('invCons_reorder').value = c.reorder_qty ?? 0;
+    document.getElementById('invCons_description').value = c.description || '';
+    document.getElementById('inventoryConsumableModal').classList.add('active');
+}
+
+async function saveInventoryConsumable() {
+    const name = document.getElementById('invCons_name').value.trim();
+    if(!name) { showToast('El nombre es obligatorio', 'error'); return; }
+    const num = (id) => Math.max(0, parseFloat(document.getElementById(id).value) || 0);
+
+    const payload = {
+        name,
+        category: document.getElementById('invCons_category').value,
+        unit: document.getElementById('invCons_unit').value,
+        min_stock: num('invCons_min'),
+        reorder_qty: num('invCons_reorder'),
+        description: document.getElementById('invCons_description').value.trim() || null
+    };
+
+    const editId = document.getElementById('invCons_editId').value;
+    let error, savedId = editId;
+    if(editId) {
+        ({ error } = await supabaseClient.from('inventory_consumables').update(payload).eq('id', editId));
+    } else {
+        payload.stock = num('invCons_stock');
+        let data;
+        ({ data, error } = await supabaseClient.from('inventory_consumables').insert(payload).select('id').single());
+        savedId = data?.id;
+    }
+    if(error) { showToast('Error guardando consumible: ' + error.message, 'error'); return; }
+
+    // Recalcula la alerta (por si cambió el nivel de alerta o el stock inicial ya está bajo)
+    if(savedId) await supabaseClient.rpc('sync_consumable_alert', { p_consumable_id: savedId });
+
+    showToast(editId ? 'Consumible actualizado' : 'Consumible agregado', 'success');
+    closeModal('inventoryConsumableModal');
+    await loadInventoryData();
+    renderInventoryView();
+    loadMyNotifications().catch(() => {});
+}
+
+async function deleteInventoryConsumable(id) {
+    const c = dbInventoryConsumables.find(x => x.id === id);
+    if(!c) return;
+    if(!confirm(`¿Eliminar "${c.name}"?\n\nSe borrará también todo su historial de movimientos.`)) return;
+    const { error } = await supabaseClient.from('inventory_consumables').delete().eq('id', id);
+    if(error) { showToast('Error eliminando: ' + error.message, 'error'); return; }
+    // Cierra la alerta pendiente de este consumible, si la había
+    const nowIso = new Date().toISOString();
+    await supabaseClient.from('notifications')
+        .update({ resolved_at: nowIso, read_at: nowIso })
+        .eq('type', 'consumible_bajo').contains('data', { consumable_id: id }).is('resolved_at', null);
+    showToast('Consumible eliminado', 'success');
+    await loadInventoryData();
+    renderInventoryView();
+    loadMyNotifications().catch(() => {});
+}
+
+// ── Registrar consumo / entrada / ajuste ──────────────────────────────────────
+const _consMovTexts = {
+    consumo: { title: 'Registrar consumo',          qty: 'Cantidad consumida *',   btn: 'Confirmar consumo', sub: 'Se descuenta del stock total.' },
+    entrada: { title: 'Registrar entrada de stock', qty: 'Cantidad que ingresa *', btn: 'Confirmar entrada', sub: 'Reposición recibida o fabricada: se suma al stock.' },
+    ajuste:  { title: 'Ajustar stock',              qty: 'Stock real contado *',   btn: 'Confirmar ajuste',  sub: 'Fija el stock en el valor del conteo físico.' }
+};
+
+function _consumableTaskOptions() {
+    const role = currentUserProfile?.role;
+    const me = currentUserProfile?.analyst_name;
+    let list = tasks.filter(t => !t.isAbsence
+        && t.serviceType !== 'Metro Administrativo' && t.serviceType !== 'Metro Terceros'
+        && !String(t.id).startsWith('t_'));
+    if(role === 'analyst' && me) list = list.filter(t => t.analysts_assignment?.some(a => a.name === me));
+    list.sort((a, b) => (b.period || '').localeCompare(a.period || ''));
+    return list.slice(0, 80);
+}
+
+function _consumableTaskLabel(t) {
+    const [y, m] = String(t.period || '').split('-');
+    const month = m ? `${monthNames[parseInt(m, 10) - 1]?.slice(0, 3)} ${y}` : '';
+    return `${t.client || '—'}${t.plantName ? ' – ' + t.plantName : ''} · ${t.serviceType || '—'}${month ? ' · ' + month : ''}`;
+}
+
+function openConsumableMovementModal(type, consumableId = null) {
+    if(dbInventoryConsumables.length === 0) { showToast('Aún no hay consumibles registrados', 'error'); return; }
+    const T = _consMovTexts[type];
+    document.getElementById('consMov_type').value = type;
+    document.getElementById('consMov_title').textContent = T.title;
+    document.getElementById('consMov_subtitle').textContent = T.sub;
+    document.getElementById('consMov_qtyLabel').textContent = T.qty;
+    document.getElementById('consMov_submit').textContent = T.btn;
+    document.getElementById('consMov_qty').value = '';
+    document.getElementById('consMov_notes').value = '';
+
+    const sel = document.getElementById('consMov_consumable');
+    sel.innerHTML = dbInventoryConsumables.map(c =>
+        `<option value="${c.id}">${_escHtml(c.name)} — ${_fmtQty(c.stock)} ${_escHtml(c.unit || '')}</option>`).join('');
+    if(consumableId) sel.value = consumableId;
+
+    document.getElementById('consMov_taskRow').style.display = type === 'consumo' ? '' : 'none';
+    document.getElementById('consMov_task').innerHTML =
+        '<option value="">— Sin gestión asociada —</option>' +
+        _consumableTaskOptions().map(t => `<option value="${t.id}">${_escHtml(_consumableTaskLabel(t))}</option>`).join('');
+
+    document.getElementById('consMov_qty').oninput = _consMovRefreshHint;
+    _consMovRefreshHint();
+    document.getElementById('consumableMovementModal').classList.add('active');
+}
+
+function _consMovRefreshHint() {
+    const c = dbInventoryConsumables.find(x => x.id === document.getElementById('consMov_consumable').value);
+    const hint = document.getElementById('consMov_hint');
+    if(!c) { hint.textContent = ''; return; }
+    const type = document.getElementById('consMov_type').value;
+    const q = parseFloat(document.getElementById('consMov_qty').value);
+    const unit = c.unit || '';
+    let text = `Stock actual: ${_fmtQty(c.stock)} ${unit}`;
+    if(!isNaN(q) && q >= 0) {
+        const after = type === 'consumo' ? Number(c.stock) - q : type === 'entrada' ? Number(c.stock) + q : q;
+        text += ` → quedará en ${_fmtQty(after)} ${unit}`;
+        if(type === 'consumo' && q > Number(c.stock)) text += ' (no alcanza el stock)';
+    }
+    hint.textContent = text;
+}
+
+async function submitConsumableMovement() {
+    const type = document.getElementById('consMov_type').value;
+    const id = document.getElementById('consMov_consumable').value;
+    const qty = parseFloat(document.getElementById('consMov_qty').value);
+    const c = dbInventoryConsumables.find(x => x.id === id);
+    if(!c) { showToast('Selecciona un consumible', 'error'); return; }
+    if(isNaN(qty) || qty < 0 || (type !== 'ajuste' && qty === 0)) { showToast('Ingresa una cantidad válida', 'error'); return; }
+    if(type === 'consumo' && qty > Number(c.stock)) { showToast(`Solo quedan ${_fmtQty(c.stock)} ${c.unit || ''}`, 'error'); return; }
+
+    const analyst = currentUserProfile?.analyst_name || currentUserProfile?.display_name || currentUser?.email || null;
+    const btn = document.getElementById('consMov_submit');
+    btn.disabled = true;
+    try {
+        const { data: newStock, error } = await supabaseClient.rpc('register_consumable_movement', {
+            p_consumable_id: id,
+            p_type: type,
+            p_quantity: qty,
+            p_analyst: analyst,
+            p_task_id: type === 'consumo' ? (document.getElementById('consMov_task').value || null) : null,
+            p_notes: document.getElementById('consMov_notes').value.trim() || null
+        });
+        if(error) {
+            const missing = /could not find the function|schema cache/i.test(error.message || '');
+            showToast(missing ? 'Falta ejecutar la migración de consumibles en Supabase.' : error.message, 'error');
+            return;
+        }
+        closeModal('consumableMovementModal');
+        const nowLow = _consumableStatus({ ...c, stock: newStock }).low;
+        if(type === 'consumo') {
+            showToast(nowLow
+                ? `Consumo registrado. ⚠️ Quedan ${_fmtQty(newStock)} ${c.unit || ''}: se avisó al administrador.`
+                : `Consumo registrado. Quedan ${_fmtQty(newStock)} ${c.unit || ''}.`, 'success');
+        } else {
+            showToast(`Stock actualizado: ${_fmtQty(newStock)} ${c.unit || ''}.`, 'success');
+        }
+        await loadInventoryData();
+        renderInventoryView();
+        loadMyNotifications().catch(() => {});
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// ── Historial de movimientos de un consumible ─────────────────────────────────
+async function openConsumableHistory(id) {
+    const c = dbInventoryConsumables.find(x => x.id === id);
+    if(!c) return;
+    document.getElementById('consHist_title').textContent = `Movimientos — ${c.name}`;
+    document.getElementById('consHist_subtitle').textContent = `Stock actual: ${_fmtQty(c.stock)} ${c.unit || ''}`;
+    const body = document.getElementById('consHist_body');
+    body.innerHTML = '<div style="text-align:center;padding:2rem;color:#94a3b8;">Cargando…</div>';
+    document.getElementById('consumableHistoryModal').classList.add('active');
+
+    const { data, error } = await supabaseClient
+        .from('inventory_consumable_movements').select('*')
+        .eq('consumable_id', id).order('created_at', { ascending: false }).limit(200);
+    if(error) { body.innerHTML = `<div style="padding:1.5rem;color:#dc2626;">Error: ${_escHtml(error.message)}</div>`; return; }
+    if(!data || data.length === 0) { body.innerHTML = '<div style="text-align:center;padding:2rem;color:#94a3b8;">Sin movimientos todavía.</div>'; return; }
+
+    const since = Date.now() - 30 * 86400000;
+    const used30 = data.filter(m => m.type === 'consumo' && new Date(m.created_at).getTime() >= since)
+                       .reduce((s, m) => s + Number(m.quantity), 0);
+    document.getElementById('consHist_subtitle').textContent =
+        `Stock actual: ${_fmtQty(c.stock)} ${c.unit || ''} · Consumido en los últimos 30 días: ${_fmtQty(used30)} ${c.unit || ''}`;
+
+    const chip = (m) => {
+        if(m.type === 'consumo') return `<span style="color:#dc2626;font-weight:700;">− ${_fmtQty(m.quantity)}</span>`;
+        if(m.type === 'entrada') return `<span style="color:#16a34a;font-weight:700;">＋ ${_fmtQty(m.quantity)}</span>`;
+        return `<span style="color:#2563eb;font-weight:700;">Ajuste → ${_fmtQty(m.quantity)}</span>`;
+    };
+    body.innerHTML = `
+        <table class="data-table" style="font-size:0.8rem;">
+            <thead><tr><th>Fecha</th><th>Movimiento</th><th>Stock</th><th>Analista</th><th>Gestión</th><th>Observaciones</th></tr></thead>
+            <tbody>${data.map(m => {
+                const t = m.task_id ? tasks.find(x => x.id === m.task_id) : null;
+                return `<tr>
+                    <td style="white-space:nowrap;">${new Date(m.created_at).toLocaleString('es-CO', { day:'numeric', month:'short', year:'2-digit', hour:'2-digit', minute:'2-digit' })}</td>
+                    <td>${chip(m)}</td>
+                    <td style="white-space:nowrap;color:#64748b;">${_fmtQty(m.stock_before)} → <strong>${_fmtQty(m.stock_after)}</strong></td>
+                    <td>${_escHtml(m.analyst_name || '—')}</td>
+                    <td style="font-size:0.74rem;">${m.task_id ? _escHtml(t ? _consumableTaskLabel(t) : 'Gestión no disponible') : '<span style="color:#cbd5e1;">—</span>'}</td>
+                    <td style="font-size:0.76rem;color:#475569;">${m.notes ? _escHtml(m.notes) : '<span style="color:#cbd5e1;">—</span>'}</td>
+                </tr>`;
+            }).join('')}</tbody>
+        </table>`;
 }
 
 let _invHistorialCache = [];

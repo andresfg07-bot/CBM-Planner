@@ -1122,6 +1122,110 @@
     </div>
 
     <!-- ══════════════════════════════════════════ -->
+    <!-- MODAL: Agregar / Editar consumible         -->
+    <!-- ══════════════════════════════════════════ -->
+    <div id="inventoryConsumableModal" class="modal">
+        <div class="modal-content" style="max-width:460px;">
+            <span class="close-btn" onclick="closeModal('inventoryConsumableModal')">&times;</span>
+            <h2 id="invCons_modalTitle" style="margin-bottom:1.25rem;">Agregar Consumible</h2>
+            <div style="display:flex; flex-direction:column; gap:0.85rem;">
+                <div>
+                    <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Nombre *</label>
+                    <input id="invCons_name" type="text" placeholder="Ej: Masa de balanceo 15 g" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;">
+                </div>
+                <div style="display:flex; gap:0.75rem;">
+                    <div style="flex:1;">
+                        <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Servicio (etiqueta)</label>
+                        <select id="invCons_category" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;"></select>
+                    </div>
+                    <div style="flex:1;">
+                        <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Unidad</label>
+                        <select id="invCons_unit" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;">
+                            <option value="unidades">unidades</option>
+                            <option value="ml">ml</option>
+                            <option value="g">g</option>
+                            <option value="kg">kg</option>
+                            <option value="L">L</option>
+                            <option value="rollos">rollos</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="invCons_stockRow">
+                    <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Stock inicial</label>
+                    <input id="invCons_stock" type="number" min="0" step="any" value="0" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;">
+                </div>
+                <div style="display:flex; gap:0.75rem;">
+                    <div style="flex:1;">
+                        <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Alertar cuando baje de</label>
+                        <input id="invCons_min" type="number" min="0" step="any" value="0" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;">
+                    </div>
+                    <div style="flex:1;">
+                        <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Cantidad a reponer</label>
+                        <input id="invCons_reorder" type="number" min="0" step="any" value="0" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;">
+                    </div>
+                </div>
+                <div>
+                    <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Descripción / Notas</label>
+                    <textarea id="invCons_description" rows="2" placeholder="Referencia, proveedor, etc." style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;resize:vertical;"></textarea>
+                </div>
+                <p style="font-size:0.72rem;color:#94a3b8;">Cuando el stock llegue al nivel de alerta, el sistema te avisa que debes programar la reposición de la cantidad indicada.</p>
+                <div style="display:flex;gap:0.75rem;margin-top:0.5rem;">
+                    <button class="btn-secondary" onclick="closeModal('inventoryConsumableModal')" style="flex:1;">Cancelar</button>
+                    <button class="btn-primary" onclick="saveInventoryConsumable()" style="flex:2;">Guardar</button>
+                </div>
+            </div>
+            <input type="hidden" id="invCons_editId">
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- MODAL: Registrar consumo / entrada / ajuste -->
+    <!-- ══════════════════════════════════════════ -->
+    <div id="consumableMovementModal" class="modal">
+        <div class="modal-content" style="max-width:440px;">
+            <span class="close-btn" onclick="closeModal('consumableMovementModal')">&times;</span>
+            <h2 id="consMov_title" style="margin-bottom:0.25rem;font-size:1.15rem;">Registrar consumo</h2>
+            <p id="consMov_subtitle" style="font-size:0.8rem;color:#64748b;margin-bottom:1.1rem;"></p>
+            <div style="display:flex; flex-direction:column; gap:0.85rem;">
+                <div id="consMov_pickRow">
+                    <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Consumible *</label>
+                    <select id="consMov_consumable" onchange="_consMovRefreshHint()" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;"></select>
+                </div>
+                <div>
+                    <label id="consMov_qtyLabel" style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Cantidad *</label>
+                    <input id="consMov_qty" type="number" min="0" step="any" placeholder="Ej: 2" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;">
+                    <div id="consMov_hint" style="font-size:0.72rem;color:#64748b;margin-top:4px;"></div>
+                </div>
+                <div id="consMov_taskRow">
+                    <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Gestión donde se usó (opcional)</label>
+                    <select id="consMov_task" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;"></select>
+                </div>
+                <div>
+                    <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Observaciones (opcional)</label>
+                    <textarea id="consMov_notes" rows="2" style="width:100%;padding:0.55rem 0.75rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;resize:vertical;"></textarea>
+                </div>
+                <div style="display:flex;gap:0.75rem;margin-top:0.5rem;">
+                    <button class="btn-secondary" onclick="closeModal('consumableMovementModal')" style="flex:1;">Cancelar</button>
+                    <button id="consMov_submit" class="btn-primary" onclick="submitConsumableMovement()" style="flex:2;">Confirmar</button>
+                </div>
+            </div>
+            <input type="hidden" id="consMov_type">
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- MODAL: Historial de movimientos de un consumible -->
+    <!-- ══════════════════════════════════════════ -->
+    <div id="consumableHistoryModal" class="modal">
+        <div class="modal-content" style="max-width:760px;">
+            <span class="close-btn" onclick="closeModal('consumableHistoryModal')">&times;</span>
+            <h2 id="consHist_title" style="margin-bottom:0.15rem;font-size:1.1rem;"></h2>
+            <p id="consHist_subtitle" style="font-size:0.78rem;color:#64748b;margin-bottom:1rem;"></p>
+            <div id="consHist_body" style="max-height:60vh;overflow-y:auto;"></div>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
     <!-- MODAL: Ver ítems de un kit                 -->
     <!-- ══════════════════════════════════════════ -->
     <div id="inventoryKitItemsModal" class="modal">
