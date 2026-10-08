@@ -1389,6 +1389,10 @@ const SVG_ICONS = {
     plant:  `<svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
     reopen: `<svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>`,
     note:   `<svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+    consume: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>`,
+    entry:   `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>`,
+    adjust:  `<svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>`,
+    history: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
 };
 function actionIcon(type, onclick, title) {
     return `<span class="action-icon ${type}" onclick="${onclick}" title="${title}">${SVG_ICONS[type] || ''}</span>`;
@@ -7747,14 +7751,14 @@ function _consumablesListHTML(isAdmin) {
         const st = _consumableStatus(c);
         const unit = _escHtml(c.unit || 'unidades');
         const actions = `
-            <button class="btn-secondary viewer-hide" onclick="openConsumableMovementModal('consumo','${c.id}')" style="font-size:0.72rem;padding:3px 9px;">− Consumo</button>
-            ${isAdmin ? `
-            <button class="btn-secondary" onclick="openConsumableMovementModal('entrada','${c.id}')" style="font-size:0.72rem;padding:3px 9px;">＋ Entrada</button>
-            <button class="btn-secondary" onclick="openConsumableMovementModal('ajuste','${c.id}')" title="Corregir el stock con un conteo físico" style="font-size:0.72rem;padding:3px 9px;">Ajustar</button>` : ''}
-            <button class="btn-secondary" onclick="openConsumableHistory('${c.id}')" title="Ver movimientos" style="font-size:0.72rem;padding:3px 9px;">📋</button>
-            ${isAdmin ? `
-            <button class="btn-secondary" onclick="openEditInventoryConsumableModal('${c.id}')" title="Editar" style="font-size:0.72rem;padding:3px 9px;">✏️</button>
-            <button class="btn-secondary" onclick="deleteInventoryConsumable('${c.id}')" title="Eliminar" style="font-size:0.72rem;padding:3px 9px;color:#dc2626;">🗑</button>` : ''}`;
+            <div class="action-icons" style="justify-content:flex-end;gap:0.4rem;">
+                <span class="viewer-hide">${actionIcon('consume', `openConsumableMovementModal('consumo','${c.id}')`, 'Registrar consumo')}</span>
+                ${isAdmin ? actionIcon('entry', `openConsumableMovementModal('entrada','${c.id}')`, 'Registrar entrada de stock') : ''}
+                ${isAdmin ? actionIcon('adjust', `openConsumableMovementModal('ajuste','${c.id}')`, 'Ajustar stock (conteo físico)') : ''}
+                ${actionIcon('history', `openConsumableHistory('${c.id}')`, 'Ver movimientos')}
+                ${isAdmin ? actionIcon('edit', `openEditInventoryConsumableModal('${c.id}')`, 'Editar') : ''}
+                ${isAdmin ? actionIcon('delete', `deleteInventoryConsumable('${c.id}')`, 'Eliminar') : ''}
+            </div>`;
         return `
         <tr>
             <td>

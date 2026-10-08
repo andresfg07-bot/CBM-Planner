@@ -1830,6 +1830,14 @@ body.role-viewer .viewer-hide { display: none !important; }
     stroke-linejoin: round;
     pointer-events: none;
 }
+.action-icon.consume         { color: #d97706; background: #fffbeb; }
+.action-icon.consume:hover   { background: #d97706; color: white; }
+.action-icon.entry           { color: #16a34a; background: #f0fdf4; }
+.action-icon.entry:hover     { background: #16a34a; color: white; }
+.action-icon.adjust          { color: #7c3aed; background: #f5f3ff; }
+.action-icon.adjust:hover    { background: #7c3aed; color: white; }
+.action-icon.history         { color: #475569; background: #f1f5f9; }
+.action-icon.history:hover   { background: #475569; color: white; }
 .action-icon.csat        { color: var(--clr-green,#16a34a); background: #f0fdf4; }
 .action-icon.csat:hover  { background: var(--clr-green,#16a34a); color: white; }
 .action-icon.revert:hover{ background: var(--clr-blue,#2563eb); color: white; }
