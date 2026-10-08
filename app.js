@@ -7804,7 +7804,7 @@ function renderInventoryConsumables() {
         <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;margin-bottom:1rem;flex-wrap:wrap;">
             <p style="font-size:0.82rem;color:#64748b;margin:0;">Materiales que se gastan (no se devuelven). Cuando el stock baja del nivel de alerta, el sistema te notifica.</p>
             <div style="display:flex;gap:0.5rem;">
-                <button class="btn-secondary viewer-hide" onclick="openConsumableMovementModal('consumo')">− Registrar consumo</button>
+                <button class="btn-outline viewer-hide" onclick="openConsumableMovementModal('consumo')">− Registrar consumo</button>
                 ${isAdmin ? `<button class="btn-primary" onclick="openAddInventoryConsumableModal()">+ Nuevo consumible</button>` : ''}
             </div>
         </div>

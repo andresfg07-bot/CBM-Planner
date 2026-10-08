@@ -1191,6 +1191,22 @@ h1 {
     border-color: var(--clr-blue) !important;
     color: var(--clr-blue) !important;
 }
+.btn-outline {
+    background: #fff;
+    color: var(--clr-blue);
+    border: 1.5px solid var(--clr-blue);
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-outline:hover {
+    background: var(--clr-blue-light);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+}
 
 /* Today highlight */
 .calendar-cell.today {
