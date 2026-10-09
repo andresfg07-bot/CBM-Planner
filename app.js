@@ -3754,6 +3754,18 @@ async function handleCalendarDrop(cell, dragInfo) {
         // Es un día de informe → se permite reasignar, continúa al bloque isPillMove
     }
 
+    // Dos días de la misma gestión no pueden caer en la misma fecha (el calendario solo
+    // dibuja uno y el otro "desaparece"). Aplica a planta e informe.
+    if (isPillMove && Array.isArray(task.scheduledDays)) {
+        const _clashEl  = document.getElementById(dragInfo);
+        const _clashIdx = _clashEl ? parseInt(_clashEl.getAttribute('data-day-index'), 10) : parseInt(dragInfo.split('-').pop(), 10);
+        const occupied  = task.scheduledDays.some((d, i) => i !== _clashIdx && d.date === targetDateStr);
+        if (occupied) {
+            alert('Esta gestión ya tiene otro día programado en esa fecha. Elige un día libre: dos días de la misma gestión no pueden quedar en la misma fecha.');
+            return;
+        }
+    }
+
     if(task.equipmentId) {
         let futureScheduledDays = [...task.scheduledDays];
         if(isPillMove) {
