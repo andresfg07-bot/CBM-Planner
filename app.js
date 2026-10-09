@@ -4976,42 +4976,6 @@ async function loadTasksFromSupabase() {
     }
 }
 
-async function syncAllToSupabase() {
-    if(!supabaseClient) {
-        alert("No hay conexión con Supabase.");
-        return;
-    }
-    
-    const btn = event?.target;
-    const originalText = btn ? btn.textContent : '';
-    if(btn) {
-        btn.textContent = 'Sincronizando...';
-        btn.disabled = true;
-    }
-
-    try {
-        let syncCount = 0;
-        for (const task of tasks) {
-            if (!task.supabaseId || (typeof task.id === 'string' && task.id.startsWith('t_'))) {
-                await saveTaskToSupabase(task);
-                syncCount++;
-            }
-        }
-        alert(`Sincronización completada. Se subieron ${syncCount} gestiones nuevas a la nube.`);
-        await loadTasksFromSupabase();
-        renderBoard();
-        renderCalendar();
-    } catch (err) {
-        console.error("Error en sincronización masiva:", err);
-        alert("Hubo un error durante la sincronización.");
-    } finally {
-        if(btn) {
-            btn.textContent = originalText;
-            btn.disabled = false;
-        }
-    }
-}
-
 // Lista maestra de opciones del selector "Tipo de Servicio" (gestiones normales, sin ausencias).
 // openNewAbsenceModal() sustituye temporalmente el innerHTML de #taskServiceType por los tipos
 // de ausencia; esta constante permite restaurarlo siempre que se abre una gestión normal,
@@ -9324,27 +9288,6 @@ async function renderAdminView() {
     const analystsList = document.getElementById('admin-analysts-list');
     const clientsList = document.getElementById('admin-clients-list');
     if(!analystsList || !clientsList) return;
-
-    let syncBtnContainer = document.getElementById('admin-sync-container');
-    if(!syncBtnContainer) {
-        syncBtnContainer = document.createElement('div');
-        syncBtnContainer.id = 'admin-sync-container';
-        syncBtnContainer.style.marginBottom = '1.5rem';
-        syncBtnContainer.style.padding = '1rem';
-        syncBtnContainer.style.background = 'var(--clr-blue-light)';
-        syncBtnContainer.style.borderRadius = 'var(--radius-lg)';
-        syncBtnContainer.style.display = 'flex';
-        syncBtnContainer.style.justifyContent = 'space-between';
-        syncBtnContainer.style.alignItems = 'center';
-        syncBtnContainer.innerHTML = `
-            <div>
-                <h4 style="margin:0; color:var(--clr-blue)">Sincronización de Datos</h4>
-                <p style="margin:0; font-size:0.75rem; color:var(--text-secondary)">Sube tus datos locales actuales a la base de datos en la nube.</p>
-            </div>
-            <button class="btn-primary" onclick="syncAllToSupabase()" style="background:var(--clr-blue)">⬆️ Sincronizar con la Nube</button>
-        `;
-        document.querySelector('#view-admin').insertBefore(syncBtnContainer, document.querySelector('.admin-grid'));
-    }
 
     analystsList.innerHTML = `
     <div class="table-container">
