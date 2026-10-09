@@ -5586,6 +5586,13 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
                 if(isAbsence) tasks[idx].absenceNotes = absenceNotes;
                 // Si se desactivó la medición por turnos, los días de planta vuelven a ser comunes
                 if(!splitRequested) (tasks[idx].scheduledDays || []).forEach(d => { if(d.type === 'field') delete d.analyst; });
+                // Un día de planta asignado a mano a alguien que ya no es titular se vuelve a repartir
+                else {
+                    const titularNames = new Set(analystsAssignment.filter(a => a.isTitular).map(a => a.name));
+                    (tasks[idx].scheduledDays || []).forEach(d => {
+                        if(d.type === 'field' && d.analyst && !titularNames.has(d.analyst)) delete d.analyst;
+                    });
+                }
 
                 // Ajustar scheduledDays si la tarea ya está programada y cambió el conteo de días
                 if ((tasks[idx].scheduledDays || []).length > 0 && (oldDaysField !== dField || oldDaysReport !== dReport)) {
