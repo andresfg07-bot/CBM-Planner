@@ -4266,6 +4266,77 @@ async function onTaskClientChange() {
     }
 }
 
+// ── Sugerencia de valor presupuestado según el histórico del cliente ───────────
+function updateBudgetSuggestion() {
+    const box = document.getElementById('budgetSuggestion');
+    if(!box) return;
+    const hide = () => { box.style.display = 'none'; box.innerHTML = ''; };
+
+    const clientSel = document.getElementById('taskClient');
+    const serviceType = document.getElementById('taskServiceType')?.value || '';
+    const isAbsence = _absenceModalActive || ['Vacaciones', 'Incapacidad', 'Compensatorio', 'Entrenamiento o Curso'].includes(serviceType);
+    if(!clientSel || !clientSel.value || isAbsence) { hide(); return; }
+
+    const clientRec = dbClients.find(c => c.id === clientSel.value);
+    const clientName = clientRec ? getClientDisplayName(clientRec) : '';
+    const editId = document.getElementById('editTaskId')?.value || '';
+    const norm = (v) => String(v || '').trim().toLowerCase();
+
+    const plantSel = document.getElementById('taskPlant');
+    const plantFree = document.getElementById('taskPlantFree');
+    const plantName = (plantSel && plantSel.style.display !== 'none' && plantSel.value)
+        ? plantSel.options[plantSel.selectedIndex].text
+        : (plantFree && plantFree.style.display !== 'none' ? plantFree.value.trim() : '');
+
+    const base = tasks.filter(t => !t.isAbsence && t.id !== editId && (parseFloat(t.budget) || 0) > 0
+        && (t.clientId === clientSel.value || (clientName && norm(t.client) === norm(clientName))));
+
+    let tier = [], scope = '';
+    if(serviceType && plantName) {
+        tier = base.filter(t => t.serviceType === serviceType && norm(t.plantName) === norm(plantName));
+        scope = `${serviceType} en ${plantName}`;
+    }
+    if(!tier.length && serviceType) {
+        tier = base.filter(t => t.serviceType === serviceType);
+        scope = serviceType;
+    }
+    if(!tier.length) {
+        tier = base;
+        scope = serviceType ? `sin gestiones de ${serviceType} — mostrando otros servicios` : 'todos los servicios';
+    }
+
+    const label = _escHtml(clientName || 'este cliente');
+    box.style.display = '';
+    if(!tier.length) {
+        box.innerHTML = `<div style="margin-top:6px;font-size:0.75rem;color:#94a3b8;">💡 Sin gestiones anteriores con valor para ${label}.</div>`;
+        return;
+    }
+
+    tier = tier.slice().sort((a, b) => String(b.mesFacturacion || b.period || '').localeCompare(String(a.mesFacturacion || a.period || '')));
+    const recent = tier.slice(0, 6);
+    const avg = Math.round(recent.reduce((sum, t) => sum + (parseFloat(t.budget) || 0), 0) / recent.length);
+    const fmt = (n) => '$' + Math.round(n).toLocaleString('es-CO');
+    const monthLbl = (t) => {
+        const [y, m] = String(t.mesFacturacion || t.period || '').split('-');
+        return m ? `${monthNames[parseInt(m, 10) - 1]?.slice(0, 3)} ${y}` : '';
+    };
+    const chipStyle = 'border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;border-radius:99px;padding:2px 10px;font-size:0.74rem;font-weight:700;cursor:pointer;';
+
+    box.innerHTML = `
+        <div style="margin-top:6px;font-size:0.75rem;color:#64748b;">💡 Histórico de <strong>${label}</strong> (${_escHtml(scope)}) — toca un valor para usarlo:</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">
+            ${recent.slice(0, 4).map(t => `<button type="button" style="${chipStyle}" onclick="applyBudgetSuggestion(${Math.round(parseFloat(t.budget) || 0)})" title="Usar este valor">${fmt(t.budget)} <span style="font-weight:400;opacity:.7;">${monthLbl(t)}</span></button>`).join('')}
+            ${recent.length > 1 ? `<button type="button" style="${chipStyle}background:#f0fdf4;border-color:#bbf7d0;color:#15803d;" onclick="applyBudgetSuggestion(${avg})" title="Promedio de las últimas ${recent.length} gestiones">Promedio ${fmt(avg)}</button>` : ''}
+        </div>`;
+}
+
+function applyBudgetSuggestion(value) {
+    const input = document.getElementById('taskBudget');
+    if(!input) return;
+    input.value = value;
+    input.focus();
+}
+
 // true mientras el modal se usa en modo "Registrar Ausencia": el formulario debe mostrar
 // los campos de ausencia desde el inicio, aunque aún no se haya elegido el tipo.
 let _absenceModalActive = false;
@@ -4275,6 +4346,8 @@ function onTaskServiceTypeChange() {
     const isAbsence       = _absenceModalActive || (serviceType === 'Vacaciones' || serviceType === 'Incapacidad' || serviceType === 'Compensatorio' || serviceType === 'Entrenamiento o Curso');
     const isAdminContract = (serviceType === 'Metro Administrativo');
     const isThirdParty    = (serviceType === 'Metro Terceros');
+
+    updateBudgetSuggestion();
 
     // Campos que se ocultan solo en ausencias
     const fieldsToToggle = ['group-client', 'group-budget', 'group-equipment', 'group-report', 'group-billing'];
@@ -5087,6 +5160,7 @@ function openNewTaskModal() {
         const periodMonthEl = document.getElementById('taskPeriodMonth');
         if (periodMonthEl) periodMonthEl.value = formatPeriod();
 
+        updateBudgetSuggestion();
         const modal = document.getElementById('taskModal');
         if (modal) modal.classList.add('active');
     } catch (error) {
