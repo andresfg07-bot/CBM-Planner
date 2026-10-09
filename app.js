@@ -1024,7 +1024,11 @@ function renderMyWorkCard(task) {
     const fmt = (days) => days.length
         ? days.map(d => { const [,m,dd] = d.date.split('-'); return `${dd}/${m}`; }).join(', ')
         : null;
-    const fieldStr = fmt(task.scheduledDays?.filter(d => d.type === 'field') || []);
+    // Con medición por turnos solo se muestran los días de planta de ESTE analista
+    const myFieldDays = isFieldSplit(task)
+        ? (getFieldDayAssignments(task).get(currentUserProfile?.analyst_name) || []).map(date => ({ date }))
+        : (task.scheduledDays?.filter(d => d.type === 'field') || []);
+    const fieldStr = fmt(myFieldDays);
 
     // Días de informe: solo los que le corresponden a ESTE analista
     const reportAssignments = getReportDayAssignments(task);
@@ -3131,6 +3135,9 @@ function renderCalendar() {
 
                 // Días de campo → solo para analistas titulares (fueron a campo)
                 if (dayEntry.type === 'field') {
+                    if (isFieldSplit(t)) {
+                        return (getFieldDayAssignments(t).get(analyst.name) || []).includes(day.dateStr);
+                    }
                     const assign = t.analysts_assignment?.find(a => a.name === analyst.name);
                     return assign ? assign.isTitular : (t.analyst === analyst.name);
                 }
@@ -3780,6 +3787,30 @@ async function handleCalendarDrop(cell, dragInfo) {
 
         const movedDay = task.scheduledDays[dayIdx];
 
+        // Medición por turnos: mover un día de planta a la fila de otro analista lo reasigna
+        if (movedDay?.type === 'field' && isFieldSplit(task)) {
+            if (task.status === 'facturada') { alert('Una gestión facturada no puede ser modificada.'); return; }
+            // Congelar los días implícitos para que no se redistribuyan al mover uno
+            const currentFieldMap = getFieldDayAssignments(task);
+            task.scheduledDays.forEach(d => {
+                if (d.type === 'field' && !d.analyst) {
+                    for (const [name, dates] of currentFieldMap.entries()) {
+                        if (dates.includes(d.date)) { d.analyst = name; break; }
+                    }
+                }
+            });
+            movedDay.analyst = targetAnalyst;
+            movedDay.day  = targetDay;
+            movedDay.date = targetDateStr;
+            const targetEntry = (task.analysts_assignment || []).find(a => a.name === targetAnalyst);
+            if (targetEntry) targetEntry.isTitular = true;
+            logActivity(`🚚 Se movió un día de planta de <strong>${task.client}</strong> a <strong>${targetAnalyst}</strong> (día ${targetDay}).`, 'assign');
+            saveTasks();
+            postDropSync();
+            await saveTaskToSupabase(task);
+            return;
+        }
+
         // Reasignación de día de informe a otro analista
         if (movedDay?.type === 'report') {
             const reportMap = getReportDayAssignments(task);
@@ -3968,6 +3999,49 @@ function isHolidayOrWeekend(year, month, day) {
  * Regla: titular primero, reparto por igual, días extra al titular.
  * Retorna: Map { analystName → [dateStr, ...] }
  */
+/** Medición por turnos: los analistas titulares van a planta en días DISTINTOS.
+ *  La marca vive en analysts_assignment[].splitField (sin columna nueva en Supabase). */
+function isFieldSplit(task) {
+    return !!(task && task.analysts_assignment && task.analysts_assignment.some(a => a.splitField));
+}
+
+/** Reparte los días de planta entre los analistas titulares (mapa nombre → fechas).
+ *  Días con analista explícito (movidos a mano) se respetan; el resto se reparte parejo,
+ *  dando el sobrante al primero. */
+function getFieldDayAssignments(task) {
+    const fieldDays = (task.scheduledDays || [])
+        .filter(d => d.type === 'field' && d.date)
+        .sort((a, b) => a.date.localeCompare(b.date));
+    const fieldAnalysts = (task.analysts_assignment || []).filter(a => a.isTitular);
+    const map = new Map();
+
+    if (fieldAnalysts.length === 0) {
+        if (task.analyst) map.set(task.analyst, fieldDays.map(d => d.date));
+        return map;
+    }
+    fieldAnalysts.forEach(a => map.set(a.name, []));
+
+    fieldDays.filter(d => d.analyst).forEach(d => {
+        if (!map.has(d.analyst)) map.set(d.analyst, []);
+        map.get(d.analyst).push(d.date);
+    });
+
+    const implicit = fieldDays.filter(d => !d.analyst);
+    if (implicit.length > 0) {
+        const k = fieldAnalysts.length;
+        const base = Math.floor(implicit.length / k);
+        const extra = implicit.length % k;
+        let idx = 0;
+        fieldAnalysts.forEach((a, i) => {
+            const quota = base + (i === 0 ? extra : 0);
+            for (let j = 0; j < quota && idx < implicit.length; j++, idx++) {
+                map.get(a.name).push(implicit[idx].date);
+            }
+        });
+    }
+    return map;
+}
+
 function getReportDayAssignments(task) {
     const reportDays = (task.scheduledDays || [])
         .filter(d => d.type === 'report')
@@ -5096,6 +5170,9 @@ function openNewTaskModal() {
         const editIdEl = document.getElementById('editTaskId');
         if (editIdEl) editIdEl.value = '';
 
+        const _splitEl = document.getElementById('taskSplitField');
+        if(_splitEl) _splitEl.checked = false;
+
         // Limpiar campo de observaciones y ocultarlo
         const notesEl    = document.getElementById('taskAbsenceNotes');
         const notesGroup = document.getElementById('group-absence-notes');
@@ -5275,6 +5352,9 @@ function openEditTaskModal(taskId) {
             populatePeriodMonthSelect();
             periodMonthEl.value = task.period || formatPeriod();
         }
+
+        const splitEl = document.getElementById('taskSplitField');
+        if(splitEl) splitEl.checked = isFieldSplit(task);
 
         // Observaciones de ausencia
         const notesEl    = document.getElementById('taskAbsenceNotes');
@@ -5461,6 +5541,13 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
             }
         });
 
+        const splitRequested = !isAbsence && !!document.getElementById('taskSplitField')?.checked;
+        if(splitRequested && analystsAssignment.filter(a => a.isTitular).length < 2) {
+            alert('Para repartir la medición por turnos se necesitan al menos 2 analistas titulares (marcados para ir a planta).');
+            return;
+        }
+        analystsAssignment.forEach(a => { if(splitRequested) a.splitField = true; });
+
         if(!isAbsence && !isAdminContract && !isThirdParty && analystsAssignment.length > 0 && Math.abs(totalPercentage - 100) > 0.01) {
             alert("El porcentaje financiero total debe sumar exactamente 100%. Actualmente suma " + totalPercentage + "%.");
             return;
@@ -5497,6 +5584,8 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
                 tasks[idx].period = document.getElementById('taskPeriodMonth')?.value || tasks[idx].period;
                 tasks[idx].mesFacturacion = isAbsence ? tasks[idx].period : document.getElementById('taskBillingMonth').value;
                 if(isAbsence) tasks[idx].absenceNotes = absenceNotes;
+                // Si se desactivó la medición por turnos, los días de planta vuelven a ser comunes
+                if(!splitRequested) (tasks[idx].scheduledDays || []).forEach(d => { if(d.type === 'field') delete d.analyst; });
 
                 // Ajustar scheduledDays si la tarea ya está programada y cambió el conteo de días
                 if ((tasks[idx].scheduledDays || []).length > 0 && (oldDaysField !== dField || oldDaysReport !== dReport)) {
