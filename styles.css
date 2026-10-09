@@ -1233,9 +1233,26 @@ h1 {
 
 .admin-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr !important;
-    gap: 0.5rem !important; /* Más estrecho */
+    grid-template-columns: 1fr !important; /* Una tabla por fila */
+    gap: 1.25rem !important;
     width: 100%;
+}
+
+/* Cada tabla muestra ~6 registros; el resto se recorre con scroll */
+.admin-scroll-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 22rem;
+    overflow-y: auto;
+}
+#admin-clients-list { max-height: 25rem; }
+.admin-scroll-list.admin-users-scroll { display: block; max-height: 26rem; overflow-x: auto; }
+.admin-scroll-list thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #f8fafc;
 }
 
 .admin-grid .stats-card {
@@ -1247,6 +1264,8 @@ h1 {
     overflow-x: hidden !important; /* Adiós barras horizontales internas */
 }
 
+.admin-grid .dense-table { font-size: 0.8rem !important; }
+.admin-grid .dense-table th, .admin-grid .dense-table td { padding: 0.45rem 0.6rem !important; }
 .dense-table {
     font-size: 0.7rem !important;
     table-layout: fixed;
@@ -2038,7 +2057,7 @@ body.role-viewer .viewer-hide { display: none !important; }
 
     /* ── Admin: 2 columnas en tablet ── */
     .admin-grid {
-        grid-template-columns: 1fr 1fr !important;
+        grid-template-columns: 1fr !important;
     }
 
     /* ── Finance ── */

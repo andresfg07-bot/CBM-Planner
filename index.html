@@ -484,7 +484,7 @@
                                 <button class="btn-primary" onclick="openAdminModal('client')">+ Nuevo Cliente</button>
                             </div>
                         </div>
-                        <div id="admin-clients-list" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 400px; overflow-y: auto;">
+                        <div id="admin-clients-list" class="admin-scroll-list">
                             <!-- JS render -->
                         </div>
                     </div>
@@ -495,7 +495,7 @@
                             <h3>Analistas</h3>
                             <button class="btn-primary" onclick="openAdminModal('analyst')">+ Nuevo Analista</button>
                         </div>
-                        <div id="admin-analysts-list" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 400px; overflow-y: auto;">
+                        <div id="admin-analysts-list" class="admin-scroll-list">
                             <!-- JS render -->
                         </div>
                     </div>
@@ -506,7 +506,7 @@
                             <h3>Equipos de Medición</h3>
                             <button class="btn-primary" onclick="openAdminModal('equipment')">+ Nuevo Equipo</button>
                         </div>
-                        <div id="admin-equipment-list" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 400px; overflow-y: auto;">
+                        <div id="admin-equipment-list" class="admin-scroll-list">
                             <!-- JS render -->
                         </div>
                     </div>
@@ -521,9 +521,12 @@
                                 Asigna roles y vincula analistas. Los usuarios se crean desde el panel de Supabase → Authentication.
                             </p>
                         </div>
-                        <button class="btn-primary" onclick="renderUsersAdminSection()" style="white-space:nowrap;">↺ Recargar</button>
+                        <div style="display:flex; gap:0.5rem;">
+                            <button class="btn-primary" id="adminUsersRefreshBtn" onclick="renderUsersAdminSection()" style="white-space:nowrap; display:none;">↺ Recargar</button>
+                            <button class="btn-outline" id="adminUsersToggleBtn" onclick="toggleAdminUsers()" style="white-space:nowrap;">▼ Expandir</button>
+                        </div>
                     </div>
-                    <div id="admin-users-list" style="overflow-x:auto;">
+                    <div id="admin-users-list" class="admin-scroll-list admin-users-scroll" style="display:none;">
                         <!-- JS render -->
                     </div>
                 </div>

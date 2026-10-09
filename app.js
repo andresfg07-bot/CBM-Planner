@@ -1299,6 +1299,18 @@ async function loadAllProfiles() {
     if (!error && data) dbProfiles = data;
 }
 
+/** Expande/colapsa la tabla de Usuarios del Sistema (arranca colapsada). */
+function toggleAdminUsers() {
+    const list = document.getElementById('admin-users-list');
+    const toggleBtn = document.getElementById('adminUsersToggleBtn');
+    const refreshBtn = document.getElementById('adminUsersRefreshBtn');
+    if(!list) return;
+    const open = list.style.display === 'none';
+    list.style.display = open ? 'block' : 'none';
+    if(toggleBtn) toggleBtn.textContent = open ? '▲ Colapsar' : '▼ Expandir';
+    if(refreshBtn) refreshBtn.style.display = open ? '' : 'none';
+}
+
 async function renderUsersAdminSection() {
     const container = document.getElementById('admin-users-list');
     if (!container) return;
