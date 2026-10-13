@@ -6234,9 +6234,9 @@ function parseServiceDetailsMetrics(text) {
     if(!text) return null;
     const src = String(text);
     const grab = (label) => {
-        const m = src.match(new RegExp(label + '\\s*:\\s*([^\\n\\r]+)', 'i'));
+        const m = src.match(new RegExp('^[\\s\\-•*_#>]*(?:' + label + ')[\\s*_]*:[\\s*_]*([^\\n\\r]*)', 'im'));
         const v = m ? m[1].trim() : '';
-        return /^no especificad/i.test(v) ? '' : v;
+        return /^(no especificad|n\/a|-+$)/i.test(v) ? '' : v;
     };
     const num = (v) => {
         const m = String(v).match(/\d+(?:[.,]\d+)?/);
@@ -6257,16 +6257,20 @@ function parseServiceDetailsMetrics(text) {
         return h * 60 + min;
     };
 
-    const subsystems   = num(grab('Cantidad de subsistemas'));
-    const chargedHours = num(grab('Horas a cobrar(?: en el servicio)?'));
-    const entry = minutes(grab('Hora de entrada'));
-    const exit  = minutes(grab('Hora de salida'));
+    const rawSubs    = grab('(?:Cantidad de )?subsistemas(?: medidos| intervenidos)?');
+    const rawCharged = grab('Horas? a cobrar(?: en el servicio)?|Horas? cobradas?|Horas? facturad[ao]s?');
+    const rawEntry   = grab('Hora de (?:entrada|ingreso|llegada)|Entrada|Ingreso');
+    const rawExit    = grab('Hora de (?:salida|retiro)|Salida|Retiro');
+    const subsystems   = num(rawSubs);
+    const chargedHours = num(rawCharged);
+    const entry = minutes(rawEntry);
+    const exit  = minutes(rawExit);
     let siteHours = null;
     if(entry !== null && exit !== null && exit > entry) {
         const h = (exit - entry) / 60;
         if(h <= 24) siteHours = h;
     }
-    return { subsystems, chargedHours, siteHours };
+    return { subsystems, chargedHours, siteHours, rawEntry, rawExit };
 }
 
 function _effMedian(arr) {
@@ -6311,7 +6315,7 @@ function _effTaskMetrics(t) {
 function _effAllRows() {
     return tasks
         .filter(t => !t.isAbsence && (t.status === 'ejecutada' || t.status === 'facturada')
-            && t.serviceType !== 'Metro Administrativo' && t.serviceType !== 'Metro Terceros'
+            && _EFF_PREDICTIVE.includes(t.serviceType)
             && !String(t.id).startsWith('t_'))
         .map(t => ({ t, m: _effTaskMetrics(t) }));
 }
@@ -6344,7 +6348,6 @@ function _effPeriodOk(t) {
 }
 
 function _effServiceOk(t) {
-    if(_effService === 'all') return true;
     if(_effService === 'predictive') return _EFF_PREDICTIVE.includes(t.serviceType);
     return t.serviceType === _effService;
 }
@@ -6428,8 +6431,9 @@ function renderEfficiencyView() {
     const baselines = _effBaselines(all);
     const rows = all.filter(r => _effServiceOk(r.t) && _effPeriodOk(r.t));
     const withData = rows.filter(r => Object.keys(r.m).length > 0).length;
+    const withText = rows.filter(r => (r.t.serviceDetails || '').trim()).length;
 
-    const services = ['Vibraciones', 'Termografía', 'Ultrasonido', 'Balanceo', 'Alineación', 'Rotodinámico', 'Capacitación', 'Calibración'];
+    const services = _EFF_PREDICTIVE;
     const tabs = [
         { id: 'clients',  label: '🏭 Clientes' },
         { id: 'analysts', label: '👤 Analistas' },
@@ -6461,8 +6465,7 @@ function renderEfficiencyView() {
             <div style="min-width:220px;">
                 <label class="filter-label">Servicio</label><br>
                 <select class="filter-select" style="margin-top:4px;width:100%;" onchange="setEfficiencyFilter('service', this.value)">
-                    <option value="predictive" ${_effService === 'predictive' ? 'selected' : ''}>Predictivos (Vibraciones + Termografía)</option>
-                    <option value="all" ${_effService === 'all' ? 'selected' : ''}>Todos los servicios</option>
+                    <option value="predictive" ${_effService === 'predictive' ? 'selected' : ''}>Vibraciones + Termografía</option>
                     ${services.map(s => `<option value="${s}" ${_effService === s ? 'selected' : ''}>${s}</option>`).join('')}
                 </select>
             </div>
@@ -6479,7 +6482,7 @@ function renderEfficiencyView() {
             </div>
         </div>
         <div style="margin:0.75rem 0;font-size:0.8rem;color:${withData < rows.length / 2 ? '#b45309' : '#64748b'};">
-            📊 ${withData} de ${rows.length} gestiones ejecutadas traen datos de la planilla (subsistemas u horas)${withData < rows.length ? ' — las demás no cuentan en la calificación.' : '.'}
+            📊 ${rows.length} gestiones ejecutadas · ${withText} tienen planilla escrita · ${withData} se pudieron leer (subsistemas u horas)${withData < rows.length ? ' — las demás no cuentan en la calificación. Mira la pestaña "Datos faltantes".' : '.'}
         </div>
         <div class="stats-card" style="padding:0;overflow-x:auto;">${body}</div>
         <p style="font-size:0.74rem;color:#94a3b8;margin-top:0.75rem;line-height:1.5;">
@@ -6614,13 +6617,16 @@ function _effMissingSection(rows) {
     const sorted = missing.slice().sort((a, b) => String(b.t.mesFacturacion || b.t.period).localeCompare(String(a.t.mesFacturacion || a.t.period)));
     return `
         <table class="data-table" style="font-size:0.8rem;">
-            <thead><tr><th>Mes</th><th>Cliente</th><th>Servicio</th><th>Analista(s)</th><th>Falta en la planilla</th></tr></thead>
+            <thead><tr><th>Mes</th><th>Cliente</th><th>Servicio</th><th>Analista(s)</th><th>Falta en la planilla</th><th>Lo que dice la planilla</th></tr></thead>
             <tbody>${sorted.slice(0, 150).map(r => `<tr>
                 <td style="white-space:nowrap;">${_escHtml(r.t.mesFacturacion || r.t.period || '—')}</td>
                 <td><strong>${_escHtml(cleanClientName(r.t.client))}</strong></td>
                 <td>${_escHtml(r.t.serviceType || '—')}</td>
                 <td>${_escHtml(_effAnalystsOf(r.t).join(', ') || '—')}</td>
                 <td>${need(r).map(x => `<span style="background:#fef3c7;color:#b45309;border-radius:99px;padding:1px 8px;font-size:0.72rem;font-weight:700;margin-right:4px;white-space:nowrap;">${x}</span>`).join('')}</td>
+                <td style="font-size:0.72rem;color:#64748b;max-width:320px;" title="${_escHtml(r.t.serviceDetails || '')}">${(r.t.serviceDetails || '').trim()
+                    ? _escHtml((r.t.serviceDetails || '').replace(/\s+/g, ' ').slice(0, 140)) + ((r.t.serviceDetails || '').length > 140 ? '…' : '')
+                    : '<span style="color:#cbd5e1;">Sin planilla</span>'}</td>
             </tr>`).join('')}</tbody>
         </table>
         ${sorted.length > 150 ? `<div style="padding:0.75rem 1rem;font-size:0.74rem;color:#94a3b8;">Mostrando 150 de ${sorted.length}.</div>` : ''}`;
