@@ -6208,29 +6208,62 @@ async function updateEquipment(e, equipmentId) {
 }
 
 // ══════════════════════════════════════════
-// MÓDULO DE EFICIENCIA (clientes y analistas) — solo admin
-// Lee subsistemas y horas de la planilla del "ojito" (service_details) y los compara
-// contra la mediana de A-MAQ en el mismo tipo de servicio. Calificación 1–10.
+// MÓDULO DE EFICIENCIA (clientes y analistas) — solo admin, Vibraciones y Termografía
+// Prioridad 1: subsistemas (leídos del texto del "ojito") frente a los días de medición
+// del planner. Prioridad 2 (si no hay subsistemas): horas de la planilla.
+// Cada métrica se compara con la mediana de A-MAQ en el mismo servicio → nota 1–10.
 // ══════════════════════════════════════════
 
 let _effTab = 'clients';          // 'clients' | 'analysts' | 'compare' | 'missing'
-let _effService = 'predictive';   // 'predictive' | 'all' | nombre de servicio
+let _effService = 'predictive';   // 'predictive' | 'Vibraciones' | 'Termografía'
 let _effScope = 'year';           // 'year' | 'last12' | 'all'
 
 const _EFF_PREDICTIVE = ['Vibraciones', 'Termografía'];
 const _EFF_MONEY = (v) => '$' + Math.round(v).toLocaleString('es-CO');
 const _EFF_METRICS = {
-    vph_site:    { label: '$ / hora en planta', short: '$/h planta',   fmt: _EFF_MONEY },
-    vph_charged: { label: '$ / hora cobrada',   short: '$/h cobrada',  fmt: _EFF_MONEY },
-    vps:         { label: '$ / subsistema',     short: '$/subsistema', fmt: _EFF_MONEY },
-    sph_site:    { label: 'Subsistemas / hora en planta', short: 'Subs./hora', fmt: (v) => v.toFixed(2) },
-    bill_eff:    { label: 'Horas cobradas vs horas reales', short: 'Cobrado vs real', fmt: (v) => v.toFixed(2) + '×' }
+    vps:         { short: '$/subsistema',        group: 'subs',  fmt: _EFF_MONEY },
+    sps_day:     { short: 'Subs./día medición',  group: 'subs',  fmt: (v) => v.toFixed(1) },
+    vpd:         { short: '$/día medición',      group: 'subs',  fmt: _EFF_MONEY },
+    vph_site:    { short: '$/h planta',          group: 'hours', fmt: _EFF_MONEY },
+    vph_charged: { short: '$/h cobrada',         group: 'hours', fmt: _EFF_MONEY },
+    bill_eff:    { short: 'Cobrado vs real',     group: 'hours', fmt: (v) => v.toFixed(2) + '×' }
 };
-const _EFF_CLIENT_METRICS  = ['vph_site', 'vph_charged', 'vps', 'bill_eff'];
-const _EFF_ANALYST_METRICS = ['vph_site', 'sph_site', 'bill_eff'];
+const _EFF_CLIENT_METRICS  = ['vps', 'sps_day', 'vpd', 'vph_site', 'vph_charged', 'bill_eff'];
+const _EFF_ANALYST_METRICS = ['sps_day', 'vps', 'vpd', 'vph_site', 'bill_eff'];
 
-/** Extrae subsistemas y horas de la planilla de detalles del servicio. */
-function parseServiceDetailsMetrics(text) {
+/** Subsistemas: planilla ("Cantidad de subsistemas: 12") o texto libre ("se midieron 120 subsistemas"). */
+function _effExtractSubsystems(src, labelValue, serviceType) {
+    const num = (v) => {
+        const m = String(v).match(/\d+(?:[.,]\d+)?/);
+        const n = m ? parseFloat(m[0].replace(',', '.')) : NaN;
+        return n > 0 ? n : null;
+    };
+    const fromLabel = num(labelValue);
+    if(fromLabel) return fromLabel;
+
+    const text = String(src || '');
+    // "35 subsistemas", "35 sub sistemas", "35 sub-sistemas" / "subsistemas: 35" / "total de 35 subsistemas"
+    const unit = serviceType === 'Termografía' ? '(?:sub\\s*-?\\s*sistemas?|termograf[ií]as?)' : 'sub\\s*-?\\s*sistemas?';
+    const found = [];
+    let m;
+    const before = new RegExp('(\\d+(?:[.,]\\d+)?)\\s*(?:de\\s+)?' + unit, 'gi');
+    while((m = before.exec(text)) !== null) {
+        const n = parseFloat(m[1].replace(',', '.'));
+        if(n > 0) found.push({ n, idx: m.index });
+    }
+    const after = new RegExp(unit + '\\s*(?:medidos?|intervenidos?|totales?)?\\s*[:=]\\s*(\\d+(?:[.,]\\d+)?)', 'gi');
+    while((m = after.exec(text)) !== null) {
+        const n = parseFloat(m[1].replace(',', '.'));
+        if(n > 0) found.push({ n, idx: m.index });
+    }
+    if(!found.length) return null;
+    // Si dice "total ... N subsistemas", ese manda; si hay varios números, el mayor.
+    const totals = found.filter(f => /total/i.test(text.slice(Math.max(0, f.idx - 25), f.idx + 5)));
+    return (totals.length ? totals : found).reduce((mx, f) => Math.max(mx, f.n), 0);
+}
+
+/** Extrae subsistemas y horas del texto del "ojito" (planilla o texto libre). */
+function parseServiceDetailsMetrics(text, serviceType) {
     if(!text) return null;
     const src = String(text);
     const grab = (label) => {
@@ -6261,7 +6294,7 @@ function parseServiceDetailsMetrics(text) {
     const rawCharged = grab('Horas? a cobrar(?: en el servicio)?|Horas? cobradas?|Horas? facturad[ao]s?');
     const rawEntry   = grab('Hora de (?:entrada|ingreso|llegada)|Entrada|Ingreso');
     const rawExit    = grab('Hora de (?:salida|retiro)|Salida|Retiro');
-    const subsystems   = num(rawSubs);
+    const subsystems   = _effExtractSubsystems(src, rawSubs, serviceType);
     const chargedHours = num(rawCharged);
     const entry = minutes(rawEntry);
     const exit  = minutes(rawExit);
@@ -6270,7 +6303,7 @@ function parseServiceDetailsMetrics(text) {
         const h = (exit - entry) / 60;
         if(h <= 24) siteHours = h;
     }
-    return { subsystems, chargedHours, siteHours, rawEntry, rawExit };
+    return { subsystems, chargedHours, siteHours };
 }
 
 function _effMedian(arr) {
@@ -6299,15 +6332,28 @@ function _effScoreBadge(sc, big) {
     return `<span style="display:inline-block;min-width:${big ? 46 : 36}px;text-align:center;background:${st.bg};color:${st.color};border-radius:99px;padding:${big ? '3px 10px' : '1px 7px'};font-weight:800;font-size:${big ? '0.95rem' : '0.74rem'};">${sc.toFixed(1)}</span>`;
 }
 
+/** Días de medición: los programados en el planner (tipo "field") o, si aún no, los planeados. */
+function _effFieldDays(t) {
+    const scheduled = (t.scheduledDays || []).filter(d => d.type === 'field').length;
+    return scheduled || parseInt(t.daysField, 10) || 0;
+}
+
 function _effTaskMetrics(t) {
-    const d = parseServiceDetailsMetrics(t.serviceDetails);
-    const m = {};
-    if(!d) return m;
+    const d = parseServiceDetailsMetrics(t.serviceDetails, t.serviceType) || {};
     const budget = parseFloat(t.budget) || 0;
+    const fieldDays = _effFieldDays(t);
+    const m = {};
+    // Camino 1: subsistemas frente a los días de medición del planner
+    if(d.subsystems) {
+        if(budget > 0) m.vps = budget / d.subsystems;
+        if(fieldDays > 0) {
+            m.sps_day = d.subsystems / fieldDays;
+            if(budget > 0) m.vpd = budget / fieldDays;
+        }
+    }
+    // Camino 2: horas de la planilla (se usan para calificar solo si no hay subsistemas)
     if(budget > 0 && d.siteHours)     m.vph_site    = budget / d.siteHours;
     if(budget > 0 && d.chargedHours)  m.vph_charged = budget / d.chargedHours;
-    if(budget > 0 && d.subsystems)    m.vps         = budget / d.subsystems;
-    if(d.subsystems && d.siteHours)   m.sph_site    = d.subsystems / d.siteHours;
     if(d.chargedHours && d.siteHours) m.bill_eff    = d.chargedHours / d.siteHours;
     return m;
 }
@@ -6360,7 +6406,8 @@ function _effAnalystsOf(t) {
     return t.analyst ? [t.analyst] : [];
 }
 
-/** Agrupa filas por entidad y calcula medianas, calificaciones y calificación global. */
+/** Agrupa filas por entidad: medianas, nota por métrica y nota global
+ *  (promedio de las métricas de subsistemas; si no hay, de las de horas). */
 function _effAggregate(rows, baselines, keysOf, metricKeys) {
     const groups = new Map();
     rows.forEach(r => {
@@ -6372,7 +6419,7 @@ function _effAggregate(rows, baselines, keysOf, metricKeys) {
     });
     const out = [];
     groups.forEach((list, key) => {
-        const raw = {}, idx = {}, scores = {};
+        const raw = {}, scores = {};
         metricKeys.forEach(k => {
             const vals = list.filter(r => r.m[k] !== undefined);
             if(!vals.length) return;
@@ -6381,18 +6428,18 @@ function _effAggregate(rows, baselines, keysOf, metricKeys) {
                 const b = baselines[r.t.serviceType]?.[k];
                 return b ? r.m[k] / b : null;
             }).filter(v => v !== null);
-            if(ratios.length) {
-                idx[k] = _effMedian(ratios);
-                scores[k] = _effScore(idx[k]);
-            }
+            if(ratios.length) scores[k] = _effScore(_effMedian(ratios));
         });
-        const sv = Object.values(scores);
+        const byGroup = { subs: [], hours: [] };
+        Object.keys(scores).forEach(k => byGroup[_EFF_METRICS[k].group].push(scores[k]));
+        const avg = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+        const basis = byGroup.subs.length ? 'subs' : (byGroup.hours.length ? 'hours' : null);
         out.push({
             key,
             n: list.length,
             nData: list.filter(r => Object.keys(r.m).length > 0).length,
-            raw, scores,
-            overall: sv.length ? sv.reduce((a, b) => a + b, 0) / sv.length : null,
+            raw, scores, basis,
+            overall: basis ? avg(byGroup[basis]) : null,
             total: list.reduce((s, r) => s + (parseFloat(r.t.budget) || 0), 0)
         });
     });
@@ -6407,6 +6454,13 @@ function setEfficiencyFilter(kind, value) {
     renderEfficiencyView();
 }
 
+function _effBasisChip(e) {
+    if(!e.basis) return '<span style="color:#cbd5e1;">—</span>';
+    return e.basis === 'subs'
+        ? '<span title="Calificada con subsistemas y días de medición" style="background:#eff6ff;color:#1d4ed8;border-radius:99px;padding:1px 8px;font-size:0.7rem;font-weight:700;">Subsistemas</span>'
+        : '<span title="No hay subsistemas: calificada con horas" style="background:#faf5ff;color:#7e22ce;border-radius:99px;padding:1px 8px;font-size:0.7rem;font-weight:700;">Horas</span>';
+}
+
 function _effMetricCell(entity, k) {
     const v = entity.raw[k];
     if(v === undefined) return '<td style="text-align:right;color:#cbd5e1;">—</td>';
@@ -6416,7 +6470,7 @@ function _effMetricCell(entity, k) {
 
 function _effCountCell(e) {
     const low = e.nData < 3;
-    return `<td style="text-align:center;white-space:nowrap;" title="${e.nData} de ${e.n} gestiones traen datos de la planilla">${e.nData}/${e.n}${low ? ' <span title="Pocos datos: la calificación es poco confiable" style="color:#d97706;">⚠</span>' : ''}</td>`;
+    return `<td style="text-align:center;white-space:nowrap;" title="${e.nData} de ${e.n} gestiones traen datos legibles">${e.nData}/${e.n}${low ? ' <span title="Pocos datos: la calificación es poco confiable" style="color:#d97706;">⚠</span>' : ''}</td>`;
 }
 
 function renderEfficiencyView() {
@@ -6433,7 +6487,6 @@ function renderEfficiencyView() {
     const withData = rows.filter(r => Object.keys(r.m).length > 0).length;
     const withText = rows.filter(r => (r.t.serviceDetails || '').trim()).length;
 
-    const services = _EFF_PREDICTIVE;
     const tabs = [
         { id: 'clients',  label: '🏭 Clientes' },
         { id: 'analysts', label: '👤 Analistas' },
@@ -6458,7 +6511,7 @@ function renderEfficiencyView() {
         <div class="kanban-header" style="margin-bottom:1.25rem;">
             <div>
                 <h2>Eficiencia de Clientes y Analistas</h2>
-                <p class="subtitle">Qué tanto valor deja cada cliente y cómo rinde cada analista, con la planilla del servicio (subsistemas y horas).</p>
+                <p class="subtitle">Vibraciones y Termografía: subsistemas medidos frente a los días de medición del planner (y horas cuando no hay subsistemas).</p>
             </div>
         </div>
         <div class="filter-toolbar" style="align-items:flex-end;">
@@ -6466,7 +6519,7 @@ function renderEfficiencyView() {
                 <label class="filter-label">Servicio</label><br>
                 <select class="filter-select" style="margin-top:4px;width:100%;" onchange="setEfficiencyFilter('service', this.value)">
                     <option value="predictive" ${_effService === 'predictive' ? 'selected' : ''}>Vibraciones + Termografía</option>
-                    ${services.map(s => `<option value="${s}" ${_effService === s ? 'selected' : ''}>${s}</option>`).join('')}
+                    ${_EFF_PREDICTIVE.map(s => `<option value="${s}" ${_effService === s ? 'selected' : ''}>${s}</option>`).join('')}
                 </select>
             </div>
             <div style="min-width:170px;">
@@ -6482,13 +6535,14 @@ function renderEfficiencyView() {
             </div>
         </div>
         <div style="margin:0.75rem 0;font-size:0.8rem;color:${withData < rows.length / 2 ? '#b45309' : '#64748b'};">
-            📊 ${rows.length} gestiones ejecutadas · ${withText} tienen planilla escrita · ${withData} se pudieron leer (subsistemas u horas)${withData < rows.length ? ' — las demás no cuentan en la calificación. Mira la pestaña "Datos faltantes".' : '.'}
+            📊 ${rows.length} gestiones ejecutadas · ${withText} tienen texto en el ojito · ${withData} se pudieron leer (subsistemas u horas)${withData < rows.length ? ' — las demás no cuentan en la calificación. Mira la pestaña "Datos faltantes".' : '.'}
         </div>
         <div class="stats-card" style="padding:0;overflow-x:auto;">${body}</div>
         <p style="font-size:0.74rem;color:#94a3b8;margin-top:0.75rem;line-height:1.5;">
-            <strong>Cómo se califica (1 a 10):</strong> cada métrica se compara con la mediana de A-MAQ en el mismo tipo de servicio.
-            5.5 = igual a la mediana · 10 = el doble o más · 1 = la mitad o menos. La calificación global es el promedio de las métricas disponibles.
-            Los valores salen del presupuesto de la gestión y de la planilla del servicio; los viáticos y costos logísticos no están separados del valor.
+            <strong>Cómo se califica (1 a 10):</strong> cada métrica se compara con la mediana de A-MAQ en el mismo servicio.
+            5.5 = igual a la mediana · 10 = el doble o más · 1 = la mitad o menos.
+            Si la gestión tiene subsistemas, la nota promedia $/subsistema, subsistemas por día de medición y $/día de medición; si no, usa las horas ($/h planta, $/h cobrada, cobrado vs real).
+            Los subsistemas se leen del texto que escriben los analistas; los viáticos y costos logísticos no están separados del valor.
         </p>`;
 }
 
@@ -6497,7 +6551,7 @@ function _effClientsTable(rows, baselines) {
     return `
         <table class="data-table" style="font-size:0.82rem;">
             <thead><tr>
-                <th style="width:36px;">#</th><th>Cliente</th><th style="text-align:center;">Calificación</th>
+                <th style="width:36px;">#</th><th>Cliente</th><th style="text-align:center;">Calificación</th><th>Base</th>
                 <th style="text-align:center;" title="Gestiones con datos / total">Gestiones</th>
                 ${_EFF_CLIENT_METRICS.map(k => `<th style="text-align:right;">${_EFF_METRICS[k].short}</th>`).join('')}
                 <th style="text-align:right;">Valor total</th>
@@ -6506,6 +6560,7 @@ function _effClientsTable(rows, baselines) {
                 <td style="color:#94a3b8;">${i + 1}</td>
                 <td><strong>${_escHtml(e.key)}</strong></td>
                 <td style="text-align:center;">${_effScoreBadge(e.overall, true)}</td>
+                <td>${_effBasisChip(e)}</td>
                 ${_effCountCell(e)}
                 ${_EFF_CLIENT_METRICS.map(k => _effMetricCell(e, k)).join('')}
                 <td style="text-align:right;color:var(--clr-green);font-weight:700;">${_EFF_MONEY(e.total)}</td>
@@ -6518,7 +6573,7 @@ function _effAnalystsTable(rows, baselines) {
     return `
         <table class="data-table" style="font-size:0.82rem;">
             <thead><tr>
-                <th style="width:36px;">#</th><th>Analista</th><th style="text-align:center;">Calificación</th>
+                <th style="width:36px;">#</th><th>Analista</th><th style="text-align:center;">Calificación</th><th>Base</th>
                 <th style="text-align:center;" title="Gestiones con datos / total">Gestiones</th>
                 ${_EFF_ANALYST_METRICS.map(k => `<th style="text-align:right;">${_EFF_METRICS[k].short}</th>`).join('')}
             </tr></thead>
@@ -6526,6 +6581,7 @@ function _effAnalystsTable(rows, baselines) {
                 <td style="color:#94a3b8;">${i + 1}</td>
                 <td><strong>${_escHtml(e.key)}</strong></td>
                 <td style="text-align:center;">${_effScoreBadge(e.overall, true)}</td>
+                <td>${_effBasisChip(e)}</td>
                 ${_effCountCell(e)}
                 ${_EFF_ANALYST_METRICS.map(k => _effMetricCell(e, k)).join('')}
             </tr>`).join('')}</tbody>
@@ -6560,16 +6616,11 @@ function _effCompareSection(rows) {
             });
             return { name, n: list.length, raw };
         });
-        const best = {};
-        _EFF_ANALYST_METRICS.forEach(k => {
-            const vals = stats.map(s => s.raw[k]).filter(v => v !== undefined);
-            if(vals.length >= 2) best[k] = Math.max(...vals);
-        });
         cards.push({ client, stats, size: analysts.size });
     });
     cards.sort((a, b) => b.size - a.size || a.client.localeCompare(b.client));
     if(!cards.length) {
-        return '<div style="text-align:center;padding:3rem;color:#94a3b8;">Aún no hay clientes atendidos por 2 o más analistas con datos de planilla en este filtro.</div>';
+        return '<div style="text-align:center;padding:3rem;color:#94a3b8;">Aún no hay clientes atendidos por 2 o más analistas con datos legibles en este filtro.</div>';
     }
     return `<div style="padding:1rem;display:grid;gap:1rem;">${cards.map(c => {
         const best = {};
@@ -6599,35 +6650,25 @@ function _effCompareSection(rows) {
     <div style="padding:0 1rem 1rem;font-size:0.74rem;color:#94a3b8;">▲ marca al mejor de cada métrica dentro del mismo cliente.</div>`;
 }
 
-/** Gestiones ejecutadas sin datos de planilla: a quién pedirle que complete el ojito. */
+/** Gestiones ejecutadas sin subsistemas ni horas legibles: qué decir al analista. */
 function _effMissingSection(rows) {
-    const missing = rows.filter(r => {
-        const d = parseServiceDetailsMetrics(r.t.serviceDetails);
-        return !d || !d.subsystems || !d.siteHours || !d.chargedHours;
-    });
-    if(!missing.length) return '<div style="text-align:center;padding:3rem;color:#16a34a;">✅ Todas las gestiones tienen la planilla completa.</div>';
-    const need = (r) => {
-        const d = parseServiceDetailsMetrics(r.t.serviceDetails) || {};
-        const out = [];
-        if(!d.subsystems)    out.push('Subsistemas');
-        if(!d.siteHours)     out.push('Hora entrada/salida');
-        if(!d.chargedHours)  out.push('Horas a cobrar');
-        return out;
-    };
+    const missing = rows.filter(r => Object.keys(r.m).length === 0);
+    if(!missing.length) return '<div style="text-align:center;padding:3rem;color:#16a34a;">✅ Todas las gestiones tienen datos legibles.</div>';
     const sorted = missing.slice().sort((a, b) => String(b.t.mesFacturacion || b.t.period).localeCompare(String(a.t.mesFacturacion || a.t.period)));
     return `
         <table class="data-table" style="font-size:0.8rem;">
-            <thead><tr><th>Mes</th><th>Cliente</th><th>Servicio</th><th>Analista(s)</th><th>Falta en la planilla</th><th>Lo que dice la planilla</th></tr></thead>
-            <tbody>${sorted.slice(0, 150).map(r => `<tr>
+            <thead><tr><th>Mes</th><th>Cliente</th><th>Servicio</th><th>Analista(s)</th><th>Lo que dice el ojito</th></tr></thead>
+            <tbody>${sorted.slice(0, 150).map(r => {
+                const txt = (r.t.serviceDetails || '').trim();
+                return `<tr>
                 <td style="white-space:nowrap;">${_escHtml(r.t.mesFacturacion || r.t.period || '—')}</td>
                 <td><strong>${_escHtml(cleanClientName(r.t.client))}</strong></td>
                 <td>${_escHtml(r.t.serviceType || '—')}</td>
                 <td>${_escHtml(_effAnalystsOf(r.t).join(', ') || '—')}</td>
-                <td>${need(r).map(x => `<span style="background:#fef3c7;color:#b45309;border-radius:99px;padding:1px 8px;font-size:0.72rem;font-weight:700;margin-right:4px;white-space:nowrap;">${x}</span>`).join('')}</td>
-                <td style="font-size:0.72rem;color:#64748b;max-width:320px;" title="${_escHtml(r.t.serviceDetails || '')}">${(r.t.serviceDetails || '').trim()
-                    ? _escHtml((r.t.serviceDetails || '').replace(/\s+/g, ' ').slice(0, 140)) + ((r.t.serviceDetails || '').length > 140 ? '…' : '')
-                    : '<span style="color:#cbd5e1;">Sin planilla</span>'}</td>
-            </tr>`).join('')}</tbody>
+                <td style="font-size:0.72rem;color:#64748b;max-width:380px;" title="${_escHtml(txt)}">${txt
+                    ? _escHtml(txt.replace(/\s+/g, ' ').slice(0, 160)) + (txt.length > 160 ? '…' : '')
+                    : '<span style="color:#f59e0b;font-weight:700;">Sin texto en el ojito</span>'}</td>
+            </tr>`; }).join('')}</tbody>
         </table>
         ${sorted.length > 150 ? `<div style="padding:0.75rem 1rem;font-size:0.74rem;color:#94a3b8;">Mostrando 150 de ${sorted.length}.</div>` : ''}`;
 }
