@@ -153,7 +153,7 @@ function applyRoleUI() {
 
     // Vistas permitidas por rol
     const allowedViews = {
-        admin:      ['dashboard', 'tasks', 'planning', 'finance', 'admin', 'reports', 'inventory'],
+        admin:      ['dashboard', 'tasks', 'planning', 'finance', 'admin', 'reports', 'efficiency', 'inventory'],
         analyst:    ['mywork', 'planning', 'inventory'],
         assistant:  ['dashboard', 'tasks', 'planning', 'finance', 'reports'],
         commercial: ['dashboard', 'tasks', 'planning', 'finance', 'reports'],
@@ -5973,6 +5973,7 @@ function switchView(viewName) {
             finance:   'Módulo de Finanzas',
             admin:     'Administración de Datos Maestros',
             reports:   'Reportes Históricos',
+            efficiency: 'Eficiencia de Clientes y Analistas',
             inventory: 'Control de Inventario CBM'
         };
         headerTitle.textContent = titles[viewName] || 'CBM Maestro';
@@ -5994,6 +5995,8 @@ function switchView(viewName) {
         renderUsersAdminSection();
     } else if(viewName === 'reports') {
         initReportsView();
+    } else if(viewName === 'efficiency') {
+        renderEfficiencyView();
     } else if(viewName === 'inventory') {
         initInventoryView();
     } else {
@@ -6202,6 +6205,425 @@ async function updateEquipment(e, equipmentId) {
     closeModal('adminDataModal');
     await loadMasterData();
     renderAdminView();
+}
+
+// ══════════════════════════════════════════
+// MÓDULO DE EFICIENCIA (clientes y analistas) — solo admin
+// Lee subsistemas y horas de la planilla del "ojito" (service_details) y los compara
+// contra la mediana de A-MAQ en el mismo tipo de servicio. Calificación 1–10.
+// ══════════════════════════════════════════
+
+let _effTab = 'clients';          // 'clients' | 'analysts' | 'compare' | 'missing'
+let _effService = 'predictive';   // 'predictive' | 'all' | nombre de servicio
+let _effScope = 'year';           // 'year' | 'last12' | 'all'
+
+const _EFF_PREDICTIVE = ['Vibraciones', 'Termografía'];
+const _EFF_MONEY = (v) => '$' + Math.round(v).toLocaleString('es-CO');
+const _EFF_METRICS = {
+    vph_site:    { label: '$ / hora en planta', short: '$/h planta',   fmt: _EFF_MONEY },
+    vph_charged: { label: '$ / hora cobrada',   short: '$/h cobrada',  fmt: _EFF_MONEY },
+    vps:         { label: '$ / subsistema',     short: '$/subsistema', fmt: _EFF_MONEY },
+    sph_site:    { label: 'Subsistemas / hora en planta', short: 'Subs./hora', fmt: (v) => v.toFixed(2) },
+    bill_eff:    { label: 'Horas cobradas vs horas reales', short: 'Cobrado vs real', fmt: (v) => v.toFixed(2) + '×' }
+};
+const _EFF_CLIENT_METRICS  = ['vph_site', 'vph_charged', 'vps', 'bill_eff'];
+const _EFF_ANALYST_METRICS = ['vph_site', 'sph_site', 'bill_eff'];
+
+/** Extrae subsistemas y horas de la planilla de detalles del servicio. */
+function parseServiceDetailsMetrics(text) {
+    if(!text) return null;
+    const src = String(text);
+    const grab = (label) => {
+        const m = src.match(new RegExp(label + '\\s*:\\s*([^\\n\\r]+)', 'i'));
+        const v = m ? m[1].trim() : '';
+        return /^no especificad/i.test(v) ? '' : v;
+    };
+    const num = (v) => {
+        const m = String(v).match(/\d+(?:[.,]\d+)?/);
+        const n = m ? parseFloat(m[0].replace(',', '.')) : NaN;
+        return n > 0 ? n : null;
+    };
+    const minutes = (v) => {
+        let m = String(v).match(/(\d{1,2})\s*[:.]\s*(\d{2})\s*(?:([ap])\.?\s*m\.?)?/i);
+        let h, min, ap;
+        if(m) { h = parseInt(m[1], 10); min = parseInt(m[2], 10); ap = m[3]; }
+        else {
+            m = String(v).match(/(\d{1,2})\s*([ap])\.?\s*m\b/i);
+            if(!m) return null;
+            h = parseInt(m[1], 10); min = 0; ap = m[2];
+        }
+        if(ap) { ap = ap.toLowerCase(); if(ap === 'p' && h < 12) h += 12; if(ap === 'a' && h === 12) h = 0; }
+        if(h > 23 || min > 59) return null;
+        return h * 60 + min;
+    };
+
+    const subsystems   = num(grab('Cantidad de subsistemas'));
+    const chargedHours = num(grab('Horas a cobrar(?: en el servicio)?'));
+    const entry = minutes(grab('Hora de entrada'));
+    const exit  = minutes(grab('Hora de salida'));
+    let siteHours = null;
+    if(entry !== null && exit !== null && exit > entry) {
+        const h = (exit - entry) / 60;
+        if(h <= 24) siteHours = h;
+    }
+    return { subsystems, chargedHours, siteHours };
+}
+
+function _effMedian(arr) {
+    const a = arr.filter(v => isFinite(v)).sort((x, y) => x - y);
+    if(a.length === 0) return null;
+    const mid = Math.floor(a.length / 2);
+    return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
+}
+
+/** 5.5 = igual a la mediana; 10 = el doble o más; 1 = la mitad o menos. */
+function _effScore(index) {
+    return Math.max(1, Math.min(10, 5.5 + 4.5 * Math.log2(index)));
+}
+
+function _effScoreStyle(sc) {
+    if(sc === null || sc === undefined) return { color: '#94a3b8', bg: '#f1f5f9' };
+    if(sc >= 7.5) return { color: '#15803d', bg: '#dcfce7' };
+    if(sc >= 5.5) return { color: '#1d4ed8', bg: '#dbeafe' };
+    if(sc >= 4)   return { color: '#b45309', bg: '#fef3c7' };
+    return { color: '#b91c1c', bg: '#fee2e2' };
+}
+
+function _effScoreBadge(sc, big) {
+    if(sc === null || sc === undefined) return '<span style="color:#cbd5e1;">—</span>';
+    const st = _effScoreStyle(sc);
+    return `<span style="display:inline-block;min-width:${big ? 46 : 36}px;text-align:center;background:${st.bg};color:${st.color};border-radius:99px;padding:${big ? '3px 10px' : '1px 7px'};font-weight:800;font-size:${big ? '0.95rem' : '0.74rem'};">${sc.toFixed(1)}</span>`;
+}
+
+function _effTaskMetrics(t) {
+    const d = parseServiceDetailsMetrics(t.serviceDetails);
+    const m = {};
+    if(!d) return m;
+    const budget = parseFloat(t.budget) || 0;
+    if(budget > 0 && d.siteHours)     m.vph_site    = budget / d.siteHours;
+    if(budget > 0 && d.chargedHours)  m.vph_charged = budget / d.chargedHours;
+    if(budget > 0 && d.subsystems)    m.vps         = budget / d.subsystems;
+    if(d.subsystems && d.siteHours)   m.sph_site    = d.subsystems / d.siteHours;
+    if(d.chargedHours && d.siteHours) m.bill_eff    = d.chargedHours / d.siteHours;
+    return m;
+}
+
+function _effAllRows() {
+    return tasks
+        .filter(t => !t.isAbsence && (t.status === 'ejecutada' || t.status === 'facturada')
+            && t.serviceType !== 'Metro Administrativo' && t.serviceType !== 'Metro Terceros'
+            && !String(t.id).startsWith('t_'))
+        .map(t => ({ t, m: _effTaskMetrics(t) }));
+}
+
+/** Mediana de A-MAQ por tipo de servicio y métrica (con todo el histórico). */
+function _effBaselines(rows) {
+    const acc = {};
+    rows.forEach(({ t, m }) => {
+        Object.keys(m).forEach(k => {
+            acc[t.serviceType] = acc[t.serviceType] || {};
+            (acc[t.serviceType][k] = acc[t.serviceType][k] || []).push(m[k]);
+        });
+    });
+    const base = {};
+    Object.keys(acc).forEach(svc => {
+        base[svc] = {};
+        Object.keys(acc[svc]).forEach(k => { base[svc][k] = _effMedian(acc[svc][k]); });
+    });
+    return base;
+}
+
+function _effPeriodOk(t) {
+    if(_effScope === 'all') return true;
+    const p = String(t.mesFacturacion || t.period || '');
+    const now = new Date();
+    if(_effScope === 'year') return p.startsWith(String(now.getFullYear()));
+    const d = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+    const from = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    return p >= from;
+}
+
+function _effServiceOk(t) {
+    if(_effService === 'all') return true;
+    if(_effService === 'predictive') return _EFF_PREDICTIVE.includes(t.serviceType);
+    return t.serviceType === _effService;
+}
+
+function _effAnalystsOf(t) {
+    const a = t.analysts_assignment || [];
+    const titulars = a.filter(x => x.isTitular).map(x => x.name);
+    if(titulars.length) return titulars;
+    if(a.length) return a.map(x => x.name);
+    return t.analyst ? [t.analyst] : [];
+}
+
+/** Agrupa filas por entidad y calcula medianas, calificaciones y calificación global. */
+function _effAggregate(rows, baselines, keysOf, metricKeys) {
+    const groups = new Map();
+    rows.forEach(r => {
+        keysOf(r.t).forEach(key => {
+            if(!key) return;
+            if(!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(r);
+        });
+    });
+    const out = [];
+    groups.forEach((list, key) => {
+        const raw = {}, idx = {}, scores = {};
+        metricKeys.forEach(k => {
+            const vals = list.filter(r => r.m[k] !== undefined);
+            if(!vals.length) return;
+            raw[k] = _effMedian(vals.map(r => r.m[k]));
+            const ratios = vals.map(r => {
+                const b = baselines[r.t.serviceType]?.[k];
+                return b ? r.m[k] / b : null;
+            }).filter(v => v !== null);
+            if(ratios.length) {
+                idx[k] = _effMedian(ratios);
+                scores[k] = _effScore(idx[k]);
+            }
+        });
+        const sv = Object.values(scores);
+        out.push({
+            key,
+            n: list.length,
+            nData: list.filter(r => Object.keys(r.m).length > 0).length,
+            raw, scores,
+            overall: sv.length ? sv.reduce((a, b) => a + b, 0) / sv.length : null,
+            total: list.reduce((s, r) => s + (parseFloat(r.t.budget) || 0), 0)
+        });
+    });
+    out.sort((a, b) => (b.overall ?? -1) - (a.overall ?? -1));
+    return out;
+}
+
+function setEfficiencyFilter(kind, value) {
+    if(kind === 'tab') _effTab = value;
+    else if(kind === 'service') _effService = value;
+    else if(kind === 'scope') _effScope = value;
+    renderEfficiencyView();
+}
+
+function _effMetricCell(entity, k) {
+    const v = entity.raw[k];
+    if(v === undefined) return '<td style="text-align:right;color:#cbd5e1;">—</td>';
+    const sc = entity.scores[k];
+    return `<td style="text-align:right;white-space:nowrap;" title="Calificación de esta métrica: ${sc !== undefined ? sc.toFixed(1) : '—'}">${_EFF_METRICS[k].fmt(v)}${sc !== undefined ? ` <span style="opacity:.85;">${_effScoreBadge(sc, false)}</span>` : ''}</td>`;
+}
+
+function _effCountCell(e) {
+    const low = e.nData < 3;
+    return `<td style="text-align:center;white-space:nowrap;" title="${e.nData} de ${e.n} gestiones traen datos de la planilla">${e.nData}/${e.n}${low ? ' <span title="Pocos datos: la calificación es poco confiable" style="color:#d97706;">⚠</span>' : ''}</td>`;
+}
+
+function renderEfficiencyView() {
+    const el = document.getElementById('efficiency-container');
+    if(!el) return;
+    if(currentUserProfile?.role !== 'admin') {
+        el.innerHTML = '<div style="text-align:center;padding:3rem;color:#94a3b8;">No tienes permiso para ver esta sección.</div>';
+        return;
+    }
+
+    const all = _effAllRows();
+    const baselines = _effBaselines(all);
+    const rows = all.filter(r => _effServiceOk(r.t) && _effPeriodOk(r.t));
+    const withData = rows.filter(r => Object.keys(r.m).length > 0).length;
+
+    const services = ['Vibraciones', 'Termografía', 'Ultrasonido', 'Balanceo', 'Alineación', 'Rotodinámico', 'Capacitación', 'Calibración'];
+    const tabs = [
+        { id: 'clients',  label: '🏭 Clientes' },
+        { id: 'analysts', label: '👤 Analistas' },
+        { id: 'compare',  label: '⚖️ Mismo cliente' },
+        { id: 'missing',  label: '📭 Datos faltantes' }
+    ];
+
+    let body = '';
+    if(rows.length === 0) {
+        body = '<div style="text-align:center;padding:3rem;color:#94a3b8;">No hay gestiones ejecutadas con estos filtros.</div>';
+    } else if(_effTab === 'clients') {
+        body = _effClientsTable(rows, baselines);
+    } else if(_effTab === 'analysts') {
+        body = _effAnalystsTable(rows, baselines);
+    } else if(_effTab === 'compare') {
+        body = _effCompareSection(rows);
+    } else {
+        body = _effMissingSection(rows);
+    }
+
+    el.innerHTML = `
+        <div class="kanban-header" style="margin-bottom:1.25rem;">
+            <div>
+                <h2>Eficiencia de Clientes y Analistas</h2>
+                <p class="subtitle">Qué tanto valor deja cada cliente y cómo rinde cada analista, con la planilla del servicio (subsistemas y horas).</p>
+            </div>
+        </div>
+        <div class="filter-toolbar" style="align-items:flex-end;">
+            <div style="min-width:220px;">
+                <label class="filter-label">Servicio</label><br>
+                <select class="filter-select" style="margin-top:4px;width:100%;" onchange="setEfficiencyFilter('service', this.value)">
+                    <option value="predictive" ${_effService === 'predictive' ? 'selected' : ''}>Predictivos (Vibraciones + Termografía)</option>
+                    <option value="all" ${_effService === 'all' ? 'selected' : ''}>Todos los servicios</option>
+                    ${services.map(s => `<option value="${s}" ${_effService === s ? 'selected' : ''}>${s}</option>`).join('')}
+                </select>
+            </div>
+            <div style="min-width:170px;">
+                <label class="filter-label">Período</label><br>
+                <select class="filter-select" style="margin-top:4px;width:100%;" onchange="setEfficiencyFilter('scope', this.value)">
+                    <option value="year" ${_effScope === 'year' ? 'selected' : ''}>Este año</option>
+                    <option value="last12" ${_effScope === 'last12' ? 'selected' : ''}>Últimos 12 meses</option>
+                    <option value="all" ${_effScope === 'all' ? 'selected' : ''}>Todo el histórico</option>
+                </select>
+            </div>
+            <div class="view-toggle-group">
+                ${tabs.map(t => `<button class="${_effTab === t.id ? 'active' : ''}" onclick="setEfficiencyFilter('tab', '${t.id}')">${t.label}</button>`).join('')}
+            </div>
+        </div>
+        <div style="margin:0.75rem 0;font-size:0.8rem;color:${withData < rows.length / 2 ? '#b45309' : '#64748b'};">
+            📊 ${withData} de ${rows.length} gestiones ejecutadas traen datos de la planilla (subsistemas u horas)${withData < rows.length ? ' — las demás no cuentan en la calificación.' : '.'}
+        </div>
+        <div class="stats-card" style="padding:0;overflow-x:auto;">${body}</div>
+        <p style="font-size:0.74rem;color:#94a3b8;margin-top:0.75rem;line-height:1.5;">
+            <strong>Cómo se califica (1 a 10):</strong> cada métrica se compara con la mediana de A-MAQ en el mismo tipo de servicio.
+            5.5 = igual a la mediana · 10 = el doble o más · 1 = la mitad o menos. La calificación global es el promedio de las métricas disponibles.
+            Los valores salen del presupuesto de la gestión y de la planilla del servicio; los viáticos y costos logísticos no están separados del valor.
+        </p>`;
+}
+
+function _effClientsTable(rows, baselines) {
+    const list = _effAggregate(rows, baselines, t => [cleanClientName(t.client)], _EFF_CLIENT_METRICS);
+    return `
+        <table class="data-table" style="font-size:0.82rem;">
+            <thead><tr>
+                <th style="width:36px;">#</th><th>Cliente</th><th style="text-align:center;">Calificación</th>
+                <th style="text-align:center;" title="Gestiones con datos / total">Gestiones</th>
+                ${_EFF_CLIENT_METRICS.map(k => `<th style="text-align:right;">${_EFF_METRICS[k].short}</th>`).join('')}
+                <th style="text-align:right;">Valor total</th>
+            </tr></thead>
+            <tbody>${list.map((e, i) => `<tr>
+                <td style="color:#94a3b8;">${i + 1}</td>
+                <td><strong>${_escHtml(e.key)}</strong></td>
+                <td style="text-align:center;">${_effScoreBadge(e.overall, true)}</td>
+                ${_effCountCell(e)}
+                ${_EFF_CLIENT_METRICS.map(k => _effMetricCell(e, k)).join('')}
+                <td style="text-align:right;color:var(--clr-green);font-weight:700;">${_EFF_MONEY(e.total)}</td>
+            </tr>`).join('')}</tbody>
+        </table>`;
+}
+
+function _effAnalystsTable(rows, baselines) {
+    const list = _effAggregate(rows, baselines, t => _effAnalystsOf(t), _EFF_ANALYST_METRICS);
+    return `
+        <table class="data-table" style="font-size:0.82rem;">
+            <thead><tr>
+                <th style="width:36px;">#</th><th>Analista</th><th style="text-align:center;">Calificación</th>
+                <th style="text-align:center;" title="Gestiones con datos / total">Gestiones</th>
+                ${_EFF_ANALYST_METRICS.map(k => `<th style="text-align:right;">${_EFF_METRICS[k].short}</th>`).join('')}
+            </tr></thead>
+            <tbody>${list.map((e, i) => `<tr>
+                <td style="color:#94a3b8;">${i + 1}</td>
+                <td><strong>${_escHtml(e.key)}</strong></td>
+                <td style="text-align:center;">${_effScoreBadge(e.overall, true)}</td>
+                ${_effCountCell(e)}
+                ${_EFF_ANALYST_METRICS.map(k => _effMetricCell(e, k)).join('')}
+            </tr>`).join('')}</tbody>
+        </table>
+        <div style="padding:0.75rem 1rem;font-size:0.74rem;color:#94a3b8;">
+            Una gestión con varios analistas titulares cuenta para cada uno de ellos. Para comparar a dos analistas en igualdad de condiciones usa la pestaña "Mismo cliente".
+        </div>`;
+}
+
+/** Clientes atendidos por 2+ analistas: la comparación más justa entre analistas. */
+function _effCompareSection(rows) {
+    const byClient = new Map();
+    rows.forEach(r => {
+        if(!Object.keys(r.m).length) return;
+        const client = cleanClientName(r.t.client);
+        _effAnalystsOf(r.t).forEach(an => {
+            if(!an) return;
+            if(!byClient.has(client)) byClient.set(client, new Map());
+            const m = byClient.get(client);
+            if(!m.has(an)) m.set(an, []);
+            m.get(an).push(r);
+        });
+    });
+    const cards = [];
+    byClient.forEach((analysts, client) => {
+        if(analysts.size < 2) return;
+        const stats = [...analysts.entries()].map(([name, list]) => {
+            const raw = {};
+            _EFF_ANALYST_METRICS.forEach(k => {
+                const vals = list.filter(r => r.m[k] !== undefined).map(r => r.m[k]);
+                if(vals.length) raw[k] = _effMedian(vals);
+            });
+            return { name, n: list.length, raw };
+        });
+        const best = {};
+        _EFF_ANALYST_METRICS.forEach(k => {
+            const vals = stats.map(s => s.raw[k]).filter(v => v !== undefined);
+            if(vals.length >= 2) best[k] = Math.max(...vals);
+        });
+        cards.push({ client, stats, size: analysts.size });
+    });
+    cards.sort((a, b) => b.size - a.size || a.client.localeCompare(b.client));
+    if(!cards.length) {
+        return '<div style="text-align:center;padding:3rem;color:#94a3b8;">Aún no hay clientes atendidos por 2 o más analistas con datos de planilla en este filtro.</div>';
+    }
+    return `<div style="padding:1rem;display:grid;gap:1rem;">${cards.map(c => {
+        const best = {};
+        _EFF_ANALYST_METRICS.forEach(k => {
+            const vals = c.stats.map(s => s.raw[k]).filter(v => v !== undefined);
+            if(vals.length >= 2) best[k] = Math.max(...vals);
+        });
+        return `
+        <div style="border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+            <div style="background:#f8fafc;padding:0.6rem 1rem;font-weight:700;">🏭 ${_escHtml(c.client)}</div>
+            <table class="data-table" style="font-size:0.8rem;">
+                <thead><tr><th>Analista</th><th style="text-align:center;">Gestiones</th>
+                    ${_EFF_ANALYST_METRICS.map(k => `<th style="text-align:right;">${_EFF_METRICS[k].short}</th>`).join('')}</tr></thead>
+                <tbody>${c.stats.map(s => `<tr>
+                    <td><strong>${_escHtml(s.name)}</strong></td>
+                    <td style="text-align:center;">${s.n}</td>
+                    ${_EFF_ANALYST_METRICS.map(k => {
+                        const v = s.raw[k];
+                        if(v === undefined) return '<td style="text-align:right;color:#cbd5e1;">—</td>';
+                        const isBest = best[k] !== undefined && v === best[k];
+                        return `<td style="text-align:right;${isBest ? 'color:#15803d;font-weight:800;' : ''}">${_EFF_METRICS[k].fmt(v)}${isBest ? ' ▲' : ''}</td>`;
+                    }).join('')}
+                </tr>`).join('')}</tbody>
+            </table>
+        </div>`;
+    }).join('')}</div>
+    <div style="padding:0 1rem 1rem;font-size:0.74rem;color:#94a3b8;">▲ marca al mejor de cada métrica dentro del mismo cliente.</div>`;
+}
+
+/** Gestiones ejecutadas sin datos de planilla: a quién pedirle que complete el ojito. */
+function _effMissingSection(rows) {
+    const missing = rows.filter(r => {
+        const d = parseServiceDetailsMetrics(r.t.serviceDetails);
+        return !d || !d.subsystems || !d.siteHours || !d.chargedHours;
+    });
+    if(!missing.length) return '<div style="text-align:center;padding:3rem;color:#16a34a;">✅ Todas las gestiones tienen la planilla completa.</div>';
+    const need = (r) => {
+        const d = parseServiceDetailsMetrics(r.t.serviceDetails) || {};
+        const out = [];
+        if(!d.subsystems)    out.push('Subsistemas');
+        if(!d.siteHours)     out.push('Hora entrada/salida');
+        if(!d.chargedHours)  out.push('Horas a cobrar');
+        return out;
+    };
+    const sorted = missing.slice().sort((a, b) => String(b.t.mesFacturacion || b.t.period).localeCompare(String(a.t.mesFacturacion || a.t.period)));
+    return `
+        <table class="data-table" style="font-size:0.8rem;">
+            <thead><tr><th>Mes</th><th>Cliente</th><th>Servicio</th><th>Analista(s)</th><th>Falta en la planilla</th></tr></thead>
+            <tbody>${sorted.slice(0, 150).map(r => `<tr>
+                <td style="white-space:nowrap;">${_escHtml(r.t.mesFacturacion || r.t.period || '—')}</td>
+                <td><strong>${_escHtml(cleanClientName(r.t.client))}</strong></td>
+                <td>${_escHtml(r.t.serviceType || '—')}</td>
+                <td>${_escHtml(_effAnalystsOf(r.t).join(', ') || '—')}</td>
+                <td>${need(r).map(x => `<span style="background:#fef3c7;color:#b45309;border-radius:99px;padding:1px 8px;font-size:0.72rem;font-weight:700;margin-right:4px;white-space:nowrap;">${x}</span>`).join('')}</td>
+            </tr>`).join('')}</tbody>
+        </table>
+        ${sorted.length > 150 ? `<div style="padding:0.75rem 1rem;font-size:0.74rem;color:#94a3b8;">Mostrando 150 de ${sorted.length}.</div>` : ''}`;
 }
 
 // ══════════════════════════════════════════

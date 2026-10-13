@@ -120,6 +120,10 @@
                 </a>
 
                 <div class="nav-section">SISTEMA</div>
+                <a href="#" class="nav-item" id="nav-efficiency" data-view="efficiency" onclick="switchView('efficiency')">
+                    <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="20" x2="20" y2="20"/><rect x="5" y="11" width="3.2" height="9" rx="0.8"/><rect x="10.4" y="5" width="3.2" height="15" rx="0.8"/><rect x="15.8" y="8" width="3.2" height="12" rx="0.8"/></svg></span>
+                    <span class="nav-text">Eficiencia</span>
+                </a>
                 <a href="#" class="nav-item" id="nav-reports" data-view="reports" onclick="switchView('reports')">
                     <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3.5" width="16" height="17" rx="2"/><path d="m7.5 8 1.2 1.2L11 7"/><path d="m7.5 13.5 1.2 1.2L11 12.5"/><line x1="13" y1="8.5" x2="16.5" y2="8.5"/><line x1="13" y1="14" x2="16.5" y2="14"/></svg></span>
                     <span class="nav-text">Reportes</span>
@@ -530,6 +534,11 @@
                         <!-- JS render -->
                     </div>
                 </div>
+            </div>
+
+            <!-- EFFICIENCY VIEW (solo admin) -->
+            <div id="view-efficiency" class="view-section" style="padding-top: 2rem;">
+                <div id="efficiency-container"></div>
             </div>
 
             <!-- REPORTS VIEW -->
