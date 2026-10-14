@@ -2044,7 +2044,7 @@ function confirmExecutionChecklist(serviceType, taskId = null) {
         const itemsContainer = document.getElementById('execChecklistItems');
         if(!modal || !confirmBtn || !itemsContainer) { resolve(true); return; } // fallback si el modal no existe
 
-        const ckInfo = (serviceType === 'Rotodinámico' && taskId)
+        const ckInfo = (serviceType === 'Rotodinámico' && taskId && currentUserProfile?.role === 'admin')
             ? (() => { const p = _ckProgress(_ckRowOf(taskId)?.data); return `<div style="font-size:0.78rem;color:${p.answered === p.total ? '#15803d' : '#b45309'};background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:0.5rem 0.7rem;margin-bottom:0.6rem;">📋 Checklist de servicio: ${p.answered} de ${p.total} puntos${p.fails ? ` · ${p.fails} con novedad` : ''}</div>`; })()
             : '';
         itemsContainer.innerHTML = ckInfo + items.map((label, i) => `
@@ -8443,8 +8443,10 @@ function _ckProgress(data) {
     return { answered, fails, total: _CK_ITEM_TOTAL, byStage };
 }
 
+// Por ahora el checklist de servicio solo lo ve el admin (aún no se habilita a los analistas).
 function _ckHasChecklist(task) {
-    return task && task.serviceType === 'Rotodinámico' && !task.isAbsence && task.status !== 'proyectada';
+    return currentUserProfile?.role === 'admin'
+        && task && task.serviceType === 'Rotodinámico' && !task.isAbsence && task.status !== 'proyectada';
 }
 
 async function loadTaskChecklists() {
