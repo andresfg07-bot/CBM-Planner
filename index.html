@@ -1157,6 +1157,21 @@
     </div>
 
     <!-- ══════════════════════════════════════════ -->
+    <!-- MODAL: Editor de la lista A001             -->
+    <!-- ══════════════════════════════════════════ -->
+    <div id="a001EditorModal" class="modal" style="z-index:150;">
+        <div class="modal-content" style="max-width:760px;">
+            <span class="close-btn" onclick="closeModal('a001EditorModal')">&times;</span>
+            <h2 style="margin-bottom:0.15rem;font-size:1.1rem;">Editar lista A001</h2>
+            <p style="font-size:0.78rem;color:#64748b;margin-bottom:1rem;">Los cambios se guardan al instante. Los checklists ya hechos conservan los nombres con los que se llenaron.</p>
+            <div id="a001_editorBody"></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:1rem;">
+                <button class="btn-primary" onclick="closeModal('a001EditorModal')">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
     <!-- MODAL: Agregar / Editar consumible         -->
     <!-- ══════════════════════════════════════════ -->
     <div id="inventoryConsumableModal" class="modal">

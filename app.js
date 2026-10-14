@@ -8355,10 +8355,9 @@ const _CK_TEMPLATE_ID = 'rotodinamico_v1';
 
 const _CK_STAGES = [
     {
-        id: 'prep', label: '1. Preparación', icon: '🧰',
+        id: 'prep', label: '1. Preparación', icon: '🧰', a001: 'out',
         items: [
-            { id: 'p1', text: 'Kit de medición A-SDAQ completo y revisado contra la lista A001 (C-DAQ y tarjetas, cables de alimentación y señal, drivers, sondas de proximidad, acelerómetros, keyphasor, soportes/imanes y herramientas).', hint: 'Si hay una anomalía, marca ✖, descríbela y separa el elemento.' },
-            { id: 'p2', text: 'Daños del último reporte revisados o reparados (si aplica).' },
+            { id: 'p2', text: 'Estado físico de los equipos revisado (C-DAQ, cables, drivers, sondas, acelerómetros, keyphasor) y daños del último reporte revisados o reparados.', hint: 'Si hay una anomalía, marca ✖, descríbela y separa el elemento.' },
             { id: 'p3', text: 'Base de datos de la central disponible en A-Cloud (si no existía, se pidieron los datos de la máquina al cliente y se creó).' },
             { id: 'p4', text: 'Prueba previa con clip metálico: señal reconocida en todos los canales de la C-DAQ y grabando a 1 dato/segundo en el histórico.' },
             { id: 'p5', text: 'Logística confirmada: fecha, hora y lugar con el cliente, permisos de ingreso y ATS aprobados, transporte y contacto en planta; informe de la medición anterior leído.' }
@@ -8369,7 +8368,7 @@ const _CK_STAGES = [
             'Pulsar "reconfigurar" y verificar la correcta disposición de las señales.',
             'Encender el sistema multicanal, abrir A-Cloud y encender el servicio de mongo.',
             'Soportes o imanes: en caso de duda, consultar a otro analista el tipo adecuado para cada planta.',
-            'Al terminar las pruebas, empacar todo según la lista A001.'
+            'Al terminar las pruebas, empaca lo que sale según la lista A001 (arriba).'
         ]
     },
     {
@@ -8393,11 +8392,10 @@ const _CK_STAGES = [
         ]
     },
     {
-        id: 'exit', label: '3. Salida de planta', icon: '🚪',
+        id: 'exit', label: '3. Salida de planta', icon: '🚪', a001: 'plant',
         items: [
             { id: 's1', text: 'Datos guardados correctamente en A-Cloud antes de apagar el sistema.' },
-            { id: 's2', text: 'Sistema apagado y sensores retirados (sondas despegadas con cuidado y superficie limpia; cables enrollados sin dobleces).' },
-            { id: 's3', text: 'Elementos contados contra la lista A001 y empacados en su compartimiento (tarjetas sin pines doblados y con tapas protectoras). Cantidades abajo.' }
+            { id: 's2', text: 'Sistema apagado y sensores retirados (sondas despegadas con cuidado y superficie limpia; cables enrollados sin dobleces; tarjetas con tapas protectoras).' }
         ],
         guide: [
             'Desenergizar la extensión eléctrica desde su fuente y recogerla con cuidado.',
@@ -8407,9 +8405,9 @@ const _CK_STAGES = [
         ]
     },
     {
-        id: 'arrive', label: '4. Llegada a A-MAQ', icon: '🏢',
+        id: 'arrive', label: '4. Llegada a A-MAQ', icon: '🏢', a001: 'back',
         items: [
-            { id: 'l1', text: 'Equipos y maletines recibidos completos; bases de las sondas limpias de Loctite; estado físico revisado.' },
+            { id: 'l1', text: 'Bases de las sondas limpias de Loctite y estado físico de los equipos revisado.' },
             { id: 'l2', text: 'Novedades, daños o pérdidas registrados abajo e informados en el grupo de WhatsApp (o sin novedades).' },
             { id: 'l3', text: 'Datos de la medición respaldados en los dos discos duros.' },
             { id: 'l4', text: 'Computador y maletín guardados en el espacio designado.' }
@@ -8420,7 +8418,7 @@ const _CK_STAGES = [
     }
 ];
 
-const _CK_ITEM_TOTAL = _CK_STAGES.reduce((n, st) => n + st.items.length, 0);
+const _CK_ITEM_TOTAL = _CK_STAGES.reduce((n, st) => n + st.items.length + (st.a001 ? 1 : 0), 0);
 const _CK_EVENTS = ['Parada de máquina', 'Arranque en vacío', 'Excitación', 'Sincronización a carga mínima', 'Carga máxima', 'Reducción de carga / paro controlado'];
 
 let dbTaskChecklists = {};   // task_id → fila de task_checklists
@@ -8437,7 +8435,12 @@ function _ckProgress(data) {
     _CK_STAGES.forEach(st => {
         let a = 0;
         st.items.forEach(it => { if(items[it.id]?.s) { a++; if(items[it.id].s === 'fail') fails++; } });
-        byStage[st.id] = { answered: a, total: st.items.length };
+        if(st.a001) {
+            const ps = _a001PassStatus(data || {}, st.a001);
+            if(ps.done) a++;
+            if(ps.missing.length) fails++;
+        }
+        byStage[st.id] = { answered: a, total: st.items.length + (st.a001 ? 1 : 0) };
         answered += a;
     });
     return { answered, fails, total: _CK_ITEM_TOTAL, byStage };
@@ -8451,6 +8454,7 @@ function _ckHasChecklist(task) {
 
 async function loadTaskChecklists() {
     if(!supabaseClient) return;
+    supabaseClient.from('checklist_a001_items').select('*').then(({ data: items }) => { if(items) dbA001Items = items; });
     const { data, error } = await supabaseClient.from('task_checklists').select('*');
     if(error || !data) return; // tabla aún sin migrar: el checklist simplemente no muestra avance
     dbTaskChecklists = {};
@@ -8740,24 +8744,8 @@ function _ckStageExtras(stageId) {
         html += box('Consumibles', `<button class="btn-outline" onclick="ckRegisterLoctite()" style="font-size:0.78rem;padding:4px 12px;">🧪 Registrar Loctite usado en las sondas</button>`);
     }
 
-    if(stageId === 'exit' || stageId === 'arrive') {
-        const key = stageId === 'exit' ? 'countExit' : 'countArrive';
-        const c = _ck.data[key] || {};
-        const hasBoth = c.expected !== undefined && c.expected !== '' && c.counted !== undefined && c.counted !== '';
-        const diff = hasBoth ? Number(c.counted) - Number(c.expected) : null;
-        if(stageId === 'exit') {
-            html += box('Hora de salida', `<div style="display:flex;flex-wrap:wrap;gap:0.5rem;">${timeBtn('left', 'Salí de planta', '🚪')}</div>`);
-        }
-        html += box(stageId === 'exit' ? 'Conteo contra la lista A001 (al salir de planta)' : 'Conteo contra la lista A001 (al recibir en A-MAQ)', `
-            <div style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;">
-                <label style="font-size:0.8rem;">Según la lista A001
-                    <input type="number" min="0" value="${c.expected ?? ''}" oninput="ckSetCount('${key}', 'expected', this.value)" onchange="ckCountChanged()" style="${inputStyle}width:90px;margin-left:6px;"></label>
-                <label style="font-size:0.8rem;">Contados
-                    <input type="number" min="0" value="${c.counted ?? ''}" oninput="ckSetCount('${key}', 'counted', this.value)" onchange="ckCountChanged()" style="${inputStyle}width:90px;margin-left:6px;"></label>
-                ${diff === null ? '' : diff === 0
-                    ? '<span style="color:#15803d;font-weight:800;font-size:0.82rem;">✓ Completo</span>'
-                    : `<span style="color:#b91c1c;font-weight:800;font-size:0.82rem;">⚠ ${diff < 0 ? 'Faltan ' + Math.abs(diff) : 'Sobran ' + diff} — descríbelo en novedades</span>`}
-            </div>`);
+    if(stageId === 'exit') {
+        html += box('Hora de salida', `<div style="display:flex;flex-wrap:wrap;gap:0.5rem;">${timeBtn('left', 'Salí de planta', '🚪')}</div>`);
     }
 
     if(stageId === 'arrive') {
@@ -8765,6 +8753,306 @@ function _ckStageExtras(stageId) {
             <textarea rows="3" placeholder="Escribe aquí cualquier daño, pérdida o novedad (o déjalo vacío si no hubo)…" oninput="ckSetText('novedades', this.value)" style="${inputStyle}width:100%;resize:vertical;">${_escHtml(_ck.data.novedades || '')}</textarea>`);
     }
     return html;
+}
+
+// ── Lista A001 (alistamiento / conteo de equipos) ─────────────────────────────
+// El analista define cuántos de cada elemento salen; el mismo conteo se verifica al salir
+// de A-MAQ ('out'), al salir de la planta ('plant') y al volver a A-MAQ ('back').
+// La lista es editable por el admin (tabla checklist_a001_items); si está vacía se usa la base.
+
+const _A001_DEFAULTS = (() => {
+    const g = (group, names) => names.map(n => ({ group, name: n }));
+    const list = [
+        ...g('Sensores y cables de señal', ['Drivers', 'Sondas de proximidad', 'Acelerómetros', 'Cables driver–atenuador', 'Cables de acelerómetros', 'Dados para conectar sondas']),
+        ...g('Adquisición y energía', ['Cables BNC–BNC', 'Cable atenuador–fuente', 'Cable de alimentación del atenuador', 'Atenuador', 'Fuente del atenuador', 'ASDAQ (C-DAQ y tarjetas)', 'Fuente de alimentación ASDAQ', 'Cable USB acondicionador–Toughbook', 'Laptop', 'Fuente de la laptop']),
+        ...g('Accesorios e instalación', ['Base del sensor de referencia', 'Corta picos', 'Extensión eléctrica', 'Cinta reflectiva', 'Marca de paso con fuente (keyphasor)', 'Cable de la marca de paso', 'Multímetro', 'Cinta aislante', 'Bases magnéticas para acelerómetros', 'Llave de expansión', 'Clip metálico para pruebas']),
+        ...g('Consumibles', ['Loctite 330', 'Cinta de enmascarar', 'Perillero']),
+        ...g('EPP', ['Casco', 'Tapaoídos', 'Gafas', 'Botas de seguridad', 'Guantes', 'Uniformes'])
+    ];
+    return list.map((d, i) => ({ ...d, id: 'base_' + String(i + 1).padStart(2, '0'), sort_order: i + 1 }));
+})();
+
+let dbA001Items = [];   // filas de checklist_a001_items (vacío = usar la lista base)
+
+function _a001Items() {
+    if(dbA001Items.length) {
+        return dbA001Items.slice()
+            .sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
+            .map(r => ({ id: r.id, group: r.group_name || 'Otros', name: r.name }));
+    }
+    return _A001_DEFAULTS.map(d => ({ id: d.id, group: d.group, name: d.name }));
+}
+
+function _a001Of(data) {
+    const a = (data.a001 = data.a001 || {});
+    ['plan', 'out', 'plant', 'back', 'names'].forEach(k => { a[k] = a[k] || {}; });
+    return a;
+}
+
+/** Estado de un conteo: elementos que salen, ya contados y faltantes. */
+function _a001PassStatus(data, pass) {
+    const a = data?.a001 || {};
+    const plan = a.plan || {}, vals = a[pass] || {}, names = a.names || {};
+    const lookup = {};
+    _a001Items().forEach(i => { lookup[i.id] = i.name; });
+    const planned = Object.keys(plan).filter(id => Number(plan[id]) > 0);
+    const counted = planned.filter(id => vals[id] !== undefined && vals[id] !== '');
+    const missing = planned
+        .filter(id => vals[id] !== undefined && vals[id] !== '' && Number(vals[id]) < Number(plan[id]))
+        .map(id => ({ id, name: lookup[id] || names[id] || id, plan: Number(plan[id]), counted: Number(vals[id]) }));
+    return { planned: planned.length, counted: counted.length, missing, done: planned.length > 0 && counted.length === planned.length };
+}
+
+function a001SetPlan(id, value) {
+    const a = _a001Of(_ck.data);
+    const n = Math.max(0, parseInt(value, 10) || 0);
+    if(n > 0) { a.plan[id] = n; a.names[id] = _a001Items().find(i => i.id === id)?.name || a.names[id] || id; }
+    else delete a.plan[id];
+    // Si cambia lo que sale, los conteos de ese elemento se vuelven a hacer
+    delete a.out[id]; delete a.plant[id]; delete a.back[id];
+    _ckSchedule();
+    renderTaskChecklist();
+}
+
+function a001Confirm(pass, id) {
+    const a = _a001Of(_ck.data);
+    const plan = Number(a.plan[id]) || 0;
+    if(plan <= 0) return;
+    if(a[pass][id] === plan) delete a[pass][id]; else a[pass][id] = plan;
+    _ckSchedule();
+    renderTaskChecklist();
+}
+
+function a001SetCount(pass, id, value) {
+    const a = _a001Of(_ck.data);
+    if(value === '') delete a[pass][id];
+    else a[pass][id] = Math.max(0, parseInt(value, 10) || 0);
+    _ckSchedule();
+    renderTaskChecklist();
+}
+
+function a001ConfirmGroup(pass, groupName) {
+    const a = _a001Of(_ck.data);
+    _a001Items().filter(i => i.group === groupName).forEach(i => {
+        const plan = Number(a.plan[i.id]) || 0;
+        if(plan > 0) a[pass][i.id] = plan;
+    });
+    _ckSchedule();
+    renderTaskChecklist();
+}
+
+function a001SetPc(value) {
+    _a001Of(_ck.data).pc = value;
+    _ckSchedule();
+}
+
+function _a001Section(stage, task) {
+    const pass = stage.a001;
+    if(!pass) return '';
+    const a = _a001Of(_ck.data);
+    const items = _a001Items();
+    const known = new Set(items.map(i => i.id));
+    Object.keys(a.plan).forEach(id => {
+        if(!known.has(id) && Number(a.plan[id]) > 0) items.push({ id, group: 'Ya no está en la lista', name: a.names[id] || id });
+    });
+    const isAdmin = currentUserProfile?.role === 'admin';
+    const st = _a001PassStatus(_ck.data, pass);
+    const titles = {
+        out:   'Lista A001 — Salida de A-MAQ',
+        plant: 'Lista A001 — Salida de la planta',
+        back:  'Lista A001 — Entrada a A-MAQ'
+    };
+    const subtitles = {
+        out:   'Define cuántos de cada elemento salen (0 = no sale) y confirma que quedó empacado.',
+        plant: 'Cuenta lo que sale de la planta contra lo que llevaste. Marca ✔ si está completo o escribe cuántos hay.',
+        back:  'Cuenta lo que llega a A-MAQ contra lo que salió. Marca ✔ si está completo o escribe cuántos hay.'
+    };
+    const inputCss = 'padding:0.3rem 0.4rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.82rem;width:64px;text-align:center;';
+
+    const groups = [];
+    items.forEach(i => { if(!groups.includes(i.group)) groups.push(i.group); });
+
+    const groupHtml = groups.map(gname => {
+        const gItems = items.filter(i => i.group === gname && (pass === 'out' || Number(a.plan[i.id]) > 0));
+        if(!gItems.length) return '';
+        const rows = gItems.map(i => {
+            const plan = Number(a.plan[i.id]) || 0;
+            if(pass === 'out') {
+                const ok = plan > 0 && a.out[i.id] === plan;
+                return `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.3rem 0;border-bottom:1px solid #f1f5f9;${plan === 0 ? 'opacity:.55;' : ''}">
+                    <div style="flex:1;font-size:0.83rem;">${_escHtml(i.name)}</div>
+                    <input type="number" min="0" value="${plan || ''}" placeholder="0" onchange="a001SetPlan('${i.id}', this.value)" title="Cantidad que sale" style="${inputCss}">
+                    <button ${plan === 0 ? 'disabled' : ''} onclick="a001Confirm('out', '${i.id}')" style="min-width:34px;padding:3px 8px;border-radius:7px;border:1.5px solid ${ok ? '#15803d' : '#cbd5e1'};background:${ok ? '#dcfce7' : '#fff'};color:${ok ? '#15803d' : '#94a3b8'};font-weight:800;cursor:${plan === 0 ? 'not-allowed' : 'pointer'};">✔</button>
+                </div>`;
+            }
+            const v = a[pass][i.id];
+            const counted = v !== undefined && v !== '';
+            const complete = counted && Number(v) === plan;
+            const lacking = counted && Number(v) < plan;
+            const extra = counted && Number(v) > plan;
+            return `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.3rem 0;border-bottom:1px solid #f1f5f9;">
+                <div style="flex:1;font-size:0.83rem;">${_escHtml(i.name)}</div>
+                <span style="font-size:0.74rem;color:#64748b;white-space:nowrap;">Debe haber ${plan}</span>
+                <input type="number" min="0" value="${counted ? v : ''}" placeholder="—" onchange="a001SetCount('${pass}', '${i.id}', this.value)" title="Cantidad contada" style="${inputCss}border-color:${lacking ? '#fca5a5' : extra ? '#fcd34d' : '#cbd5e1'};">
+                <button onclick="a001Confirm('${pass}', '${i.id}')" style="min-width:34px;padding:3px 8px;border-radius:7px;border:1.5px solid ${complete ? '#15803d' : '#cbd5e1'};background:${complete ? '#dcfce7' : '#fff'};color:${complete ? '#15803d' : '#94a3b8'};font-weight:800;cursor:pointer;">✔</button>
+            </div>`;
+        }).join('');
+        const allBtn = `<button class="btn-outline" onclick="a001ConfirmGroup('${pass}', '${_escHtml(gname).replace(/'/g, "\\'")}')" style="font-size:0.7rem;padding:2px 9px;">✔ ${pass === 'out' ? 'Todos empacados' : 'Todos completos'}</button>`;
+        return `<div style="margin-top:0.7rem;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.15rem;">
+                <div style="font-size:0.74rem;font-weight:800;color:#0f766e;text-transform:uppercase;">${_escHtml(gname)}</div>${allBtn}
+            </div>${rows}</div>`;
+    }).join('');
+
+    const header = pass === 'out' ? `
+        <div style="display:flex;flex-wrap:wrap;gap:0.4rem 1.2rem;font-size:0.78rem;color:#475569;margin:0.3rem 0 0.2rem;">
+            <span><strong>Empresa:</strong> ${_escHtml(cleanClientName(task.client))}</span>
+            <span><strong>Responsable(s):</strong> ${_escHtml((_effAnalystsOf(task).join(', ')) || '—')}</span>
+            <label><strong>PC:</strong> <input type="text" value="${_escHtml(a.pc || '')}" placeholder="Ej: Toughbook 2" oninput="a001SetPc(this.value)" style="padding:0.25rem 0.45rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.78rem;width:150px;"></label>
+        </div>` : '';
+
+    const missingHtml = (pass !== 'out' && st.missing.length) ? `
+        <div style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;padding:0.5rem 0.75rem;margin-top:0.6rem;font-size:0.8rem;">
+            <strong>⚠ Faltan:</strong> ${st.missing.map(m => `${_escHtml(m.name)} (${m.counted} de ${m.plan})`).join(' · ')}
+            <div style="font-size:0.72rem;margin-top:2px;">Descríbelo en las novedades de la etapa Llegada a A-MAQ.</div>
+        </div>` : '';
+
+    const emptyHtml = (pass !== 'out' && st.planned === 0)
+        ? '<div style="font-size:0.8rem;color:#b45309;padding:0.6rem 0;">Primero define qué elementos salen en la etapa Preparación (Lista A001 — Salida de A-MAQ).</div>' : '';
+
+    return `<div style="border:1.5px solid #99f6e4;background:#f0fdfa66;border-radius:12px;padding:0.8rem 0.95rem;margin-bottom:0.75rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+            <div>
+                <div style="font-weight:800;font-size:0.92rem;color:#0f766e;">${titles[pass]}</div>
+                <div style="font-size:0.74rem;color:#64748b;">${subtitles[pass]}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:0.5rem;">
+                <span style="font-size:0.78rem;font-weight:700;color:${st.done ? '#15803d' : '#64748b'};">${st.counted}/${st.planned}${st.done ? ' ✓' : ''}</span>
+                ${isAdmin ? '<button class="btn-outline" onclick="openA001Editor()" style="font-size:0.72rem;padding:2px 9px;">✏️ Editar lista</button>' : ''}
+            </div>
+        </div>
+        ${header}${emptyHtml}${groupHtml}${missingHtml}
+    </div>`;
+}
+
+// ── Editor de la lista A001 (admin) ────────────────────────────────────────────
+function openA001Editor() {
+    renderA001Editor();
+    document.getElementById('a001EditorModal').classList.add('active');
+}
+
+function _a001Rows() {
+    // Filas editables: las de la tabla; si aún no hay, la base (solo lectura hasta guardarla)
+    return dbA001Items.length
+        ? dbA001Items.slice().sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
+        : [];
+}
+
+function renderA001Editor() {
+    const body = document.getElementById('a001_editorBody');
+    if(!body) return;
+    const rows = _a001Rows();
+    if(!rows.length) {
+        body.innerHTML = `
+            <div style="text-align:center;padding:1.5rem;">
+                <p style="font-size:0.85rem;color:#64748b;margin-bottom:1rem;">La lista usa los ${_A001_DEFAULTS.length} elementos base. Guárdala para poder editarla: agregar, renombrar, mover o quitar elementos.</p>
+                <button class="btn-primary" onclick="a001LoadBase()">Guardar lista base y editar</button>
+            </div>`;
+        return;
+    }
+    const groups = [...new Set(rows.map(r => r.group_name || 'Otros'))];
+    const inputCss = 'padding:0.35rem 0.5rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.8rem;';
+    const groupSelect = (current, onchange) => `<select onchange="${onchange}" style="${inputCss}width:190px;">${groups.map(g => `<option value="${_escHtml(g)}" ${g === current ? 'selected' : ''}>${_escHtml(g)}</option>`).join('')}<option value="__new__">+ Nuevo grupo…</option></select>`;
+    body.innerHTML = rows.map((r, idx) => `
+        <div style="display:flex;gap:0.4rem;align-items:center;margin-bottom:0.35rem;">
+            <input type="text" value="${_escHtml(r.name)}" onchange="a001RenameItem('${r.id}', this.value)" style="${inputCss}flex:1;min-width:0;">
+            ${groupSelect(r.group_name || 'Otros', `a001ChangeGroup('${r.id}', this.value)`)}
+            <button onclick="a001Move('${r.id}', -1)" ${idx === 0 ? 'disabled' : ''} title="Subir" style="background:none;border:none;cursor:pointer;">↑</button>
+            <button onclick="a001Move('${r.id}', 1)" ${idx === rows.length - 1 ? 'disabled' : ''} title="Bajar" style="background:none;border:none;cursor:pointer;">↓</button>
+            <button onclick="a001Delete('${r.id}')" title="Quitar" style="background:none;border:none;cursor:pointer;color:#dc2626;">🗑</button>
+        </div>`).join('') + `
+        <div style="display:flex;gap:0.4rem;align-items:center;margin-top:0.8rem;padding-top:0.8rem;border-top:1px dashed #cbd5e1;">
+            <input id="a001_newName" type="text" placeholder="Nuevo elemento…" style="${inputCss}flex:1;min-width:0;">
+            ${groupSelect(groups[0], '_a001NewGroupChanged(this)').replace('<select ', '<select id="a001_newGroup" ')}
+            <button class="btn-primary" onclick="a001AddItem()" style="font-size:0.8rem;padding:5px 14px;">Agregar</button>
+        </div>`;
+}
+
+async function _a001Reload() {
+    const { data } = await supabaseClient.from('checklist_a001_items').select('*');
+    dbA001Items = data || [];
+    renderA001Editor();
+    if(_ck) renderTaskChecklist();
+}
+
+function _a001AskGroup() {
+    const name = (prompt('Nombre del nuevo grupo:') || '').trim();
+    return name || null;
+}
+
+function _a001NewGroupChanged(sel) {
+    if(sel.value !== '__new__') return;
+    const name = _a001AskGroup();
+    if(!name) { sel.selectedIndex = 0; return; }
+    sel.insertAdjacentHTML('afterbegin', `<option value="${_escHtml(name)}">${_escHtml(name)}</option>`);
+    sel.value = name;
+}
+
+async function a001LoadBase() {
+    const rows = _A001_DEFAULTS.map(d => ({ id: d.id, group_name: d.group, name: d.name, sort_order: d.sort_order }));
+    const { error } = await supabaseClient.from('checklist_a001_items').upsert(rows, { onConflict: 'id' });
+    if(error) { showToast(/checklist_a001_items|schema cache/i.test(error.message) ? 'Falta ejecutar la migración de la lista A001 en Supabase.' : error.message, 'error'); return; }
+    await _a001Reload();
+}
+
+async function a001AddItem() {
+    const name = document.getElementById('a001_newName').value.trim();
+    if(!name) { showToast('Escribe el nombre del elemento', 'error'); return; }
+    const group = document.getElementById('a001_newGroup').value;
+    const rows = _a001Rows();
+    const next = (rows.length ? Math.max(...rows.map(r => r.sort_order ?? 0)) : 0) + 1;
+    const { error } = await supabaseClient.from('checklist_a001_items').insert({ id: 'i_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), group_name: group, name, sort_order: next });
+    if(error) { showToast('No se pudo agregar: ' + error.message, 'error'); return; }
+    await _a001Reload();
+}
+
+async function a001RenameItem(id, value) {
+    const name = value.trim();
+    if(!name) { renderA001Editor(); return; }
+    const { error } = await supabaseClient.from('checklist_a001_items').update({ name }).eq('id', id);
+    if(error) { showToast(error.message, 'error'); return; }
+    await _a001Reload();
+}
+
+async function a001ChangeGroup(id, value) {
+    let group = value;
+    if(value === '__new__') { group = _a001AskGroup(); if(!group) { renderA001Editor(); return; } }
+    const { error } = await supabaseClient.from('checklist_a001_items').update({ group_name: group }).eq('id', id);
+    if(error) { showToast(error.message, 'error'); return; }
+    await _a001Reload();
+}
+
+async function a001Move(id, dir) {
+    const rows = _a001Rows();
+    const i = rows.findIndex(r => r.id === id);
+    const j = i + dir;
+    if(i < 0 || j < 0 || j >= rows.length) return;
+    const [a, b] = [rows[i], rows[j]];
+    // Reescribe el orden completo para evitar empates de sort_order
+    const reordered = rows.slice();
+    reordered[i] = b; reordered[j] = a;
+    const payload = reordered.map((r, k) => ({ id: r.id, group_name: r.group_name, name: r.name, sort_order: k + 1 }));
+    const { error } = await supabaseClient.from('checklist_a001_items').upsert(payload, { onConflict: 'id' });
+    if(error) { showToast(error.message, 'error'); return; }
+    await _a001Reload();
+}
+
+async function a001Delete(id) {
+    const r = dbA001Items.find(x => x.id === id);
+    if(!r || !confirm(`¿Quitar "${r.name}" de la lista A001?\n\nLos checklists ya hechos conservan su nombre.`)) return;
+    const { error } = await supabaseClient.from('checklist_a001_items').delete().eq('id', id);
+    if(error) { showToast(error.message, 'error'); return; }
+    await _a001Reload();
 }
 
 function renderTaskChecklist() {
@@ -8818,7 +9106,7 @@ function renderTaskChecklist() {
             <ul style="margin:0.5rem 0 0.2rem 1.1rem;font-size:0.78rem;color:#475569;line-height:1.5;">${stage.guide.map(g => `<li>${_escHtml(g)}</li>`).join('')}</ul>
         </details>` : '';
 
-    body.innerHTML = itemsHtml + _ckStageExtras(stage.id) + guideHtml;
+    body.innerHTML = _a001Section(stage, task) + itemsHtml + _ckStageExtras(stage.id) + guideHtml;
     _ckUpdateStatus();
 }
 
