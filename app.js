@@ -1042,6 +1042,8 @@ function renderMyWorkCard(task) {
     const makesReport  = assign?.makesReport;
 
     const canExecute   = task.status === 'programada';
+    const hasChecklist = _ckHasChecklist(task);
+    const ckProg       = hasChecklist ? _ckProgress(_ckRowOf(task.id)?.data) : null;
     // El cierre CSAT puede hacerse antes o después de facturar
     const closable     = task.status === 'ejecutada' || task.status === 'facturada';
     const canCsat      = closable && !task.csatScore && !task.clientNoResponse && task.serviceType !== 'Calibración';
@@ -1074,8 +1076,9 @@ function renderMyWorkCard(task) {
                 </div>
             </div>
 
-            ${canExecute || canCsat || csatDone ? `
+            ${canExecute || canCsat || csatDone || hasChecklist ? `
             <div class="mywork-card-actions">
+                ${hasChecklist ? `<button class="mywork-btn" onclick="openTaskChecklist('${task.id}')" style="background:#f0fdfa;color:#0f766e;border:1px solid #99f6e4;">📋 Checklist de servicio (${ckProg.answered}/${ckProg.total})</button>` : ''}
                 ${canExecute ? `<button class="mywork-btn btn-execute" onclick="analystMarkExecuted('${task.id}')">✓ Marcar como Ejecutada</button>` : ''}
                 ${canCsat    ? `<button class="mywork-btn btn-csat"    onclick="analystOpenCsat('${task.id}')">📋 Llenar Encuesta CSAT</button>` : ''}
                 ${csatDone && task.clientNoResponse ? `
@@ -1405,6 +1408,7 @@ const SVG_ICONS = {
     plant:  `<svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
     reopen: `<svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>`,
     note:   `<svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+    checklist: `<svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>`,
     consume: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>`,
     entry:   `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>`,
     adjust:  `<svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>`,
@@ -1959,6 +1963,7 @@ function renderTasksTable(container) {
                                 ${role === 'admin' ? `
                                     ${actionIcon('edit',   `openEditTaskModal('${t.id}')`,       'Editar')}
                                     ${t.serviceType !== 'Calibración' ? actionIcon('csat',   `openClosingMeetingModal('${t.id}')`, 'Reunión de Cierre') : ''}
+                                    ${_ckHasChecklist(t) ? actionIcon('checklist', `openTaskChecklist('${t.id}')`, `Checklist de servicio (${_ckProgress(_ckRowOf(t.id)?.data).answered}/${_CK_ITEM_TOTAL})`) : ''}
                                     ${serviceDetailsIcon(t)}
                                     ${(t.csatScore || t.clientNoResponse) ? actionIcon('reopen', `reopenCsat('${t.id}')`, 'Reabrir CSAT (para que el analista lo llene de nuevo)') : ''}
                                     ${t.status === 'programada' ? actionIcon('revert', `revertToProjected('${t.id}')`, 'Revertir a Proyectada') : ''}
@@ -2020,7 +2025,7 @@ const _executionChecklistsByService = {
 
 let _execChecklistResolve = null;
 
-function confirmExecutionChecklist(serviceType) {
+function confirmExecutionChecklist(serviceType, taskId = null) {
     const items = _executionChecklistsByService[serviceType];
 
     // Sin checklist específico para este servicio: confirmación simple de siempre
@@ -2039,7 +2044,10 @@ function confirmExecutionChecklist(serviceType) {
         const itemsContainer = document.getElementById('execChecklistItems');
         if(!modal || !confirmBtn || !itemsContainer) { resolve(true); return; } // fallback si el modal no existe
 
-        itemsContainer.innerHTML = items.map((label, i) => `
+        const ckInfo = (serviceType === 'Rotodinámico' && taskId)
+            ? (() => { const p = _ckProgress(_ckRowOf(taskId)?.data); return `<div style="font-size:0.78rem;color:${p.answered === p.total ? '#15803d' : '#b45309'};background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:0.5rem 0.7rem;margin-bottom:0.6rem;">📋 Checklist de servicio: ${p.answered} de ${p.total} puntos${p.fails ? ` · ${p.fails} con novedad` : ''}</div>`; })()
+            : '';
+        itemsContainer.innerHTML = ckInfo + items.map((label, i) => `
             <div class="form-group checkbox-group" style="align-items:flex-start;">
                 <input type="checkbox" class="exec-check" id="execCheck${i}" style="margin-top:3px;">
                 <label for="execCheck${i}">${label}</label>
@@ -2103,7 +2111,7 @@ async function updateTaskStatus(taskId, newStatus) {
     // porque esas tareas se estaban olvidando y generaban huecos entre gestiones.
     // El checklist mostrado depende del tipo de servicio (ver _executionChecklistsByService).
     if(task.status === 'programada' && newStatus === 'ejecutada') {
-        const confirmed = await confirmExecutionChecklist(task.serviceType);
+        const confirmed = await confirmExecutionChecklist(task.serviceType, task.id);
         if(!confirmed) {
             renderBoard();
             renderTasksView();
@@ -8336,6 +8344,482 @@ function renderInventoryEnCampo() {
         </div>`;
 }
 
+// ══════════════════════════════════════════
+// CHECKLIST DE SERVICIO — ROTODINÁMICO (puntos críticos + datos reales)
+// Reemplaza el checklist en papel (Excel) por 18 puntos de control agrupados en
+// 4 etapas, más bitácora de eventos con hora, gaps de sondas, foto del mapa de
+// sensores, conteo de equipos y novedades. Se guarda en task_checklists.
+// ══════════════════════════════════════════
+
+const _CK_TEMPLATE_ID = 'rotodinamico_v1';
+
+const _CK_STAGES = [
+    {
+        id: 'prep', label: '1. Preparación', icon: '🧰',
+        items: [
+            { id: 'p1', text: 'Kit de medición A-SDAQ completo y revisado contra la lista A001 (C-DAQ y tarjetas, cables de alimentación y señal, drivers, sondas de proximidad, acelerómetros, keyphasor, soportes/imanes y herramientas).', hint: 'Si hay una anomalía, marca ✖, descríbela y separa el elemento.' },
+            { id: 'p2', text: 'Daños del último reporte revisados o reparados (si aplica).' },
+            { id: 'p3', text: 'Base de datos de la central disponible en A-Cloud (si no existía, se pidieron los datos de la máquina al cliente y se creó).' },
+            { id: 'p4', text: 'Prueba previa con clip metálico: señal reconocida en todos los canales de la C-DAQ y grabando a 1 dato/segundo en el histórico.' },
+            { id: 'p5', text: 'Logística confirmada: fecha, hora y lugar con el cliente, permisos de ingreso y ATS aprobados, transporte y contacto en planta; informe de la medición anterior leído.' }
+        ],
+        guide: [
+            'Asignación de canales: cojinete 1 en el primer módulo → canal 0 sonda X, canal 1 sonda Y, canal 2 acelerómetro; cojinete 2 en el segundo módulo igual, y así sucesivamente.',
+            'Keyphasor: canal 0 del módulo posterior al último cojinete asignado.',
+            'Pulsar "reconfigurar" y verificar la correcta disposición de las señales.',
+            'Encender el sistema multicanal, abrir A-Cloud y encender el servicio de mongo.',
+            'Soportes o imanes: en caso de duda, consultar a otro analista el tipo adecuado para cada planta.',
+            'Al terminar las pruebas, empacar todo según la lista A001.'
+        ]
+    },
+    {
+        id: 'meas', label: '2. Medición', icon: '📡',
+        items: [
+            { id: 'm1', text: 'Permisos de trabajo y ATS diligenciados y aprobados por la planta; uniforme y EPP puestos.' },
+            { id: 'm2', text: 'Sensores instalados (acelerómetro en cada cojinete, equidistante de X y Y; sondas X con cable impar y Y con cable par) y mapa de instalación registrado con foto.' },
+            { id: 'm3', text: 'Sondas calibradas a ~10 V de separación y gaps registrados abajo.' },
+            { id: 'm4', text: 'Keyphasor instalado: el LED enciende al paso de la cinta reflectiva y se captura la velocidad real.' },
+            { id: 'm5', text: 'A-Cloud grabando a 1 dato/segundo, confirmado en la tendencia histórica.' },
+            { id: 'm6', text: 'Informe verbal de hallazgos entregado al responsable de la máquina en planta.' }
+        ],
+        guide: [
+            'Instalar el sistema multicanal en zona segura, estable y cercana a la turbina (mesa y silla).',
+            'Cables grises: 1 y 2 (15 m) cojinete superior · 3 y 4 (20 m) cojinete inferior · 5 y 6 (30 m) cojinete de turbina.',
+            'Verificar el LED central de la C-DAQ encendido y arrancar los servicios de mongo y asdaq en A-Cloud.',
+            'Solicitar la parada y confirmar que la máquina quedó detenida y desenergizada antes de instalar sensores.',
+            'Mapa de instalación: círculo con el ángulo de los sensores de proximidad y sísmicos, sentido de giro y desde qué punto de vista se observa la máquina.',
+            'Si los gaps se alejan de ~10 V: inspeccionar conexiones y sustituir el componente con los repuestos.',
+            'Secuencia operativa: arranque en vacío → excitación → sincronización a carga mínima → incremento progresivo hasta carga máxima → reducción y paro controlado. Registra la hora de cada evento en la bitácora.'
+        ]
+    },
+    {
+        id: 'exit', label: '3. Salida de planta', icon: '🚪',
+        items: [
+            { id: 's1', text: 'Datos guardados correctamente en A-Cloud antes de apagar el sistema.' },
+            { id: 's2', text: 'Sistema apagado y sensores retirados (sondas despegadas con cuidado y superficie limpia; cables enrollados sin dobleces).' },
+            { id: 's3', text: 'Elementos contados contra la lista A001 y empacados en su compartimiento (tarjetas sin pines doblados y con tapas protectoras). Cantidades abajo.' }
+        ],
+        guide: [
+            'Desenergizar la extensión eléctrica desde su fuente y recogerla con cuidado.',
+            'Guardar cada tipo de cable (grises, BNC, extensión) en su compartimiento; drivers, adaptadores y multicanal en sus espacios del maletín.',
+            'Revisar visualmente la integridad de los drivers y adaptadores.',
+            'Última mirada al área de trabajo para no dejar ningún elemento.'
+        ]
+    },
+    {
+        id: 'arrive', label: '4. Llegada a A-MAQ', icon: '🏢',
+        items: [
+            { id: 'l1', text: 'Equipos y maletines recibidos completos; bases de las sondas limpias de Loctite; estado físico revisado.' },
+            { id: 'l2', text: 'Novedades, daños o pérdidas registrados abajo e informados en el grupo de WhatsApp (o sin novedades).' },
+            { id: 'l3', text: 'Datos de la medición respaldados en los dos discos duros.' },
+            { id: 'l4', text: 'Computador y maletín guardados en el espacio designado.' }
+        ],
+        guide: [
+            'La fecha, planta, analistas y equipos de la medición ya quedan asociados a la gestión: no hay que volver a digitarlos.'
+        ]
+    }
+];
+
+const _CK_ITEM_TOTAL = _CK_STAGES.reduce((n, st) => n + st.items.length, 0);
+const _CK_EVENTS = ['Parada de máquina', 'Arranque en vacío', 'Excitación', 'Sincronización a carga mínima', 'Carga máxima', 'Reducción de carga / paro controlado'];
+
+let dbTaskChecklists = {};   // task_id → fila de task_checklists
+let _ck = null;              // checklist abierto: { taskId, data, arrived, left, stage, status }
+let _ckSaveTimer = null;
+
+function _ckRowOf(taskId) { return dbTaskChecklists[taskId] || null; }
+
+/** Avance de un checklist: puntos respondidos, puntos con novedad (✖) y por etapa. */
+function _ckProgress(data) {
+    const items = data?.items || {};
+    let answered = 0, fails = 0;
+    const byStage = {};
+    _CK_STAGES.forEach(st => {
+        let a = 0;
+        st.items.forEach(it => { if(items[it.id]?.s) { a++; if(items[it.id].s === 'fail') fails++; } });
+        byStage[st.id] = { answered: a, total: st.items.length };
+        answered += a;
+    });
+    return { answered, fails, total: _CK_ITEM_TOTAL, byStage };
+}
+
+function _ckHasChecklist(task) {
+    return task && task.serviceType === 'Rotodinámico' && !task.isAbsence && task.status !== 'proyectada';
+}
+
+async function loadTaskChecklists() {
+    if(!supabaseClient) return;
+    const { data, error } = await supabaseClient.from('task_checklists').select('*');
+    if(error || !data) return; // tabla aún sin migrar: el checklist simplemente no muestra avance
+    dbTaskChecklists = {};
+    data.forEach(r => { dbTaskChecklists[r.task_id] = r; });
+}
+
+function _ckDraftKey(taskId) { return `ck_draft_${taskId}`; }
+
+function openTaskChecklist(taskId) {
+    const task = tasks.find(t => t.id === taskId);
+    if(!task) return;
+    const row = _ckRowOf(taskId);
+    let state = {
+        data: JSON.parse(JSON.stringify(row?.data || {})),
+        arrived: row?.arrived_at || null,
+        left: row?.left_at || null
+    };
+    // Borrador local (por si la última vez no hubo señal para guardar)
+    try {
+        const draft = JSON.parse(localStorage.getItem(_ckDraftKey(taskId)) || 'null');
+        if(draft && (!row || new Date(draft.savedAt) > new Date(row.updated_at || 0))) {
+            state = { data: draft.data || {}, arrived: draft.arrived || null, left: draft.left || null };
+            showToast('Recuperé un borrador que no se había alcanzado a sincronizar.', 'success');
+        }
+    } catch(e) { /* sin acceso a localStorage */ }
+
+    state.data.items = state.data.items || {};
+    _ck = { taskId, ...state, stage: _CK_STAGES[0].id, status: '' };
+    // Abre en la primera etapa con puntos pendientes
+    const prog = _ckProgress(_ck.data);
+    const firstOpen = _CK_STAGES.find(st => prog.byStage[st.id].answered < prog.byStage[st.id].total);
+    if(firstOpen) _ck.stage = firstOpen.id;
+
+    renderTaskChecklist();
+    document.getElementById('taskChecklistModal').classList.add('active');
+    if(localStorage.getItem(_ckDraftKey(taskId))) _ckPersist();
+}
+
+function closeTaskChecklist() {
+    clearTimeout(_ckSaveTimer);
+    if(_ck && _ck.dirty) _ckPersist();
+    closeModal('taskChecklistModal');
+    // Refresca los avances visibles en Mi Trabajo / Gestiones
+    if(document.getElementById('view-mywork')?.classList.contains('active-view')) renderMyWorkView();
+    if(document.getElementById('view-tasks')?.classList.contains('active-view')) renderTasksView();
+    _ck = null;
+}
+
+function _ckSchedule() {
+    if(!_ck) return;
+    _ck.dirty = true;
+    try {
+        localStorage.setItem(_ckDraftKey(_ck.taskId), JSON.stringify({ data: _ck.data, arrived: _ck.arrived, left: _ck.left, savedAt: new Date().toISOString() }));
+    } catch(e) { /* sin acceso a localStorage */ }
+    _ck.status = 'Guardando…';
+    _ckUpdateStatus();
+    clearTimeout(_ckSaveTimer);
+    _ckSaveTimer = setTimeout(_ckPersist, 700);
+}
+
+function _ckUpdateStatus() {
+    const el = document.getElementById('ck_status');
+    if(el && _ck) el.textContent = _ck.status || '';
+}
+
+async function _ckPersist() {
+    if(!_ck || !supabaseClient) return;
+    const taskId = _ck.taskId;
+    const payload = {
+        task_id: taskId,
+        template: _CK_TEMPLATE_ID,
+        data: _ck.data,
+        arrived_at: _ck.arrived || null,
+        left_at: _ck.left || null,
+        updated_by: currentUserProfile?.analyst_name || currentUserProfile?.display_name || currentUser?.email || null,
+        updated_at: new Date().toISOString()
+    };
+    // El avance se refleja de inmediato; si el guardado falla queda el borrador local para reintentar.
+    dbTaskChecklists[taskId] = { ...(dbTaskChecklists[taskId] || {}), ...payload };
+    const { error } = await supabaseClient.from('task_checklists').upsert(payload, { onConflict: 'task_id' });
+    if(error) {
+        const missing = /task_checklists|schema cache|does not exist/i.test(error.message || '');
+        if(_ck && _ck.taskId === taskId) {
+            _ck.status = missing ? '⚠ Falta ejecutar la migración del checklist en Supabase' : '⚠ Sin conexión: guardado en este dispositivo';
+            _ckUpdateStatus();
+        }
+        return;
+    }
+    try { localStorage.removeItem(_ckDraftKey(taskId)); } catch(e) { /* nada */ }
+    if(_ck && _ck.taskId === taskId) { _ck.dirty = false; _ck.status = '✓ Guardado'; _ckUpdateStatus(); }
+}
+
+function ckSetStage(stageId) { _ck.stage = stageId; renderTaskChecklist(); }
+
+function ckSetItem(itemId, state) {
+    const it = (_ck.data.items[itemId] = _ck.data.items[itemId] || {});
+    it.s = (it.s === state) ? null : state;      // tocar de nuevo desmarca
+    if(!it.s && !it.note) delete _ck.data.items[itemId];
+    _ckSchedule();
+    renderTaskChecklist();
+}
+
+function ckSetNote(itemId, value) {
+    const it = (_ck.data.items[itemId] = _ck.data.items[itemId] || {});
+    it.note = value;
+    _ckSchedule();
+}
+
+function ckMarkTime(kind) {
+    _ck[kind] = new Date().toISOString();
+    _ckSchedule();
+    renderTaskChecklist();
+}
+
+function ckClearTime(kind) {
+    _ck[kind] = null;
+    _ckSchedule();
+    renderTaskChecklist();
+}
+
+function ckAddEvent(label) {
+    const text = String(label || '').trim();
+    if(!text) return;
+    (_ck.data.events = _ck.data.events || []).push({ t: new Date().toISOString(), label: text });
+    _ckSchedule();
+    renderTaskChecklist();
+}
+
+function ckAddCustomEvent() {
+    const input = document.getElementById('ck_customEvent');
+    if(input && input.value.trim()) { ckAddEvent(input.value); }
+}
+
+function ckEditEventTime(idx, value) {
+    const ev = _ck.data.events?.[idx];
+    if(!ev || !/^\d{2}:\d{2}$/.test(value)) return;
+    const d = new Date(ev.t);
+    const [h, m] = value.split(':').map(Number);
+    d.setHours(h, m, 0, 0);
+    ev.t = d.toISOString();
+    _ckSchedule();
+}
+
+function ckRemoveEvent(idx) {
+    _ck.data.events.splice(idx, 1);
+    _ckSchedule();
+    renderTaskChecklist();
+}
+
+function ckAddGap() {
+    (_ck.data.gaps = _ck.data.gaps || []).push({ label: '', volts: '' });
+    _ckSchedule();
+    renderTaskChecklist();
+}
+
+function ckSetGap(idx, field, value) {
+    const g = _ck.data.gaps?.[idx];
+    if(!g) return;
+    g[field] = value;
+    _ckSchedule();
+}
+
+function ckGapChanged() { renderTaskChecklist(); }   // recolorea el voltaje al salir del campo
+
+function ckRemoveGap(idx) {
+    _ck.data.gaps.splice(idx, 1);
+    _ckSchedule();
+    renderTaskChecklist();
+}
+
+function ckSetCount(which, field, value) {
+    const c = (_ck.data[which] = _ck.data[which] || {});
+    c[field] = value === '' ? '' : Number(value);
+    _ckSchedule();
+}
+
+function ckCountChanged() { renderTaskChecklist(); }
+
+function ckSetText(field, value) {
+    _ck.data[field] = value;
+    _ckSchedule();
+}
+
+async function ckUploadMapPhoto(event) {
+    const file = event.target.files[0];
+    event.target.value = '';
+    if(!file || !_ck) return;
+    if(!file.type.startsWith('image/')) { showToast('Selecciona un archivo de imagen', 'error'); return; }
+    const taskId = _ck.taskId;
+    _ck.status = 'Subiendo foto…';
+    _ckUpdateStatus();
+    try {
+        const blob = await compressImageUnder150KB(file, 150);
+        const path = `checklists/${taskId}/${Date.now()}.jpg`;
+        const { error } = await supabaseClient.storage.from('inventory-photos').upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+        if(error) throw error;
+        const { data } = supabaseClient.storage.from('inventory-photos').getPublicUrl(path);
+        if(_ck && _ck.taskId === taskId) {
+            (_ck.data.mapPhotos = _ck.data.mapPhotos || []).push(data.publicUrl);
+            _ckSchedule();
+            renderTaskChecklist();
+        }
+    } catch(e) {
+        showToast('No se pudo subir la foto: ' + (e.message || e), 'error');
+        if(_ck) { _ck.status = ''; _ckUpdateStatus(); }
+    }
+}
+
+function ckRemovePhoto(idx) {
+    _ck.data.mapPhotos.splice(idx, 1);
+    _ckSchedule();
+    renderTaskChecklist();
+}
+
+async function ckRegisterLoctite() {
+    if(!dbInventoryConsumables.length) await loadInventoryData();
+    const c = dbInventoryConsumables.find(x => /loctite/i.test(x.name));
+    if(!c) { showToast('No hay un consumible "Loctite" creado en Inventario → Consumibles', 'error'); return; }
+    openConsumableMovementModal('consumo', c.id, _ck.taskId);
+}
+
+function _ckTimeLabel(iso) {
+    return new Date(iso).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+function _ckDateTimeLabel(iso) {
+    return new Date(iso).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+function _ckTimeButtons() {
+    const mk = (kind, label, icon) => _ck[kind]
+        ? `<span style="display:inline-flex;align-items:center;gap:6px;background:#f0fdf4;border:1px solid #bbf7d0;color:#15803d;border-radius:99px;padding:3px 12px;font-size:0.78rem;font-weight:700;">${icon} ${label}: ${_ckDateTimeLabel(_ck[kind])}
+              <button onclick="ckClearTime('${kind}')" title="Borrar" style="background:none;border:none;color:#15803d;cursor:pointer;font-size:0.9rem;">✕</button></span>`
+        : `<button class="btn-outline" onclick="ckMarkTime('${kind}')" style="font-size:0.78rem;padding:4px 12px;">${icon} ${label}</button>`;
+    return mk;
+}
+
+function _ckStageExtras(stageId) {
+    const inputStyle = 'padding:0.4rem 0.55rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.82rem;';
+    const box = (title, inner) => `<div style="border:1px solid #e2e8f0;border-radius:10px;padding:0.75rem 0.9rem;margin-top:0.85rem;"><div style="font-size:0.74rem;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:0.5rem;">${title}</div>${inner}</div>`;
+    const timeBtn = _ckTimeButtons();
+    let html = '';
+
+    if(stageId === 'meas') {
+        html += box('Hora en planta', `<div style="display:flex;flex-wrap:wrap;gap:0.5rem;">${timeBtn('arrived', 'Llegué a planta', '📍')}</div>`);
+
+        const gaps = _ck.data.gaps || [];
+        html += box('Gaps de las sondas (voltios) — objetivo ≈ 10 V', `
+            ${gaps.map((g, i) => {
+                const v = parseFloat(g.volts);
+                const dev = isNaN(v) ? null : Math.abs(v - 10);
+                const col = dev === null ? '#94a3b8' : dev <= 1 ? '#15803d' : dev <= 2 ? '#b45309' : '#b91c1c';
+                return `<div style="display:flex;gap:0.4rem;align-items:center;margin-bottom:0.35rem;">
+                    <input type="text" value="${_escHtml(g.label)}" placeholder="Sonda (ej. Cojinete 1 · X)" oninput="ckSetGap(${i}, 'label', this.value)" style="${inputStyle}flex:2;min-width:0;">
+                    <input type="number" step="0.01" value="${_escHtml(g.volts)}" placeholder="V" oninput="ckSetGap(${i}, 'volts', this.value)" onchange="ckGapChanged()" style="${inputStyle}width:90px;border-color:${col};color:${col};font-weight:700;">
+                    <button onclick="ckRemoveGap(${i})" title="Quitar" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:1rem;">✕</button>
+                </div>`;
+            }).join('')}
+            <button class="btn-outline" onclick="ckAddGap()" style="font-size:0.78rem;padding:3px 12px;">+ Agregar sonda</button>`);
+
+        const events = _ck.data.events || [];
+        html += box('Bitácora de eventos operativos (reemplaza el documento de Word)', `
+            <div style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-bottom:0.6rem;">
+                ${_CK_EVENTS.map(ev => `<button class="btn-outline" onclick="ckAddEvent('${ev}')" style="font-size:0.74rem;padding:3px 10px;">${ev}</button>`).join('')}
+            </div>
+            <div style="display:flex;gap:0.4rem;margin-bottom:0.6rem;">
+                <input id="ck_customEvent" type="text" placeholder="Otro evento o cambio operativo…" onkeydown="if(event.key==='Enter'){ckAddCustomEvent();}" style="${inputStyle}flex:1;min-width:0;">
+                <button class="btn-primary" onclick="ckAddCustomEvent()" style="font-size:0.78rem;padding:4px 12px;">Agregar</button>
+            </div>
+            ${events.length === 0 ? '<div style="font-size:0.78rem;color:#94a3b8;">Aún no hay eventos. Cada botón registra la hora actual; puedes corregirla.</div>' : events.map((ev, i) => `
+                <div style="display:flex;gap:0.5rem;align-items:center;padding:0.25rem 0;border-bottom:1px solid #f1f5f9;">
+                    <input type="time" value="${_ckTimeLabel(ev.t)}" onchange="ckEditEventTime(${i}, this.value)" style="${inputStyle}width:105px;">
+                    <span style="flex:1;font-size:0.82rem;">${_escHtml(ev.label)}</span>
+                    <button onclick="ckRemoveEvent(${i})" title="Quitar" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:1rem;">✕</button>
+                </div>`).join('')}`);
+
+        const photos = _ck.data.mapPhotos || [];
+        html += box('Mapa de instalación de sensores (foto)', `
+            <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;">
+                ${photos.map((u, i) => `<span style="position:relative;"><a href="${_escHtml(u)}" target="_blank"><img src="${_escHtml(u)}" style="height:70px;border-radius:8px;border:1px solid #e2e8f0;"></a>
+                    <button onclick="ckRemovePhoto(${i})" title="Quitar" style="position:absolute;top:-6px;right:-6px;background:#fff;border:1px solid #cbd5e1;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:0.7rem;">✕</button></span>`).join('')}
+                <label class="btn-outline" style="font-size:0.78rem;padding:4px 12px;cursor:pointer;">📷 Agregar foto
+                    <input type="file" accept="image/*" capture="environment" onchange="ckUploadMapPhoto(event)" style="display:none;">
+                </label>
+            </div>`);
+
+        html += box('Consumibles', `<button class="btn-outline" onclick="ckRegisterLoctite()" style="font-size:0.78rem;padding:4px 12px;">🧪 Registrar Loctite usado en las sondas</button>`);
+    }
+
+    if(stageId === 'exit' || stageId === 'arrive') {
+        const key = stageId === 'exit' ? 'countExit' : 'countArrive';
+        const c = _ck.data[key] || {};
+        const hasBoth = c.expected !== undefined && c.expected !== '' && c.counted !== undefined && c.counted !== '';
+        const diff = hasBoth ? Number(c.counted) - Number(c.expected) : null;
+        if(stageId === 'exit') {
+            html += box('Hora de salida', `<div style="display:flex;flex-wrap:wrap;gap:0.5rem;">${timeBtn('left', 'Salí de planta', '🚪')}</div>`);
+        }
+        html += box(stageId === 'exit' ? 'Conteo contra la lista A001 (al salir de planta)' : 'Conteo contra la lista A001 (al recibir en A-MAQ)', `
+            <div style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;">
+                <label style="font-size:0.8rem;">Según la lista A001
+                    <input type="number" min="0" value="${c.expected ?? ''}" oninput="ckSetCount('${key}', 'expected', this.value)" onchange="ckCountChanged()" style="${inputStyle}width:90px;margin-left:6px;"></label>
+                <label style="font-size:0.8rem;">Contados
+                    <input type="number" min="0" value="${c.counted ?? ''}" oninput="ckSetCount('${key}', 'counted', this.value)" onchange="ckCountChanged()" style="${inputStyle}width:90px;margin-left:6px;"></label>
+                ${diff === null ? '' : diff === 0
+                    ? '<span style="color:#15803d;font-weight:800;font-size:0.82rem;">✓ Completo</span>'
+                    : `<span style="color:#b91c1c;font-weight:800;font-size:0.82rem;">⚠ ${diff < 0 ? 'Faltan ' + Math.abs(diff) : 'Sobran ' + diff} — descríbelo en novedades</span>`}
+            </div>`);
+    }
+
+    if(stageId === 'arrive') {
+        html += box('Novedades, daños o pérdidas', `
+            <textarea rows="3" placeholder="Escribe aquí cualquier daño, pérdida o novedad (o déjalo vacío si no hubo)…" oninput="ckSetText('novedades', this.value)" style="${inputStyle}width:100%;resize:vertical;">${_escHtml(_ck.data.novedades || '')}</textarea>`);
+    }
+    return html;
+}
+
+function renderTaskChecklist() {
+    if(!_ck) return;
+    const task = tasks.find(t => t.id === _ck.taskId);
+    const body = document.getElementById('ck_body');
+    if(!task || !body) return;
+
+    const prog = _ckProgress(_ck.data);
+    const stage = _CK_STAGES.find(s => s.id === _ck.stage) || _CK_STAGES[0];
+
+    document.getElementById('ck_title').textContent = `Checklist de servicio — ${cleanClientName(task.client)}${task.plantName ? ' · ' + task.plantName : ''}`;
+    const fieldDates = (task.scheduledDays || []).filter(d => d.type === 'field').map(d => d.date).sort();
+    const fmtD = (d) => { const [, m, dd] = d.split('-'); return `${dd}/${m}`; };
+    document.getElementById('ck_subtitle').innerHTML =
+        `Rotodinámico · ${_escHtml(formatAnalystDisplay ? formatAnalystDisplay(task) : (task.analyst || ''))}` +
+        `${fieldDates.length ? ' · Planta: ' + fieldDates.map(fmtD).join(', ') : ''}` +
+        `${task.equipment ? ' · Equipo: ' + _escHtml(task.equipment) : ''}` +
+        `<br><span style="color:#94a3b8;">La fecha, planta, analistas y equipos ya quedan asociados a la gestión.</span>`;
+
+    document.getElementById('ck_tabs').innerHTML = _CK_STAGES.map(st => {
+        const p = prog.byStage[st.id];
+        const done = p.answered === p.total;
+        return `<button class="${st.id === stage.id ? 'active' : ''}" onclick="ckSetStage('${st.id}')" style="white-space:nowrap;">${st.icon} ${st.label} <span style="font-size:0.72rem;color:${done ? '#15803d' : '#94a3b8'};">${p.answered}/${p.total}</span></button>`;
+    }).join('');
+
+    document.getElementById('ck_progress').innerHTML =
+        `<div style="background:#e2e8f0;border-radius:99px;height:6px;overflow:hidden;"><div style="width:${Math.round(prog.answered / prog.total * 100)}%;height:100%;background:${prog.fails ? '#d97706' : '#16a34a'};"></div></div>
+         <div style="font-size:0.72rem;color:#64748b;margin-top:3px;">${prog.answered} de ${prog.total} puntos${prog.fails ? ` · <span style="color:#b91c1c;font-weight:700;">${prog.fails} con novedad</span>` : ''}</div>`;
+
+    const btn = (itemId, state, label, color, bg) => {
+        const on = (_ck.data.items[itemId]?.s === state);
+        return `<button onclick="ckSetItem('${itemId}', '${state}')" style="min-width:42px;padding:3px 9px;border-radius:7px;border:1.5px solid ${on ? color : '#cbd5e1'};background:${on ? bg : '#fff'};color:${on ? color : '#94a3b8'};font-weight:800;font-size:0.8rem;cursor:pointer;">${label}</button>`;
+    };
+
+    const itemsHtml = stage.items.map(it => {
+        const st = _ck.data.items[it.id] || {};
+        const showNote = st.s === 'fail' || st.note;
+        return `<div style="padding:0.65rem 0;border-bottom:1px solid #f1f5f9;">
+            <div style="display:flex;gap:0.75rem;align-items:flex-start;">
+                <div style="flex:1;font-size:0.85rem;line-height:1.4;">${_escHtml(it.text)}${it.hint ? `<div style="font-size:0.72rem;color:#94a3b8;margin-top:2px;">${_escHtml(it.hint)}</div>` : ''}</div>
+                <div style="display:flex;gap:0.3rem;flex-shrink:0;">${btn(it.id, 'ok', '✔', '#15803d', '#dcfce7')}${btn(it.id, 'fail', '✖', '#b91c1c', '#fee2e2')}${btn(it.id, 'na', 'N/A', '#475569', '#e2e8f0')}</div>
+            </div>
+            ${showNote ? `<input type="text" value="${_escHtml(st.note || '')}" placeholder="${st.s === 'fail' ? 'Describe la novedad…' : 'Observación (opcional)'}" oninput="ckSetNote('${it.id}', this.value)" style="margin-top:0.4rem;width:100%;padding:0.4rem 0.55rem;border:1px solid ${st.s === 'fail' ? '#fca5a5' : '#cbd5e1'};border-radius:6px;font-size:0.8rem;">` : ''}
+        </div>`;
+    }).join('');
+
+    const guideHtml = stage.guide?.length ? `
+        <details style="margin-top:0.85rem;border:1px solid #e2e8f0;border-radius:10px;padding:0.55rem 0.9rem;background:#f8fafc;">
+            <summary style="cursor:pointer;font-size:0.78rem;font-weight:700;color:#475569;">📖 Guía de consulta de esta etapa</summary>
+            <ul style="margin:0.5rem 0 0.2rem 1.1rem;font-size:0.78rem;color:#475569;line-height:1.5;">${stage.guide.map(g => `<li>${_escHtml(g)}</li>`).join('')}</ul>
+        </details>` : '';
+
+    body.innerHTML = itemsHtml + _ckStageExtras(stage.id) + guideHtml;
+    _ckUpdateStatus();
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // CONSUMIBLES (masas de balanceo, Loctite, shims, ...): stock que se gasta, con alerta
 // ══════════════════════════════════════════════════════════════════════════════
@@ -8554,7 +9038,7 @@ function _consumableTaskLabel(t) {
     return `${t.client || '—'}${t.plantName ? ' – ' + t.plantName : ''} · ${t.serviceType || '—'}${month ? ' · ' + month : ''}`;
 }
 
-function openConsumableMovementModal(type, consumableId = null) {
+function openConsumableMovementModal(type, consumableId = null, taskId = null) {
     if(dbInventoryConsumables.length === 0) { showToast('Aún no hay consumibles registrados', 'error'); return; }
     const T = _consMovTexts[type];
     document.getElementById('consMov_type').value = type;
@@ -8574,6 +9058,15 @@ function openConsumableMovementModal(type, consumableId = null) {
     document.getElementById('consMov_task').innerHTML =
         '<option value="">— Sin gestión asociada —</option>' +
         _consumableTaskOptions().map(t => `<option value="${t.id}">${_escHtml(_consumableTaskLabel(t))}</option>`).join('');
+
+    if(taskId) {
+        const taskSel = document.getElementById('consMov_task');
+        if(![...taskSel.options].some(o => o.value === taskId)) {
+            const tk = tasks.find(x => x.id === taskId);
+            if(tk) taskSel.insertAdjacentHTML('beforeend', `<option value="${tk.id}">${_escHtml(_consumableTaskLabel(tk))}</option>`);
+        }
+        taskSel.value = taskId;
+    }
 
     document.getElementById('consMov_qty').oninput = _consMovRefreshHint;
     _consMovRefreshHint();
@@ -10504,6 +10997,7 @@ async function initializeApp() {
             currentUserProfile = profileData;
             // Cargar perfiles de todos los usuarios (necesario para dirigir notifs a otros usuarios)
             loadAllProfiles().catch(() => {});
+            loadTaskChecklists().then(() => { if(document.getElementById('view-mywork')?.classList.contains('active-view')) renderMyWorkView(); }).catch(() => {});
             // Cargar notificaciones propias y correr los chequeos (CSAT vencidos, resumen mensual)
             loadMyNotifications().then(() => runNotificationsCheck()).catch(() => {});
         }

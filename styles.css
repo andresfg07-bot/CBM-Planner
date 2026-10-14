@@ -1865,6 +1865,8 @@ body.role-viewer .viewer-hide { display: none !important; }
     stroke-linejoin: round;
     pointer-events: none;
 }
+.action-icon.checklist       { color: #0f766e; background: #f0fdfa; }
+.action-icon.checklist:hover { background: #0f766e; color: white; }
 .action-icon.consume         { color: #d97706; background: #fffbeb; }
 .action-icon.consume:hover   { background: #d97706; color: white; }
 .action-icon.entry           { color: #16a34a; background: #f0fdf4; }
