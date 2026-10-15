@@ -8490,6 +8490,7 @@ function openTaskChecklist(taskId) {
 
     renderTaskChecklist();
     document.getElementById('taskChecklistModal').classList.add('active');
+    if(!dbInventoryItems.length) loadInventoryData().then(() => { if(_ck) renderTaskChecklist(); }).catch(() => {});
     if(localStorage.getItem(_ckDraftKey(taskId))) _ckPersist();
 }
 
@@ -8783,32 +8784,67 @@ function _a001Items() {
     return _A001_DEFAULTS.map(d => ({ id: d.id, group: d.group, name: d.name }));
 }
 
+const _A001_STATE_LABEL = { ok: 'completo', missing: 'falta', damaged: 'dañado', lost: 'perdido', pending: 'pendiente' };
+
 function _a001Of(data) {
     const a = (data.a001 = data.a001 || {});
-    ['plan', 'out', 'plant', 'back', 'names'].forEach(k => { a[k] = a[k] || {}; });
+    ['plan', 'out', 'plant', 'back', 'names', 'sel', 'units'].forEach(k => { a[k] = a[k] || {}; });
+    a.us = a.us || {};
+    a.us.plant = a.us.plant || {};
+    a.us.back = a.us.back || {};
     return a;
 }
 
-/** Estado de un conteo: elementos que salen, ya contados y faltantes. */
+/** Ítems del inventario vinculados a una línea de la lista A001. */
+function _a001LinkedItems(lineId) {
+    return dbInventoryItems.filter(i => i.a001_item_id === lineId);
+}
+
+function _a001UnitLabel(itemId) {
+    const it = dbInventoryItems.find(i => i.id === itemId);
+    return it ? it.name + (it.serial_number ? ' · ' + it.serial_number : '') : 'Equipo';
+}
+
+function _a001LineName(a, lineId) {
+    return _a001Items().find(i => i.id === lineId)?.name || a.names?.[lineId] || lineId;
+}
+
+/** Estado de un conteo: líneas que salen, ya contadas y faltantes (con detalle por serial). */
 function _a001PassStatus(data, pass) {
     const a = data?.a001 || {};
-    const plan = a.plan || {}, vals = a[pass] || {}, names = a.names || {};
-    const lookup = {};
-    _a001Items().forEach(i => { lookup[i.id] = i.name; });
+    const plan = a.plan || {}, vals = a[pass] || {}, units = a.units || {};
+    const st = (a.us && a.us[pass]) || {};
     const planned = Object.keys(plan).filter(id => Number(plan[id]) > 0);
-    const counted = planned.filter(id => vals[id] !== undefined && vals[id] !== '');
-    const missing = planned
-        .filter(id => vals[id] !== undefined && vals[id] !== '' && Number(vals[id]) < Number(plan[id]))
-        .map(id => ({ id, name: lookup[id] || names[id] || id, plan: Number(plan[id]), counted: Number(vals[id]) }));
+    const counted = [], missing = [];
+    planned.forEach(id => {
+        const lineName = _a001LineName(a, id);
+        const list = units[id];
+        if(list && list.length) {
+            if(pass === 'out') { if(vals[id] !== undefined && vals[id] !== '') counted.push(id); return; }
+            if(!list.every(u => st[u])) return;
+            counted.push(id);
+            const bad = list.filter(u => st[u] !== 'ok');
+            if(bad.length) {
+                missing.push({
+                    id, name: lineName, plan: list.length, counted: list.length - bad.length,
+                    detail: bad.map(u => `${_a001UnitLabel(u)} (${_A001_STATE_LABEL[st[u]] || st[u]})`).join(', ')
+                });
+            }
+            return;
+        }
+        if(vals[id] === undefined || vals[id] === '') return;
+        counted.push(id);
+        if(Number(vals[id]) < Number(plan[id])) missing.push({ id, name: lineName, plan: Number(plan[id]), counted: Number(vals[id]) });
+    });
     return { planned: planned.length, counted: counted.length, missing, done: planned.length > 0 && counted.length === planned.length };
 }
 
+// ── Cantidades (líneas sin enlace al inventario) ──────────────────────────────
 function a001SetPlan(id, value) {
     const a = _a001Of(_ck.data);
     const n = Math.max(0, parseInt(value, 10) || 0);
-    if(n > 0) { a.plan[id] = n; a.names[id] = _a001Items().find(i => i.id === id)?.name || a.names[id] || id; }
+    if(n > 0) { a.plan[id] = n; a.names[id] = _a001LineName(a, id); }
     else delete a.plan[id];
-    // Si cambia lo que sale, los conteos de ese elemento se vuelven a hacer
     delete a.out[id]; delete a.plant[id]; delete a.back[id];
     _ckSchedule();
     renderTaskChecklist();
@@ -8831,12 +8867,26 @@ function a001SetCount(pass, id, value) {
     renderTaskChecklist();
 }
 
-function a001ConfirmGroup(pass, groupName) {
+async function a001ConfirmGroup(pass, groupName) {
     const a = _a001Of(_ck.data);
-    _a001Items().filter(i => i.group === groupName).forEach(i => {
+    const lines = _a001Items().filter(i => i.group === groupName);
+    for(const i of lines) {
+        const units = a.units[i.id];
+        if(units && units.length) {
+            if(pass === 'plant') units.forEach(u => { a.us.plant[u] = 'ok'; });
+            if(pass === 'back') {
+                const pending = units.filter(u => !['ok', 'damaged', 'lost'].includes(a.us.back[u]));
+                for(const u of pending) { if(!_ck) return; await a001UnitBack(u, 'ok', true); }
+            }
+            continue;
+        }
+        if(pass === 'out' && _a001LinkedItems(i.id).length && (a.sel[i.id] || []).length) {
+            await a001RegisterLine(i.id, true);
+            continue;
+        }
         const plan = Number(a.plan[i.id]) || 0;
-        if(plan > 0) a[pass][i.id] = plan;
-    });
+        if(plan > 0 && !(units && units.length)) a[pass][i.id] = plan;
+    }
     _ckSchedule();
     renderTaskChecklist();
 }
@@ -8846,6 +8896,146 @@ function a001SetPc(value) {
     _ckSchedule();
 }
 
+// ── Unidades del inventario (líneas enlazadas) ────────────────────────────────
+function a001SetKit(kitId) {
+    const a = _a001Of(_ck.data);
+    a.kitId = kitId || '';
+    _a001Items().forEach(line => {
+        if(a.units[line.id]?.length) return;
+        const linked = _a001LinkedItems(line.id);
+        if(!linked.length) return;
+        a.sel[line.id] = kitId
+            ? linked.filter(u => u.kit_id === kitId && u.status === 'disponible').map(u => u.id)
+            : [];
+    });
+    _ckSchedule();
+    renderTaskChecklist();
+}
+
+function a001ToggleUnit(lineId, itemId) {
+    const a = _a001Of(_ck.data);
+    const sel = (a.sel[lineId] = a.sel[lineId] || []);
+    const i = sel.indexOf(itemId);
+    if(i >= 0) sel.splice(i, 1); else sel.push(itemId);
+    _ckSchedule();
+    renderTaskChecklist();
+}
+
+/** Registra la salida real: crea los préstamos en Inventario, a nombre del responsable y con la gestión. */
+async function a001RegisterLine(lineId, silent = false) {
+    if(!_ck) return false;
+    const taskId = _ck.taskId;
+    const data = _ck.data;
+    const a = _a001Of(data);
+    const task = tasks.find(t => t.id === taskId);
+    const sel = (a.sel[lineId] || []).slice();
+    if(!sel.length) { if(!silent) showToast('Marca al menos un equipo', 'error'); return false; }
+
+    const responsible = (task && _effAnalystsOf(task)[0]) || currentUserProfile?.analyst_name || currentUserProfile?.display_name || currentUser?.email || 'Desconocido';
+    if(!a.kitLoanId) a.kitLoanId = (crypto?.randomUUID ? crypto.randomUUID() : `klg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`);
+
+    const done = [];
+    for(const id of sel) {
+        const item = dbInventoryItems.find(i => i.id === id);
+        if(!item) continue;
+        if(dbInventoryLoans.some(l => l.item_id === id && l.task_id === taskId && !l.checked_in_at)) { done.push(id); continue; }
+        if(item.status !== 'disponible') { showToast(`"${item.name}" ya no está disponible`, 'error'); continue; }
+        const inKit = a.kitId && item.kit_id === a.kitId;
+        const { error: e1 } = await supabaseClient.from('inventory_loans').insert({
+            item_id: id, analyst_name: responsible, task_id: taskId,
+            kit_id: inKit ? a.kitId : null, kit_loan_id: inKit ? a.kitLoanId : null
+        });
+        let e2 = null;
+        if(!e1) ({ error: e2 } = await supabaseClient.from('inventory_items').update({ status: 'prestado' }).eq('id', id));
+        if(e1 || e2) {
+            const msg = (e1 || e2).message || '';
+            showToast(/task_id|schema cache/i.test(msg) ? 'Falta ejecutar la migración del enlace A001 ↔ inventario en Supabase.' : 'Error registrando salida: ' + msg, 'error');
+            break;
+        }
+        done.push(id);
+    }
+    if(!done.length) return false;
+
+    a.units[lineId] = done;
+    a.plan[lineId] = done.length;
+    a.out[lineId] = done.length;
+    a.names[lineId] = _a001LineName(a, lineId);
+    delete a.sel[lineId];
+    await loadInventoryData();
+    if(_ck && _ck.taskId === taskId) {
+        _ckSchedule();
+        if(!silent) renderTaskChecklist();
+    }
+    return true;
+}
+
+async function a001RegisterAll() {
+    if(!_ck) return;
+    const a = _a001Of(_ck.data);
+    const lines = _a001Items().filter(l => !a.units[l.id]?.length && (a.sel[l.id] || []).length);
+    if(!lines.length) { showToast('No hay equipos marcados para registrar', 'error'); return; }
+    for(const l of lines) { if(!_ck) return; await a001RegisterLine(l.id, true); }
+    if(_ck) renderTaskChecklist();
+    showToast('Salida registrada en Inventario ✓', 'success');
+}
+
+function a001UnitPlant(itemId) {
+    const a = _a001Of(_ck.data);
+    const cur = a.us.plant[itemId];
+    if(!cur) a.us.plant[itemId] = 'ok';
+    else if(cur === 'ok') a.us.plant[itemId] = 'missing';
+    else delete a.us.plant[itemId];
+    _ckSchedule();
+    renderTaskChecklist();
+}
+
+/** Resultado de un equipo al llegar a A-MAQ. ok / dañado / perdido se aplican en Inventario; pendiente queda abierto. */
+async function a001UnitBack(itemId, state, silent = false) {
+    if(!_ck) return;
+    const taskId = _ck.taskId;
+    const a = _a001Of(_ck.data);
+    if(['ok', 'damaged', 'lost'].includes(a.us.back[itemId])) return;   // ya quedó aplicado en Inventario
+    const label = _a001UnitLabel(itemId);
+
+    if(state === 'pending') {
+        a.us.back[itemId] = 'pending';
+        _ckSchedule();
+        if(!silent) renderTaskChecklist();
+        return;
+    }
+
+    let note = '';
+    if(state === 'damaged' || state === 'lost') {
+        note = (prompt(state === 'lost' ? `¿Qué pasó con "${label}"? (obligatorio)` : `Describe el daño de "${label}" (obligatorio)`) || '').trim();
+        if(!note) return;
+        if(state === 'lost' && !confirm(`"${label}" se marcará como PERDIDO en el inventario. ¿Confirmas?`)) return;
+    }
+
+    const reportedBy = currentUserProfile?.analyst_name || currentUserProfile?.display_name || currentUser?.email || 'Desconocido';
+    const loan = dbInventoryLoans.find(l => l.item_id === itemId && !l.checked_in_at);
+    const newStatus = state === 'ok' ? 'disponible' : (state === 'damaged' ? 'dañado' : 'perdido');
+
+    if(loan) {
+        const upd = { checked_in_at: new Date().toISOString() };
+        if(note) upd.notes = note;
+        const { error } = await supabaseClient.from('inventory_loans').update(upd).eq('id', loan.id);
+        if(error) { showToast('Error registrando la devolución: ' + error.message, 'error'); return; }
+    }
+    const { error: e2 } = await supabaseClient.from('inventory_items').update({ status: newStatus }).eq('id', itemId);
+    if(e2) { showToast('Error actualizando el equipo: ' + e2.message, 'error'); return; }
+    if(state !== 'ok') {
+        await supabaseClient.from('inventory_incidents').insert({ item_id: itemId, type: newStatus, note, reported_by: reportedBy });
+    }
+
+    await loadInventoryData();
+    if(_ck && _ck.taskId === taskId) {
+        _a001Of(_ck.data).us.back[itemId] = state;
+        _ckSchedule();
+        if(!silent) renderTaskChecklist();
+    }
+}
+
+// ── Sección A001 dentro de cada etapa ─────────────────────────────────────────
 function _a001Section(stage, task) {
     const pass = stage.a001;
     if(!pass) return '';
@@ -8857,63 +9047,133 @@ function _a001Section(stage, task) {
     });
     const isAdmin = currentUserProfile?.role === 'admin';
     const st = _a001PassStatus(_ck.data, pass);
-    const titles = {
-        out:   'Lista A001 — Salida de A-MAQ',
-        plant: 'Lista A001 — Salida de la planta',
-        back:  'Lista A001 — Entrada a A-MAQ'
-    };
+    const titles = { out: 'Lista A001 — Salida de A-MAQ', plant: 'Lista A001 — Salida de la planta', back: 'Lista A001 — Entrada a A-MAQ' };
     const subtitles = {
-        out:   'Define cuántos de cada elemento salen (0 = no sale) y confirma que quedó empacado.',
-        plant: 'Cuenta lo que sale de la planta contra lo que llevaste. Marca ✔ si está completo o escribe cuántos hay.',
-        back:  'Cuenta lo que llega a A-MAQ contra lo que salió. Marca ✔ si está completo o escribe cuántos hay.'
+        out:   'Elige el kit y marca los equipos que salen: se registran en Inventario a nombre del responsable. Lo demás, escribe la cantidad.',
+        plant: 'Verifica cada equipo antes de salir de la planta. Toca un equipo para marcarlo completo o faltante.',
+        back:  'Registra cómo llegó cada equipo: completo, dañado, perdido o pendiente de aclarar.'
     };
     const inputCss = 'padding:0.3rem 0.4rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.82rem;width:64px;text-align:center;';
+    const okBtn = (on, color = '#15803d', bg = '#dcfce7') => `min-width:34px;padding:3px 8px;border-radius:7px;border:1.5px solid ${on ? color : '#cbd5e1'};background:${on ? bg : '#fff'};color:${on ? color : '#94a3b8'};font-weight:800;cursor:pointer;`;
 
     const groups = [];
     items.forEach(i => { if(!groups.includes(i.group)) groups.push(i.group); });
+    const hasLinked = items.some(i => _a001LinkedItems(i.id).length);
 
-    const groupHtml = groups.map(gname => {
-        const gItems = items.filter(i => i.group === gname && (pass === 'out' || Number(a.plan[i.id]) > 0));
-        if(!gItems.length) return '';
-        const rows = gItems.map(i => {
-            const plan = Number(a.plan[i.id]) || 0;
+    const lineHtml = (i) => {
+        const units = a.units[i.id];
+        const registered = !!(units && units.length);
+        const linked = _a001LinkedItems(i.id);
+        const plan = Number(a.plan[i.id]) || 0;
+        const label = `<div style="flex:1;font-size:0.83rem;">${_escHtml(i.name)}</div>`;
+
+        // Equipos enlazados con Inventario, aún sin registrar la salida
+        if(pass === 'out' && !registered && linked.length) {
+            const sel = a.sel[i.id] || [];
+            const avail = linked.filter(u => u.status === 'disponible').length;
+            const chips = linked.map(u => {
+                const ok = u.status === 'disponible';
+                const on = sel.includes(u.id);
+                const kitName = dbInventoryKits.find(k => k.id === u.kit_id)?.name;
+                return `<button ${ok ? '' : 'disabled'} onclick="a001ToggleUnit('${i.id}', '${u.id}')" title="${_escHtml(kitName ? 'Kit: ' + kitName : 'Sin kit')}${ok ? '' : ' · ' + (_invStatusLabel[u.status] || u.status)}"
+                    style="padding:2px 9px;border-radius:99px;border:1.5px solid ${on ? '#15803d' : '#cbd5e1'};background:${on ? '#dcfce7' : '#fff'};color:${on ? '#15803d' : ok ? '#475569' : '#cbd5e1'};font-size:0.74rem;font-weight:${on ? 800 : 500};cursor:${ok ? 'pointer' : 'not-allowed'};${ok ? '' : 'text-decoration:line-through;'}">${on ? '✔ ' : ''}${_escHtml(u.name)}${u.serial_number ? ' · ' + _escHtml(u.serial_number) : ''}${ok ? '' : ' (' + (_invStatusLabel[u.status] || u.status) + ')'}</button>`;
+            }).join('');
+            return `<div style="padding:0.45rem 0;border-bottom:1px solid #f1f5f9;">
+                <div style="display:flex;align-items:center;gap:0.5rem;">
+                    ${label}
+                    <span style="font-size:0.72rem;color:#64748b;">${sel.length} de ${avail} disponibles</span>
+                    <button ${sel.length ? '' : 'disabled'} onclick="a001RegisterLine('${i.id}')" style="${okBtn(sel.length > 0)}">Registrar (${sel.length})</button>
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.35rem;">${chips}</div>
+            </div>`;
+        }
+
+        // Equipos ya registrados: verificación por serial
+        if(registered) {
             if(pass === 'out') {
-                const ok = plan > 0 && a.out[i.id] === plan;
-                return `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.3rem 0;border-bottom:1px solid #f1f5f9;${plan === 0 ? 'opacity:.55;' : ''}">
-                    <div style="flex:1;font-size:0.83rem;">${_escHtml(i.name)}</div>
-                    <input type="number" min="0" value="${plan || ''}" placeholder="0" onchange="a001SetPlan('${i.id}', this.value)" title="Cantidad que sale" style="${inputCss}">
-                    <button ${plan === 0 ? 'disabled' : ''} onclick="a001Confirm('out', '${i.id}')" style="min-width:34px;padding:3px 8px;border-radius:7px;border:1.5px solid ${ok ? '#15803d' : '#cbd5e1'};background:${ok ? '#dcfce7' : '#fff'};color:${ok ? '#15803d' : '#94a3b8'};font-weight:800;cursor:${plan === 0 ? 'not-allowed' : 'pointer'};">✔</button>
+                return `<div style="padding:0.4rem 0;border-bottom:1px solid #f1f5f9;">
+                    <div style="display:flex;align-items:center;gap:0.5rem;">${label}<span style="color:#15803d;font-weight:800;font-size:0.8rem;">✓ ${units.length} registrados en Inventario</span></div>
+                    <div style="font-size:0.7rem;color:#94a3b8;margin-top:2px;">${units.map(u => _escHtml(_a001UnitLabel(u))).join(' · ')}</div>
                 </div>`;
             }
-            const v = a[pass][i.id];
-            const counted = v !== undefined && v !== '';
-            const complete = counted && Number(v) === plan;
-            const lacking = counted && Number(v) < plan;
-            const extra = counted && Number(v) > plan;
-            return `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.3rem 0;border-bottom:1px solid #f1f5f9;">
-                <div style="flex:1;font-size:0.83rem;">${_escHtml(i.name)}</div>
-                <span style="font-size:0.74rem;color:#64748b;white-space:nowrap;">Debe haber ${plan}</span>
-                <input type="number" min="0" value="${counted ? v : ''}" placeholder="—" onchange="a001SetCount('${pass}', '${i.id}', this.value)" title="Cantidad contada" style="${inputCss}border-color:${lacking ? '#fca5a5' : extra ? '#fcd34d' : '#cbd5e1'};">
-                <button onclick="a001Confirm('${pass}', '${i.id}')" style="min-width:34px;padding:3px 8px;border-radius:7px;border:1.5px solid ${complete ? '#15803d' : '#cbd5e1'};background:${complete ? '#dcfce7' : '#fff'};color:${complete ? '#15803d' : '#94a3b8'};font-weight:800;cursor:pointer;">✔</button>
+            if(pass === 'plant') {
+                const chips = units.map(u => {
+                    const s = a.us.plant[u];
+                    const c = s === 'ok' ? ['#15803d', '#dcfce7'] : s === 'missing' ? ['#b91c1c', '#fee2e2'] : ['#475569', '#fff'];
+                    return `<button onclick="a001UnitPlant('${u}')" style="padding:2px 9px;border-radius:99px;border:1.5px solid ${s ? c[0] : '#cbd5e1'};background:${c[1]};color:${c[0]};font-size:0.74rem;font-weight:700;cursor:pointer;">${s === 'ok' ? '✔ ' : s === 'missing' ? '✖ ' : ''}${_escHtml(_a001UnitLabel(u))}</button>`;
+                }).join('');
+                return `<div style="padding:0.45rem 0;border-bottom:1px solid #f1f5f9;">
+                    <div style="display:flex;align-items:center;gap:0.5rem;">${label}<span style="font-size:0.72rem;color:#64748b;">Debe haber ${units.length}</span></div>
+                    <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.35rem;">${chips}</div>
+                </div>`;
+            }
+            const rows = units.map(u => {
+                const s = a.us.back[u];
+                const locked = ['ok', 'damaged', 'lost'].includes(s);
+                const b = (state, text, color, bg) => `<button ${locked && s !== state ? 'disabled' : ''} onclick="a001UnitBack('${u}', '${state}')" style="${okBtn(s === state, color, bg)}${locked && s !== state ? 'opacity:.35;cursor:not-allowed;' : ''}font-size:0.74rem;">${text}</button>`;
+                return `<div style="display:flex;gap:0.35rem;align-items:center;padding:0.2rem 0;">
+                    <div style="flex:1;font-size:0.8rem;">${_escHtml(_a001UnitLabel(u))}</div>
+                    ${b('ok', '✔ Llegó', '#15803d', '#dcfce7')}${b('damaged', '🔧 Dañado', '#b45309', '#fef3c7')}${b('lost', '❌ Perdido', '#b91c1c', '#fee2e2')}${b('pending', '⏳ Pendiente', '#475569', '#e2e8f0')}
+                </div>`;
+            }).join('');
+            return `<div style="padding:0.45rem 0;border-bottom:1px solid #f1f5f9;">
+                <div style="display:flex;align-items:center;gap:0.5rem;">${label}<span style="font-size:0.72rem;color:#64748b;">Debe haber ${units.length}</span></div>
+                <div style="margin-top:0.25rem;">${rows}</div>
             </div>`;
-        }).join('');
-        const allBtn = `<button class="btn-outline" onclick="a001ConfirmGroup('${pass}', '${_escHtml(gname).replace(/'/g, "\\'")}')" style="font-size:0.7rem;padding:2px 9px;">✔ ${pass === 'out' ? 'Todos empacados' : 'Todos completos'}</button>`;
+        }
+
+        // Sin enlace con Inventario: cantidad
+        if(pass === 'out') {
+            const ok = plan > 0 && a.out[i.id] === plan;
+            return `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.3rem 0;border-bottom:1px solid #f1f5f9;${plan === 0 ? 'opacity:.55;' : ''}">
+                ${label}
+                <input type="number" min="0" value="${plan || ''}" placeholder="0" onchange="a001SetPlan('${i.id}', this.value)" title="Cantidad que sale" style="${inputCss}">
+                <button ${plan === 0 ? 'disabled' : ''} onclick="a001Confirm('out', '${i.id}')" style="${okBtn(ok)}${plan === 0 ? 'cursor:not-allowed;' : ''}">✔</button>
+            </div>`;
+        }
+        const v = a[pass][i.id];
+        const counted = v !== undefined && v !== '';
+        const complete = counted && Number(v) === plan;
+        const lacking = counted && Number(v) < plan;
+        const extra = counted && Number(v) > plan;
+        return `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.3rem 0;border-bottom:1px solid #f1f5f9;">
+            ${label}
+            <span style="font-size:0.74rem;color:#64748b;white-space:nowrap;">Debe haber ${plan}</span>
+            <input type="number" min="0" value="${counted ? v : ''}" placeholder="—" onchange="a001SetCount('${pass}', '${i.id}', this.value)" title="Cantidad contada" style="${inputCss}border-color:${lacking ? '#fca5a5' : extra ? '#fcd34d' : '#cbd5e1'};">
+            <button onclick="a001Confirm('${pass}', '${i.id}')" style="${okBtn(complete)}">✔</button>
+        </div>`;
+    };
+
+    const groupHtml = groups.map(gname => {
+        const lines = items.filter(i => i.group === gname && (pass === 'out' || Number(a.plan[i.id]) > 0));
+        if(!lines.length) return '';
+        const allBtn = `<button class="btn-outline" onclick="a001ConfirmGroup('${pass}', '${_escHtml(gname).replace(/'/g, "\\'")}')" style="font-size:0.7rem;padding:2px 9px;">✔ ${pass === 'out' ? 'Registrar / empacar todo' : pass === 'back' ? 'Todos llegaron' : 'Todos completos'}</button>`;
         return `<div style="margin-top:0.7rem;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.15rem;">
                 <div style="font-size:0.74rem;font-weight:800;color:#0f766e;text-transform:uppercase;">${_escHtml(gname)}</div>${allBtn}
-            </div>${rows}</div>`;
+            </div>${lines.map(lineHtml).join('')}</div>`;
     }).join('');
+
+    const kitSelect = (pass === 'out' && hasLinked && dbInventoryKits.length) ? `
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;margin:0.4rem 0;">
+            <label style="font-size:0.78rem;color:#475569;"><strong>Kit que sale:</strong>
+                <select onchange="a001SetKit(this.value)" style="margin-left:6px;padding:0.3rem 0.5rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.8rem;">
+                    <option value="">— Elegir kit —</option>
+                    ${dbInventoryKits.map(k => `<option value="${k.id}" ${a.kitId === k.id ? 'selected' : ''}>${_escHtml(k.name)}</option>`).join('')}
+                </select></label>
+            <button class="btn-primary" onclick="a001RegisterAll()" style="font-size:0.74rem;padding:4px 12px;">Registrar salida de lo marcado</button>
+        </div>` : '';
 
     const header = pass === 'out' ? `
         <div style="display:flex;flex-wrap:wrap;gap:0.4rem 1.2rem;font-size:0.78rem;color:#475569;margin:0.3rem 0 0.2rem;">
             <span><strong>Empresa:</strong> ${_escHtml(cleanClientName(task.client))}</span>
             <span><strong>Responsable(s):</strong> ${_escHtml((_effAnalystsOf(task).join(', ')) || '—')}</span>
             <label><strong>PC:</strong> <input type="text" value="${_escHtml(a.pc || '')}" placeholder="Ej: Toughbook 2" oninput="a001SetPc(this.value)" style="padding:0.25rem 0.45rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.78rem;width:150px;"></label>
-        </div>` : '';
+        </div>${kitSelect}` : '';
 
     const missingHtml = (pass !== 'out' && st.missing.length) ? `
         <div style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;padding:0.5rem 0.75rem;margin-top:0.6rem;font-size:0.8rem;">
-            <strong>⚠ Faltan:</strong> ${st.missing.map(m => `${_escHtml(m.name)} (${m.counted} de ${m.plan})`).join(' · ')}
+            <strong>⚠ Faltan:</strong> ${st.missing.map(m => `${_escHtml(m.name)} (${m.counted} de ${m.plan})${m.detail ? ' — ' + _escHtml(m.detail) : ''}`).join(' · ')}
             <div style="font-size:0.72rem;margin-top:2px;">Descríbelo en las novedades de la etapa Llegada a A-MAQ.</div>
         </div>` : '';
 
@@ -8936,7 +9196,8 @@ function _a001Section(stage, task) {
 }
 
 // ── Editor de la lista A001 (admin) ────────────────────────────────────────────
-function openA001Editor() {
+async function openA001Editor() {
+    if(!dbInventoryItems.length) await loadInventoryData();
     renderA001Editor();
     document.getElementById('a001EditorModal').classList.add('active');
 }
@@ -8967,6 +9228,7 @@ function renderA001Editor() {
         <div style="display:flex;gap:0.4rem;align-items:center;margin-bottom:0.35rem;">
             <input type="text" value="${_escHtml(r.name)}" onchange="a001RenameItem('${r.id}', this.value)" style="${inputCss}flex:1;min-width:0;">
             ${groupSelect(r.group_name || 'Otros', `a001ChangeGroup('${r.id}', this.value)`)}
+            <button onclick="openA001Linker('${r.id}')" title="Equipos del inventario vinculados a esta línea" style="background:#f0fdfa;border:1px solid #99f6e4;color:#0f766e;border-radius:6px;padding:2px 8px;cursor:pointer;font-size:0.75rem;white-space:nowrap;">🔗 ${_a001LinkedItems(r.id).length}</button>
             <button onclick="a001Move('${r.id}', -1)" ${idx === 0 ? 'disabled' : ''} title="Subir" style="background:none;border:none;cursor:pointer;">↑</button>
             <button onclick="a001Move('${r.id}', 1)" ${idx === rows.length - 1 ? 'disabled' : ''} title="Bajar" style="background:none;border:none;cursor:pointer;">↓</button>
             <button onclick="a001Delete('${r.id}')" title="Quitar" style="background:none;border:none;cursor:pointer;color:#dc2626;">🗑</button>
@@ -9053,6 +9315,75 @@ async function a001Delete(id) {
     const { error } = await supabaseClient.from('checklist_a001_items').delete().eq('id', id);
     if(error) { showToast(error.message, 'error'); return; }
     await _a001Reload();
+}
+
+
+// ── Vincular líneas de la lista A001 con equipos del Inventario ───────────────
+let _a001LinkLine = null;
+let _a001LinkSel = new Set();
+
+function openA001Linker(lineId) {
+    _a001LinkLine = lineId;
+    _a001LinkSel = new Set(_a001LinkedItems(lineId).map(i => i.id));
+    const line = _a001Items().find(i => i.id === lineId);
+    document.getElementById('a001Link_title').textContent = `Equipos de Inventario para «${line?.name || ''}»`;
+    document.getElementById('a001Link_filter').value = '';
+    document.getElementById('a001Link_kit').innerHTML =
+        '<option value="">Todos los kits</option><option value="__none__">Sin kit</option>' +
+        dbInventoryKits.map(k => `<option value="${k.id}">${_escHtml(k.name)}</option>`).join('');
+    renderA001Linker();
+    document.getElementById('a001LinkModal').classList.add('active');
+}
+
+function _a001LinkVisible() {
+    const q = (document.getElementById('a001Link_filter').value || '').trim().toLowerCase();
+    const kit = document.getElementById('a001Link_kit').value;
+    return dbInventoryItems.filter(i =>
+        (!q || `${i.name} ${i.serial_number || ''}`.toLowerCase().includes(q)) &&
+        (!kit || (kit === '__none__' ? !i.kit_id : i.kit_id === kit)));
+}
+
+function renderA001Linker() {
+    const list = _a001LinkVisible();
+    const lines = _a001Items();
+    document.getElementById('a001Link_count').textContent = `${_a001LinkSel.size} seleccionados · ${list.length} equipos en la vista`;
+    document.getElementById('a001Link_list').innerHTML = list.slice(0, 300).map(i => {
+        const other = i.a001_item_id && i.a001_item_id !== _a001LinkLine ? lines.find(l => l.id === i.a001_item_id)?.name : null;
+        const kit = dbInventoryKits.find(k => k.id === i.kit_id)?.name;
+        return `<label style="display:flex;gap:0.5rem;align-items:center;padding:0.3rem 0;border-bottom:1px solid #f1f5f9;font-size:0.82rem;cursor:pointer;">
+            <input type="checkbox" ${_a001LinkSel.has(i.id) ? 'checked' : ''} onchange="_a001LinkToggle('${i.id}', this.checked)">
+            <span style="flex:1;">${_escHtml(i.name)}${i.serial_number ? ` <span style="color:#94a3b8;">· ${_escHtml(i.serial_number)}</span>` : ''}</span>
+            ${kit ? `<span style="font-size:0.7rem;color:#7c3aed;">🧰 ${_escHtml(kit)}</span>` : ''}
+            ${other ? `<span style="font-size:0.7rem;color:#b45309;" title="Al guardar pasará a esta línea">ya está en «${_escHtml(other)}»</span>` : ''}
+        </label>`;
+    }).join('') || '<div style="color:#94a3b8;padding:1rem;text-align:center;">Sin equipos con ese filtro.</div>';
+}
+
+function _a001LinkToggle(id, checked) {
+    if(checked) _a001LinkSel.add(id); else _a001LinkSel.delete(id);
+    document.getElementById('a001Link_count').textContent = `${_a001LinkSel.size} seleccionados · ${_a001LinkVisible().length} equipos en la vista`;
+}
+
+function a001LinkAllVisible(checked) {
+    _a001LinkVisible().forEach(i => { if(checked) _a001LinkSel.add(i.id); else _a001LinkSel.delete(i.id); });
+    renderA001Linker();
+}
+
+async function saveA001Linker() {
+    const lineId = _a001LinkLine;
+    if(!lineId) return;
+    const r1 = await supabaseClient.from('inventory_items').update({ a001_item_id: null }).eq('a001_item_id', lineId);
+    let err = r1.error;
+    if(!err && _a001LinkSel.size) err = (await supabaseClient.from('inventory_items').update({ a001_item_id: lineId }).in('id', [..._a001LinkSel])).error;
+    if(err) {
+        showToast(/a001_item_id|schema cache/i.test(err.message || '') ? 'Falta ejecutar la migración del enlace A001 ↔ inventario en Supabase.' : err.message, 'error');
+        return;
+    }
+    closeModal('a001LinkModal');
+    await loadInventoryData();
+    renderA001Editor();
+    if(_ck) renderTaskChecklist();
+    showToast('Equipos vinculados ✓', 'success');
 }
 
 function renderTaskChecklist() {
