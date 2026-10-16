@@ -6381,7 +6381,7 @@ function renderSurveysView() {
             ${tabs.map(t => `<button class="${_svTab === t.id ? 'active' : ''}" onclick="setSurveyTab('${t.id}')">${t.label}</button>`).join('')}
         </div>
         ${body}`;
-    if(_svTab === 'dashboard') _svDrawChart();
+    if(_svTab === 'dashboard') { _svDrawChart(); _svDrawGauges(_svDashGaugeItems, 'svg'); }
 }
 
 // ── Lista de rondas ───────────────────────────────────────────────────────────
@@ -7180,6 +7180,82 @@ function _svFilterBar() {
         </div>`;
 }
 
+// ── Relojitos (mismo estilo que el CSAT por analista) ─────────────────────────
+let _svGaugeCharts = {};
+let _svDashGaugeItems = [];
+
+function _svQuality(v) {
+    if(v === null || v === undefined || isNaN(v)) return { label: 'Sin datos', bg: '#f1f5f9', color: '#64748b' };
+    if(v >= 4.5) return { label: 'Excelente', bg: '#dcfce7', color: '#15803d' };
+    if(v >= 4)   return { label: 'Muy bueno', bg: '#dbeafe', color: '#1d4ed8' };
+    if(v >= 3.5) return { label: 'Aceptable', bg: '#fef3c7', color: '#a16207' };
+    return { label: 'Bajo', bg: '#fee2e2', color: '#b91c1c' };
+}
+
+/** Un relojito por indicador: promedio general + las 7 dimensiones. */
+function _svGaugeItems(avg, prevAvg) {
+    const mk = (label, v, pv) => ({ label, value: v, delta: (v !== null && v !== undefined && pv !== null && pv !== undefined) ? v - pv : null });
+    return [mk('Promedio general', avg.overall, prevAvg?.overall),
+        ..._SV_DIMS.map(d => mk(d.label, avg.dims[d.k], prevAvg?.dims[d.k]))];
+}
+
+function _svGaugesHTML(items, prefix, title, subtitle) {
+    const stars = (v, color) => {
+        const filled = v !== null && v !== undefined ? Math.round(v) : 0;
+        let out = '';
+        for(let i = 1; i <= 5; i++) out += `<span style="color:${i <= filled ? color : '#e2e8f0'}; font-size:0.7rem; line-height:1;">★</span>`;
+        return out;
+    };
+    return `
+        <div class="stats-card" style="padding:1.25rem;">
+            <h3 style="margin:0 0 0.25rem; font-size:1rem;">${title}</h3>
+            <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 1.25rem;">${subtitle}</p>
+            <div class="gauges-grid">
+                ${items.map((it, i) => {
+                    const has = it.value !== null && it.value !== undefined;
+                    const color = has ? _svScoreStyle(it.value).color : '#cbd5e1';
+                    const q = _svQuality(it.value);
+                    const d = it.delta;
+                    const deltaHtml = d === null || d === undefined ? '&nbsp;'
+                        : Math.abs(d) < 0.005 ? '<span style="color:#94a3b8;">= igual que antes</span>'
+                        : `<span style="color:${d > 0 ? '#15803d' : '#b91c1c'};font-weight:700;">${d > 0 ? '▲' : '▼'} ${_svFmt(Math.abs(d))} vs. anterior</span>`;
+                    return `
+                    <div class="gauge-card" style="border-top:3px solid ${color}; background:#fff; border-radius:12px; padding:0.55rem 0.5rem 0.65rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
+                        <div class="gauge-card-canvas-wrap"><canvas id="${prefix}-${i}"></canvas></div>
+                        <div class="gauge-value" style="color:${color};">${has ? _svFmt(it.value, 1) : '—'}<span class="gauge-max">/5</span></div>
+                        <div style="display:flex; justify-content:center; gap:1px; margin:2px 0 4px;">${stars(it.value, color)}</div>
+                        <div class="gauge-name">${_escHtml(it.label)}</div>
+                        <div class="gauge-sub">${deltaHtml}</div>
+                        <div style="margin-top:6px; display:flex; justify-content:center;">
+                            <span style="background:${q.bg}; color:${q.color}; font-size:0.62rem; font-weight:700; padding:2px 8px; border-radius:999px; text-transform:uppercase; letter-spacing:0.03em;">${q.label}</span>
+                        </div>
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>`;
+}
+
+function _svDrawGauges(items, prefix) {
+    Object.keys(_svGaugeCharts).filter(k => k.startsWith(prefix + '-')).forEach(k => { try { _svGaugeCharts[k].destroy(); } catch(e) { /* ya destruido */ } delete _svGaugeCharts[k]; });
+    if(typeof Chart === 'undefined') return;
+    items.forEach((it, i) => {
+        const id = `${prefix}-${i}`;
+        const ctx = document.getElementById(id);
+        if(!ctx) return;
+        const has = it.value !== null && it.value !== undefined;
+        const score = has ? it.value : 0;
+        _svGaugeCharts[id] = new Chart(ctx, {
+            type: 'doughnut',
+            data: { datasets: [{ data: [score, Math.max(0, 5 - score)], backgroundColor: [has ? _svScoreStyle(it.value).color : '#cbd5e1', '#eef2f7'], borderWidth: 0, borderRadius: 6, spacing: 1 }] },
+            options: {
+                rotation: -90, circumference: 180, cutout: '68%', responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false }, tooltip: { backgroundColor: '#0f172a', padding: 8, cornerRadius: 6, displayColors: false,
+                    callbacks: { label: c => c.dataIndex === 0 ? `${it.label}: ${score.toFixed(2)} / 5` : '' } } }
+            }
+        });
+    });
+}
+
 function _svDashboard() {
     const rounds = _svScopeRounds();
     const rows = _svFilteredRows();
@@ -7232,6 +7308,13 @@ function _svDashboard() {
     const history = _svFilters.company ? rows.slice().sort((a, b) => _svRoundDate(a.round).localeCompare(_svRoundDate(b.round))) : [];
     const companyName = _svFilters.company ? (_svCompanyOptions().find(c => c.key === _svFilters.company)?.name || '') : '';
 
+    _svDashGaugeItems = _svGaugeItems(avg, prevAvg ? lastAvg : null);
+    // el relojito muestra el promedio del filtro; la flecha compara la última ronda contra la anterior
+    if(prevAvg) {
+        _svDashGaugeItems = _svGaugeItems(avg, null);
+        const pk = _svGaugeItems(lastAvg, prevAvg);
+        _svDashGaugeItems.forEach((it, i) => { it.delta = pk[i].delta; });
+    }
     const kpi = (title, value, sub) => `<div class="stats-card" style="text-align:center;padding:1rem;"><div style="font-size:0.72rem;font-weight:700;color:#64748b;text-transform:uppercase;">${title}</div><div style="margin:0.35rem 0;">${value}</div><div style="font-size:0.72rem;color:#94a3b8;">${sub}</div></div>`;
     const metricOptions = [{ k: 'overall', label: 'Promedio general' }, ..._SV_DIMS.map(d => ({ k: d.k, label: d.label }))];
 
@@ -7244,21 +7327,15 @@ function _svDashboard() {
             ${kpi('Compañías en alerta', `<span style="font-size:1.5rem;font-weight:800;color:${alerts ? '#b91c1c' : '#15803d'};">${alerts}</span>`, 'con alguna nota menor a 4')}
             ${kpi('Reunión de cierre', _svBadge(avg.closing, false), 'no entra en el promedio')}
         </div>
-        <div style="display:grid;grid-template-columns:minmax(280px,1fr) minmax(300px,1.3fr);gap:1rem;" class="sv-two-col">
-            <div class="stats-card"><h4 style="margin-bottom:0.75rem;">Por dimensión${prevAvg ? ' <span style="font-weight:400;font-size:0.72rem;color:#94a3b8;">(cambio de la última ronda vs. la anterior)</span>' : ''}</h4>
-                ${_SV_DIMS.map(d => `<div style="margin-bottom:0.6rem;">
-                    <div style="display:flex;justify-content:space-between;font-size:0.8rem;"><span>${d.label}</span><span>${_svBadge(avg.dims[d.k], false)}${delta(d.k)}</span></div>
-                    <div style="background:#e2e8f0;border-radius:99px;height:6px;margin-top:3px;overflow:hidden;"><div style="width:${Math.max(0, ((avg.dims[d.k] ?? 0) - 1) / 4 * 100)}%;height:100%;background:${_svScoreStyle(avg.dims[d.k]).color};"></div></div></div>`).join('')}
+        <div style="margin-bottom:1rem;">${_svGaugesHTML(_svDashGaugeItems, 'svg', 'Indicadores de satisfacción', prevAvg ? 'Promedio del período filtrado. La flecha compara la última ronda con la anterior.' : 'Promedio del período filtrado.')}</div>
+        <div class="stats-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;margin-bottom:0.5rem;flex-wrap:wrap;">
+                <h4 style="margin:0;">Tendencia por ronda</h4>
+                <select class="filter-select" onchange="svSetTrendMetric(this.value)" style="font-size:0.78rem;">
+                    ${metricOptions.map(m => `<option value="${m.k}" ${_svTrendMetric === m.k ? 'selected' : ''}>${m.label}</option>`).join('')}
+                </select>
             </div>
-            <div class="stats-card">
-                <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;margin-bottom:0.5rem;flex-wrap:wrap;">
-                    <h4 style="margin:0;">Tendencia por ronda</h4>
-                    <select class="filter-select" onchange="svSetTrendMetric(this.value)" style="font-size:0.78rem;">
-                        ${metricOptions.map(m => `<option value="${m.k}" ${_svTrendMetric === m.k ? 'selected' : ''}>${m.label}</option>`).join('')}
-                    </select>
-                </div>
-                <div style="position:relative;height:250px;"><canvas id="svTrendChart"></canvas></div>
-            </div>
+            <div style="position:relative;height:250px;"><canvas id="svTrendChart"></canvas></div>
         </div>
         ${history.length ? `
         <div class="stats-card" style="margin-top:1rem;padding:0;overflow-x:auto;">
@@ -7582,7 +7659,7 @@ async function svUndoMap(surveyKey) {
 
 // ── Tarjeta de satisfacción en el Panel de Control ───────────────────────────
 function renderDashboardSurveyCard() {
-    const el = document.getElementById('dash-survey-card');
+    const el = document.getElementById('dash-survey-section');
     if(!el) return;
     if(!_svCanResults() || !dbSurveyRounds.length) { el.style.display = 'none'; return; }
     const chrono = dbSurveyRounds.filter(r => dbSurveyInvites.some(i => i.round_id === r.id && _svResponseOf(i.id)))
@@ -7592,18 +7669,12 @@ function renderDashboardSurveyCard() {
     const a = _svAverages(_svScopeResponses([last]).map(x => x.resp));
     const p = prev ? _svAverages(_svScopeResponses([prev]).map(x => x.resp)) : null;
     const st = _svRoundStats(last.id);
-    const delta = p && p.overall !== null && a.overall !== null ? a.overall - p.overall : null;
+    const items = _svGaugeItems(a, p);
     el.style.display = '';
     el.innerHTML = `
-        <div class="card-header"><h3>Satisfacción del cliente</h3><p class="subtitle">Última encuesta: ${_escHtml(last.name)}</p></div>
-        <div style="display:flex;align-items:center;gap:1rem;margin:0.6rem 0 0.9rem;">
-            <div style="font-size:2.4rem;font-weight:800;color:${_svScoreStyle(a.overall).color};line-height:1;">${_svFmt(a.overall)}</div>
-            <div style="font-size:0.78rem;color:#64748b;">sobre 5
-                ${delta !== null ? `<div style="font-weight:700;color:${delta >= 0 ? '#15803d' : '#b91c1c'};">${delta >= 0 ? '▲' : '▼'} ${_svFmt(Math.abs(delta))} vs. ${_escHtml(prev.name)}</div>` : ''}
-                <div>${st.answered} de ${st.invites} respondieron</div></div>
-        </div>
-        ${_SV_DIMS.map(d => `<div style="display:flex;justify-content:space-between;font-size:0.78rem;padding:2px 0;"><span style="color:#475569;">${d.label}</span>${_svBadge(a.dims[d.k], false)}</div>`).join('')}
-        <button class="btn-outline" onclick="svGoToResults()" style="margin-top:0.8rem;font-size:0.78rem;padding:4px 12px;width:100%;">Ver resultados →</button>`;
+        ${_svGaugesHTML(items, 'dsg', `Satisfacción del cliente — ${_escHtml(last.name)}`,
+            `${st.answered} de ${st.invites} contactos respondieron${prev ? ` · la flecha compara con ${_escHtml(prev.name)}` : ''}. <a href="#" onclick="svGoToResults(); return false;" style="color:var(--clr-blue);font-weight:600;">Ver resultados completos →</a>`)}`;
+    _svDrawGauges(items, 'dsg');
 }
 
 function svGoToResults() {
