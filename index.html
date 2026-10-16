@@ -124,6 +124,10 @@
                     <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="20" x2="20" y2="20"/><rect x="5" y="11" width="3.2" height="9" rx="0.8"/><rect x="10.4" y="5" width="3.2" height="15" rx="0.8"/><rect x="15.8" y="8" width="3.2" height="12" rx="0.8"/></svg></span>
                     <span class="nav-text">Eficiencia</span>
                 </a>
+                <a href="#" class="nav-item" id="nav-surveys" data-view="surveys" onclick="switchView('surveys')">
+                    <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5s1.3 2 3.5 2 3.5-2 3.5-2"/><line x1="9" y1="9.5" x2="9.01" y2="9.5"/><line x1="15" y1="9.5" x2="15.01" y2="9.5"/></svg></span>
+                    <span class="nav-text">Encuestas</span>
+                </a>
                 <a href="#" class="nav-item" id="nav-reports" data-view="reports" onclick="switchView('reports')">
                     <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3.5" width="16" height="17" rx="2"/><path d="m7.5 8 1.2 1.2L11 7"/><path d="m7.5 13.5 1.2 1.2L11 12.5"/><line x1="13" y1="8.5" x2="16.5" y2="8.5"/><line x1="13" y1="14" x2="16.5" y2="14"/></svg></span>
                     <span class="nav-text">Reportes</span>
@@ -311,6 +315,7 @@
                             <canvas id="serviceChart"></canvas>
                         </div>
                     </div>
+                    <div id="dash-survey-card" class="stats-card pie-chart-card" style="display:none;"></div>
                 </div>
 
                 <!-- Gauges CSAT por Analista (REQ-03) -->
@@ -534,6 +539,11 @@
                         <!-- JS render -->
                     </div>
                 </div>
+            </div>
+
+            <!-- SURVEYS VIEW -->
+            <div id="view-surveys" class="view-section" style="padding-top: 2rem;">
+                <div id="surveys-container"></div>
             </div>
 
             <!-- EFFICIENCY VIEW (solo admin) -->
@@ -1190,6 +1200,91 @@
             <div style="display:flex;gap:0.75rem;margin-top:1rem;">
                 <button class="btn-secondary" onclick="closeModal('a001LinkModal')" style="flex:1;">Cancelar</button>
                 <button class="btn-primary" onclick="saveA001Linker()" style="flex:2;">Guardar vínculo</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- MODALES: Encuestas de satisfacción         -->
+    <!-- ══════════════════════════════════════════ -->
+    <div id="svRoundModal" class="modal">
+        <div class="modal-content" style="max-width:980px;">
+            <span class="close-btn" onclick="closeModal('svRoundModal')">&times;</span>
+            <h2 style="margin-bottom:0.2rem;font-size:1.15rem;">Nueva ronda de encuestas</h2>
+            <p style="font-size:0.78rem;color:#64748b;margin-bottom:0.9rem;">El sistema propone los clientes con gestiones ejecutadas en la ventana de medición. Marca los que vas a llamar; los encuestados hace menos de 6 meses vienen desmarcados.</p>
+            <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.8rem;">
+                <div style="flex:2;min-width:200px;"><label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Nombre de la ronda</label><input id="svRound_name" type="text" style="width:100%;padding:0.5rem 0.7rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;"></div>
+                <div style="flex:1;min-width:140px;"><label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Mediciones desde</label><input id="svRound_start" type="date" onchange="svWizardWindowChanged()" style="width:100%;padding:0.5rem 0.7rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;"></div>
+                <div style="flex:1;min-width:140px;"><label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Hasta</label><input id="svRound_end" type="date" onchange="svWizardWindowChanged()" style="width:100%;padding:0.5rem 0.7rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;flex-wrap:wrap;gap:0.5rem;">
+                <span id="svRound_count" style="font-size:0.78rem;color:#64748b;"></span>
+                <label style="font-size:0.78rem;color:#475569;cursor:pointer;"><input type="checkbox" id="svRound_allContacts" style="width:auto;"> Incluir todos los contactos de cada empresa (no solo el principal)</label>
+            </div>
+            <div id="svRound_list" style="max-height:44vh;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;"></div>
+            <div style="display:flex;gap:0.5rem;margin-top:0.7rem;">
+                <input id="svRound_extra" list="svRound_companies" type="text" placeholder="Agregar otra empresa a mano…" style="width:100%;padding:0.5rem 0.7rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;flex:1;" onkeydown="if(event.key==='Enter'){svWizardAddCompany();}">
+                <datalist id="svRound_companies"></datalist>
+                <button class="btn-outline" onclick="svWizardAddCompany()" style="font-size:0.8rem;padding:4px 14px;">Agregar</button>
+            </div>
+            <div style="display:flex;gap:0.75rem;margin-top:1rem;">
+                <button class="btn-secondary" onclick="closeModal('svRoundModal')" style="flex:1;">Cancelar</button>
+                <button class="btn-primary" onclick="svCreateRound()" style="flex:2;">Crear ronda</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="svAttemptModal" class="modal">
+        <div class="modal-content" style="max-width:480px;">
+            <span class="close-btn" onclick="closeModal('svAttemptModal')">&times;</span>
+            <h2 id="svAttempt_title" style="margin-bottom:0.6rem;font-size:1.05rem;padding-right:2rem;"></h2>
+            <div id="svAttempt_history" style="margin-bottom:0.9rem;max-height:120px;overflow-y:auto;"></div>
+            <div style="display:flex;gap:0.6rem;margin-bottom:0.7rem;">
+                <div style="flex:1;"><label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Medio</label><select id="svAttempt_channel" style="width:100%;padding:0.5rem 0.7rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;"><option>Llamada</option><option>WhatsApp</option><option>Correo</option></select></div>
+                <div style="flex:1.4;"><label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Resultado</label><select id="svAttempt_result" style="width:100%;padding:0.5rem 0.7rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;"><option>No respondió</option><option>Desvió la llamada</option><option>Ocupado / llamar luego</option><option>Habló con el contacto</option><option>Número errado</option></select></div>
+            </div>
+            <label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Nota</label>
+            <textarea id="svAttempt_note" rows="2" placeholder="Ej: 312 286 7407, dejé mensaje de WhatsApp" style="width:100%;padding:0.5rem 0.7rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;resize:vertical;"></textarea>
+            <label style="font-size:0.8rem;color:#475569;display:flex;gap:0.4rem;align-items:center;margin-top:0.7rem;cursor:pointer;"><input type="checkbox" id="svAttempt_final" style="width:auto;"> Marcar como sin respuesta definitiva</label>
+            <div style="display:flex;gap:0.75rem;margin-top:1rem;">
+                <button class="btn-secondary" onclick="closeModal('svAttemptModal')" style="flex:1;">Cancelar</button>
+                <button class="btn-primary" onclick="svSaveAttempt()" style="flex:2;">Guardar intento</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="svSurveyModal" class="modal">
+        <div class="modal-content" style="max-width:640px;">
+            <span class="close-btn" onclick="closeModal('svSurveyModal')">&times;</span>
+            <h2 id="svSurvey_title" style="margin-bottom:0.15rem;font-size:1.1rem;padding-right:2rem;"></h2>
+            <p id="svSurvey_sub" style="font-size:0.8rem;color:#64748b;margin-bottom:0.6rem;"></p>
+            <div id="svSurvey_body"></div>
+            <div style="padding-top:0.6rem;"><label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Comentarios o sugerencias</label>
+                <textarea id="svSurvey_comments" rows="3" style="width:100%;padding:0.5rem 0.7rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;resize:vertical;"></textarea></div>
+            <div style="display:flex;gap:0.75rem;margin-top:1rem;">
+                <button class="btn-secondary" onclick="closeModal('svSurveyModal')" style="flex:1;">Cancelar</button>
+                <button class="btn-primary" onclick="svSaveSurvey()" style="flex:2;">Guardar encuesta</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="svContactModal" class="modal" style="z-index:120;">
+        <div class="modal-content" style="max-width:460px;">
+            <span class="close-btn" onclick="closeModal('svContactModal')">&times;</span>
+            <h2 id="svContact_title" style="margin-bottom:0.9rem;font-size:1.1rem;"></h2>
+            <div style="display:flex;flex-direction:column;gap:0.7rem;">
+                <div><label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Empresa</label><input id="svContact_company" list="svContact_companies" type="text" oninput="svContactCompanyChanged()" style="width:100%;padding:0.5rem 0.7rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;"><datalist id="svContact_companies"></datalist></div>
+                <div><label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Contacto</label><input id="svContact_name" type="text" style="width:100%;padding:0.5rem 0.7rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;"></div>
+                <div><label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Cargo</label><input id="svContact_role" type="text" style="width:100%;padding:0.5rem 0.7rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;"></div>
+                <div style="display:flex;gap:0.6rem;">
+                    <div style="flex:1;"><label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Teléfono</label><input id="svContact_phone" type="text" style="width:100%;padding:0.5rem 0.7rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;"></div>
+                    <div style="flex:1.3;"><label style="font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px;">Correo</label><input id="svContact_email" type="text" style="width:100%;padding:0.5rem 0.7rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;"></div>
+                </div>
+            </div>
+            <div style="display:flex;gap:0.6rem;margin-top:1rem;flex-wrap:wrap;">
+                <button class="btn-secondary" onclick="closeModal('svContactModal')" style="flex:1;">Cancelar</button>
+                <button id="svContact_saveContact" class="btn-outline" onclick="svSaveInviteContactToBook()" style="flex:1.2;font-size:0.8rem;">Guardar también en la ficha</button>
+                <button class="btn-primary" onclick="svSaveContact()" style="flex:1.2;">Guardar</button>
             </div>
         </div>
     </div>

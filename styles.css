@@ -2562,3 +2562,8 @@ body.role-assistant .calendar-task-pill:active {
     .auth-left { padding: 2.5rem 1.5rem; }
     .auth-right { display: none; }
 }
+
+/* Encuestas: dos columnas que colapsan en pantallas angostas */
+@media (max-width: 900px) {
+    .sv-two-col { grid-template-columns: 1fr !important; }
+}

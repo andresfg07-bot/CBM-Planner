@@ -153,9 +153,9 @@ function applyRoleUI() {
 
     // Vistas permitidas por rol
     const allowedViews = {
-        admin:      ['dashboard', 'tasks', 'planning', 'finance', 'admin', 'reports', 'efficiency', 'inventory'],
+        admin:      ['dashboard', 'tasks', 'planning', 'finance', 'admin', 'reports', 'efficiency', 'surveys', 'inventory'],
         analyst:    ['mywork', 'planning', 'inventory'],
-        assistant:  ['dashboard', 'tasks', 'planning', 'finance', 'reports'],
+        assistant:  ['dashboard', 'tasks', 'planning', 'finance', 'reports', 'surveys'],
         commercial: ['dashboard', 'tasks', 'planning', 'finance', 'reports'],
         viewer:     ['dashboard', 'tasks', 'planning', 'finance', 'reports', 'inventory'],
     };
@@ -5982,6 +5982,7 @@ function switchView(viewName) {
             admin:     'Administración de Datos Maestros',
             reports:   'Reportes Históricos',
             efficiency: 'Eficiencia de Clientes y Analistas',
+            surveys:   'Encuestas de Satisfacción',
             inventory: 'Control de Inventario CBM'
         };
         headerTitle.textContent = titles[viewName] || 'CBM Maestro';
@@ -6005,12 +6006,15 @@ function switchView(viewName) {
         initReportsView();
     } else if(viewName === 'efficiency') {
         renderEfficiencyView();
+    } else if(viewName === 'surveys') {
+        initSurveysView();
     } else if(viewName === 'inventory') {
         initInventoryView();
     } else {
         renderBoard();
     }
 
+    if(viewName === 'dashboard' && typeof renderDashboardSurveyCard === 'function') renderDashboardSurveyCard();
     updateCsatBadge();
 
     // Recarga silenciosa desde Supabase al cambiar de vista
@@ -6213,6 +6217,964 @@ async function updateEquipment(e, equipmentId) {
     closeModal('adminDataModal');
     await loadMasterData();
     renderAdminView();
+}
+
+// ══════════════════════════════════════════
+// ENCUESTAS DE SATISFACCIÓN DE CLIENTES (rondas trimestrales)
+// Rondas → invitaciones (clientes a llamar) → respuestas. Dashboard de resultados.
+// ══════════════════════════════════════════
+
+let dbSurveyRounds = [], dbSurveyInvites = [], dbSurveyResponses = [], dbClientContacts = [];
+let _svTab = 'rounds';          // 'rounds' | 'dashboard' | 'contacts'
+let _svOpenRound = null;        // id de la ronda abierta
+let _svMissing = false;         // tablas sin migrar
+let _svDashScope = 'all';       // 'all' | 'last12' | 'year:2026' | 'round:<id>'
+let _svOnlyAlerts = false;
+let _svChart = null;
+let _svContactSearch = '';
+let _svWizard = null;
+let _svForm = null;
+let _svContactCtx = null;
+let _svAttemptId = null;
+
+// Roles que ven los resultados (agregar 'commercial' y 'viewer' cuando se habilite para ellos).
+const _SV_RESULTS_ROLES = ['admin'];
+const _SV_FILL_ROLES = ['admin', 'assistant'];
+
+const _SV_DIMS = [
+    { k: 'q_punctual',     label: 'Cumplimiento de mediciones' },
+    { k: 'q_verbal',       label: 'Acercamiento' },
+    { k: 'q_reports_time', label: 'Cumplimiento de análisis' },
+    { k: 'q_clarity',      label: 'Claridad' },
+    { k: 'q_accuracy',     label: 'Certeza' },
+    { k: 'q_recommend',    label: 'Recomendación' },
+    { k: 'q_ally',         label: 'Confianza' }
+];
+const _SV_MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+function _svCanFill()    { return _SV_FILL_ROLES.includes(currentUserProfile?.role); }
+function _svCanResults() { return _SV_RESULTS_ROLES.includes(currentUserProfile?.role); }
+
+function _svKey(s) {
+    return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+        .replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function _svSameCompany(a, b) {
+    if(!a || !b) return false;
+    return a === b || a.startsWith(b + ' ') || b.startsWith(a + ' ');
+}
+
+function _svNum(v) { return (v === null || v === undefined || v === '') ? null : Number(v); }
+
+function _svFmt(v, d = 2) { return v === null || v === undefined || isNaN(v) ? '—' : Number(v).toFixed(d).replace('.', ','); }
+
+function _svScoreStyle(v) {
+    if(v === null || v === undefined || isNaN(v)) return { color: '#94a3b8', bg: '#f1f5f9' };
+    if(v >= 4.5) return { color: '#15803d', bg: '#dcfce7' };
+    if(v >= 4)   return { color: '#1d4ed8', bg: '#dbeafe' };
+    if(v >= 3.5) return { color: '#b45309', bg: '#fef3c7' };
+    return { color: '#b91c1c', bg: '#fee2e2' };
+}
+
+function _svBadge(v, big) {
+    const st = _svScoreStyle(v);
+    return `<span style="display:inline-block;min-width:${big ? 52 : 38}px;text-align:center;background:${st.bg};color:${st.color};border-radius:99px;padding:${big ? '3px 11px' : '1px 7px'};font-weight:800;font-size:${big ? '1rem' : '0.76rem'};">${_svFmt(v)}</span>`;
+}
+
+/** Promedio de una respuesta: media de las dimensiones respondidas. */
+function _svResponseScore(r) {
+    const vals = _SV_DIMS.map(d => _svNum(r[d.k])).filter(v => v !== null);
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+}
+
+/** Promedios por dimensión y general (media de los promedios por dimensión, como en el Excel). */
+function _svAverages(responses) {
+    const out = { dims: {}, overall: null, closing: null, n: responses.length };
+    const dimVals = [];
+    _SV_DIMS.forEach(d => {
+        const v = responses.map(r => _svNum(r[d.k])).filter(x => x !== null);
+        out.dims[d.k] = v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+        if(out.dims[d.k] !== null) dimVals.push(out.dims[d.k]);
+    });
+    out.overall = dimVals.length ? dimVals.reduce((a, b) => a + b, 0) / dimVals.length : null;
+    const cm = responses.map(r => _svNum(r.q_closing_meeting)).filter(x => x !== null);
+    out.closing = cm.length ? cm.reduce((a, b) => a + b, 0) / cm.length : null;
+    return out;
+}
+
+function _svInviteById(id) { return dbSurveyInvites.find(i => i.id === id); }
+function _svResponseOf(inviteId) { return dbSurveyResponses.find(r => r.invite_id === inviteId); }
+function _svRoundById(id) { return dbSurveyRounds.find(r => r.id === id); }
+
+function _svRoundStats(roundId) {
+    const invites = dbSurveyInvites.filter(i => i.round_id === roundId && i.status !== 'omitida');
+    const resp = invites.map(i => _svResponseOf(i.id)).filter(Boolean);
+    return { invites: invites.length, answered: resp.length, avg: _svAverages(resp).overall };
+}
+
+function _svRoundDate(r) { return r.survey_date || (r.created_at || '').slice(0, 10); }
+
+async function loadSurveyData() {
+    if(!supabaseClient) return;
+    const [r1, r2, r3, r4] = await Promise.all([
+        supabaseClient.from('survey_rounds').select('*'),
+        supabaseClient.from('survey_invites').select('*'),
+        supabaseClient.from('survey_responses').select('*'),
+        supabaseClient.from('client_contacts').select('*').order('sort_order')
+    ]);
+    _svMissing = !!(r1.error && /survey_rounds|schema cache|does not exist/i.test(r1.error.message || ''));
+    if(r1.data) dbSurveyRounds = r1.data;
+    if(r2.data) dbSurveyInvites = r2.data;
+    if(r3.data) dbSurveyResponses = r3.data;
+    if(r4.data) dbClientContacts = r4.data;
+}
+
+async function initSurveysView() {
+    const el = document.getElementById('surveys-container');
+    if(el && !dbSurveyRounds.length) el.innerHTML = '<div style="text-align:center;padding:3rem;color:#94a3b8;">Cargando encuestas…</div>';
+    await loadSurveyData();
+    renderSurveysView();
+}
+
+function setSurveyTab(tab) { _svTab = tab; _svOpenRound = null; renderSurveysView(); }
+
+function renderSurveysView() {
+    const el = document.getElementById('surveys-container');
+    if(!el) return;
+    const canFill = _svCanFill(), canRes = _svCanResults();
+    if(!canFill && !canRes) {
+        el.innerHTML = '<div style="text-align:center;padding:3rem;color:#94a3b8;">No tienes permiso para ver esta sección.</div>';
+        return;
+    }
+    if(_svMissing) {
+        el.innerHTML = '<div style="text-align:center;padding:3rem;color:#b45309;">Falta ejecutar la migración de encuestas en Supabase (supabase_migration_surveys.sql).</div>';
+        return;
+    }
+    const tabs = [];
+    if(canFill || canRes) tabs.push({ id: 'rounds', label: '📋 Rondas' });
+    if(canRes) tabs.push({ id: 'dashboard', label: '📊 Resultados' });
+    if(canFill) tabs.push({ id: 'contacts', label: '👥 Contactos' });
+    if(!tabs.some(t => t.id === _svTab)) _svTab = tabs[0].id;
+
+    let body = '';
+    if(_svTab === 'rounds') body = _svOpenRound ? _svRoundDetail() : _svRoundsList();
+    else if(_svTab === 'dashboard') body = _svDashboard();
+    else body = _svContactsTab();
+
+    el.innerHTML = `
+        <div class="kanban-header" style="margin-bottom:1.25rem;">
+            <div>
+                <h2>Encuestas de Satisfacción</h2>
+                <p class="subtitle">Rondas trimestrales de llamadas a clientes, con sus resultados.</p>
+            </div>
+            ${(_svTab === 'rounds' && !_svOpenRound && canFill) ? '<button class="btn-primary" onclick="svOpenNewRound()">+ Nueva ronda</button>' : ''}
+        </div>
+        <div class="view-toggle-group" style="margin-bottom:1.25rem;">
+            ${tabs.map(t => `<button class="${_svTab === t.id ? 'active' : ''}" onclick="setSurveyTab('${t.id}')">${t.label}</button>`).join('')}
+        </div>
+        ${body}`;
+    if(_svTab === 'dashboard') _svDrawChart();
+}
+
+// ── Lista de rondas ───────────────────────────────────────────────────────────
+function _svRoundsList() {
+    const rounds = dbSurveyRounds.slice().sort((a, b) => _svRoundDate(b).localeCompare(_svRoundDate(a)));
+    if(!rounds.length) return '<div class="stats-card" style="text-align:center;padding:3rem;color:#94a3b8;">Aún no hay rondas. Crea la primera con "+ Nueva ronda".</div>';
+    const canRes = _svCanResults();
+    return `<div class="stats-card" style="padding:0;overflow-x:auto;"><table class="data-table" style="font-size:0.84rem;">
+        <thead><tr><th>Ronda</th><th>Fecha</th><th>Estado</th><th style="text-align:center;">Respondidas</th>${canRes ? '<th style="text-align:center;">Promedio</th>' : ''}<th style="text-align:right;">Acciones</th></tr></thead>
+        <tbody>${rounds.map(r => {
+            const s = _svRoundStats(r.id);
+            const pct = s.invites ? Math.round(s.answered / s.invites * 100) : 0;
+            return `<tr>
+                <td><strong>${_escHtml(r.name)}</strong>${r.source === 'excel' ? ' <span style="font-size:0.68rem;color:#94a3b8;">· historial</span>' : ''}</td>
+                <td>${_escHtml(_svRoundDate(r))}</td>
+                <td><span style="background:${r.status === 'abierta' ? '#dcfce7' : '#f1f5f9'};color:${r.status === 'abierta' ? '#15803d' : '#64748b'};border-radius:99px;padding:2px 10px;font-size:0.72rem;font-weight:700;">${r.status === 'abierta' ? 'Abierta' : 'Cerrada'}</span></td>
+                <td style="text-align:center;white-space:nowrap;">${s.answered}/${s.invites} <span style="color:#94a3b8;font-size:0.72rem;">(${pct}%)</span></td>
+                ${canRes ? `<td style="text-align:center;">${_svBadge(s.avg, false)}</td>` : ''}
+                <td style="text-align:right;white-space:nowrap;">
+                    <button class="btn-outline" onclick="svOpenRound('${r.id}')" style="font-size:0.76rem;padding:3px 12px;">Abrir</button>
+                    ${currentUserProfile?.role === 'admin' ? `<button class="btn-secondary" onclick="svDeleteRound('${r.id}')" title="Eliminar ronda" style="font-size:0.76rem;padding:3px 9px;color:#dc2626;">🗑</button>` : ''}
+                </td></tr>`;
+        }).join('')}</tbody></table></div>`;
+}
+
+function svOpenRound(id) { _svOpenRound = id; renderSurveysView(); }
+function svBackToRounds() { _svOpenRound = null; renderSurveysView(); }
+
+async function svDeleteRound(id) {
+    const r = _svRoundById(id);
+    if(!r || !confirm(`¿Eliminar la ronda "${r.name}"?\n\nSe borrarán también sus invitaciones y respuestas.`)) return;
+    const { error } = await supabaseClient.from('survey_rounds').delete().eq('id', id);
+    if(error) { showToast('No se pudo eliminar: ' + error.message, 'error'); return; }
+    await loadSurveyData();
+    _svOpenRound = null;
+    renderSurveysView();
+}
+
+async function svSetRoundStatus(id, status) {
+    const upd = { status, closed_at: status === 'cerrada' ? new Date().toISOString() : null };
+    const { error } = await supabaseClient.from('survey_rounds').update(upd).eq('id', id);
+    if(error) { showToast(error.message, 'error'); return; }
+    await loadSurveyData();
+    renderSurveysView();
+}
+
+// ── Detalle de una ronda: hoja de llamadas ────────────────────────────────────
+const _SV_STATUS = {
+    pendiente:     { label: 'Pendiente',     color: '#64748b', bg: '#f1f5f9' },
+    contactado:    { label: 'Contactado',    color: '#1d4ed8', bg: '#dbeafe' },
+    respondida:    { label: 'Respondida',    color: '#15803d', bg: '#dcfce7' },
+    sin_respuesta: { label: 'Sin respuesta', color: '#b91c1c', bg: '#fee2e2' },
+    omitida:       { label: 'Omitida',       color: '#94a3b8', bg: '#f8fafc' }
+};
+
+function _svRoundDetail() {
+    const round = _svRoundById(_svOpenRound);
+    if(!round) { _svOpenRound = null; return _svRoundsList(); }
+    const canFill = _svCanFill(), canRes = _svCanResults();
+    const invites = dbSurveyInvites.filter(i => i.round_id === round.id)
+        .sort((a, b) => a.company_name.localeCompare(b.company_name, 'es'));
+    const s = _svRoundStats(round.id);
+    const pct = s.invites ? Math.round(s.answered / s.invites * 100) : 0;
+    const open = round.status === 'abierta';
+
+    const rows = invites.map(i => {
+        const st = _SV_STATUS[i.status] || _SV_STATUS.pendiente;
+        const resp = _svResponseOf(i.id);
+        const attempts = Array.isArray(i.attempts) ? i.attempts : [];
+        const last = attempts[attempts.length - 1];
+        const phone = (i.contact_phone || '').trim();
+        const tel = phone.replace(/[^\d+]/g, '');
+        return `<tr style="${i.status === 'omitida' ? 'opacity:.55;' : ''}">
+            <td><strong>${_escHtml(i.company_name)}</strong>${i.service_months ? `<div style="font-size:0.7rem;color:#64748b;">Servicio: ${_escHtml(i.service_months)}</div>` : ''}${i.analysts ? `<div style="font-size:0.7rem;color:#94a3b8;">${_escHtml(i.analysts)}</div>` : ''}</td>
+            <td>${i.contact_name ? `<div>${_escHtml(i.contact_name)}</div><div style="font-size:0.7rem;color:#64748b;">${_escHtml(i.contact_role || '')}</div>` : '<span style="color:#dc2626;font-size:0.78rem;">Sin contacto</span>'}</td>
+            <td style="font-size:0.78rem;white-space:nowrap;">${phone ? `<a href="tel:${_escHtml(tel)}" style="color:var(--clr-blue);text-decoration:none;">📞 ${_escHtml(phone)}</a>` : '<span style="color:#cbd5e1;">—</span>'}${i.contact_email ? `<div><a href="mailto:${_escHtml(i.contact_email)}" style="color:#64748b;text-decoration:none;font-size:0.72rem;">✉ ${_escHtml(i.contact_email)}</a></div>` : ''}</td>
+            <td><span style="background:${st.bg};color:${st.color};border-radius:99px;padding:2px 10px;font-size:0.72rem;font-weight:700;white-space:nowrap;">${st.label}</span>${resp && canRes ? ` ${_svBadge(_svResponseScore(resp), false)}` : ''}</td>
+            <td style="font-size:0.74rem;color:#64748b;" title="${_escHtml(last ? last.note || '' : '')}">${attempts.length ? `${attempts.length} intento${attempts.length !== 1 ? 's' : ''}<div style="color:#94a3b8;">${_escHtml(last.result || '')}</div>` : '—'}</td>
+            <td style="text-align:right;white-space:nowrap;">${canFill ? `
+                <button class="btn-outline" onclick="svOpenSurvey('${i.id}')" style="font-size:0.74rem;padding:3px 10px;">${resp ? '📝 Editar' : '📝 Encuesta'}</button>
+                <button class="btn-secondary" onclick="svOpenAttempt('${i.id}')" title="Registrar intento de contacto" style="font-size:0.74rem;padding:3px 8px;">📞</button>
+                <button class="btn-secondary" onclick="svEditInviteContact('${i.id}')" title="Editar contacto" style="font-size:0.74rem;padding:3px 8px;">✏️</button>
+                <button class="btn-secondary" onclick="svToggleOmit('${i.id}')" title="${i.status === 'omitida' ? 'Restaurar' : 'Omitir de la ronda'}" style="font-size:0.74rem;padding:3px 8px;">${i.status === 'omitida' ? '↺' : '⊘'}</button>` : ''}</td>
+        </tr>`;
+    }).join('');
+
+    return `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.9rem;">
+            <div style="display:flex;align-items:center;gap:0.75rem;">
+                <button class="btn-outline" onclick="svBackToRounds()" style="font-size:0.78rem;padding:3px 12px;">← Rondas</button>
+                <h3 style="margin:0;">${_escHtml(round.name)}</h3>
+                <span style="background:${open ? '#dcfce7' : '#f1f5f9'};color:${open ? '#15803d' : '#64748b'};border-radius:99px;padding:2px 10px;font-size:0.72rem;font-weight:700;">${open ? 'Abierta' : 'Cerrada'}</span>
+            </div>
+            <div style="display:flex;gap:0.5rem;">
+                ${canFill && open ? '<button class="btn-outline" onclick="svAddInvite()" style="font-size:0.78rem;padding:4px 12px;">+ Agregar cliente</button>' : ''}
+                ${currentUserProfile?.role === 'admin' ? `<button class="btn-secondary" onclick="svSetRoundStatus('${round.id}', '${open ? 'cerrada' : 'abierta'}')" style="font-size:0.78rem;padding:4px 12px;">${open ? 'Cerrar ronda' : 'Reabrir ronda'}</button>` : ''}
+            </div>
+        </div>
+        <div style="margin-bottom:0.9rem;">
+            <div style="background:#e2e8f0;border-radius:99px;height:8px;overflow:hidden;"><div style="width:${pct}%;height:100%;background:#16a34a;"></div></div>
+            <div style="font-size:0.78rem;color:#64748b;margin-top:4px;">${s.answered} de ${s.invites} respondidas (${pct}%)${canRes && s.avg !== null ? ` · promedio ${_svFmt(s.avg)}` : ''}${round.window_start ? ` · ventana ${round.window_start} a ${round.window_end}` : ''}</div>
+        </div>
+        <div class="stats-card" style="padding:0;overflow-x:auto;"><table class="data-table" style="font-size:0.82rem;">
+            <thead><tr><th>Cliente</th><th>Contacto</th><th>Teléfono / correo</th><th>Estado</th><th>Intentos</th><th></th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="6" style="text-align:center;padding:2rem;color:#94a3b8;">Sin clientes en esta ronda.</td></tr>'}</tbody>
+        </table></div>`;
+}
+
+async function svToggleOmit(inviteId) {
+    const inv = _svInviteById(inviteId);
+    if(!inv) return;
+    const status = inv.status === 'omitida' ? 'pendiente' : 'omitida';
+    const { error } = await supabaseClient.from('survey_invites').update({ status }).eq('id', inviteId);
+    if(error) { showToast(error.message, 'error'); return; }
+    await loadSurveyData();
+    renderSurveysView();
+}
+
+// ── Intentos de contacto ──────────────────────────────────────────────────────
+function svOpenAttempt(inviteId) {
+    const inv = _svInviteById(inviteId);
+    if(!inv) return;
+    _svAttemptId = inviteId;
+    const attempts = Array.isArray(inv.attempts) ? inv.attempts : [];
+    document.getElementById('svAttempt_title').textContent = `Intento de contacto — ${inv.company_name}`;
+    document.getElementById('svAttempt_history').innerHTML = attempts.length
+        ? attempts.slice().reverse().map(a => `<div style="font-size:0.76rem;color:#64748b;padding:2px 0;">${_escHtml(new Date(a.at).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }))} · ${_escHtml(a.channel || '')} · <strong>${_escHtml(a.result || '')}</strong>${a.note ? ' — ' + _escHtml(a.note) : ''}</div>`).join('')
+        : '<div style="font-size:0.76rem;color:#94a3b8;">Sin intentos registrados.</div>';
+    document.getElementById('svAttempt_note').value = '';
+    document.getElementById('svAttempt_final').checked = false;
+    document.getElementById('svAttemptModal').classList.add('active');
+}
+
+async function svSaveAttempt() {
+    const inv = _svInviteById(_svAttemptId);
+    if(!inv) return;
+    const result = document.getElementById('svAttempt_result').value;
+    const attempt = {
+        at: new Date().toISOString(),
+        channel: document.getElementById('svAttempt_channel').value,
+        result,
+        note: document.getElementById('svAttempt_note').value.trim(),
+        by: currentUserProfile?.display_name || currentUserProfile?.analyst_name || currentUser?.email || ''
+    };
+    const attempts = [...(Array.isArray(inv.attempts) ? inv.attempts : []), attempt];
+    const upd = { attempts };
+    if(inv.status !== 'respondida') {
+        if(document.getElementById('svAttempt_final').checked) upd.status = 'sin_respuesta';
+        else if(result === 'Habló con el contacto') upd.status = 'contactado';
+    }
+    const { error } = await supabaseClient.from('survey_invites').update(upd).eq('id', inv.id);
+    if(error) { showToast(error.message, 'error'); return; }
+    closeModal('svAttemptModal');
+    await loadSurveyData();
+    renderSurveysView();
+}
+
+// ── Formulario de la encuesta ─────────────────────────────────────────────────
+function svOpenSurvey(inviteId) {
+    const inv = _svInviteById(inviteId);
+    if(!inv) return;
+    const r = _svResponseOf(inviteId) || {};
+    _svForm = {
+        inviteId,
+        vals: {},
+        closing: r.q_closing_meeting != null ? String(r.q_closing_meeting) : '',
+        closingNote: r.closing_meeting_note || '',
+        emotion: r.emotion || ''
+    };
+    _SV_DIMS.forEach(d => { _svForm.vals[d.k] = r[d.k] != null ? Number(r[d.k]) : null; });
+    document.getElementById('svSurvey_title').textContent = `Encuesta — ${inv.company_name}`;
+    document.getElementById('svSurvey_sub').innerHTML = `${_escHtml(inv.contact_name || 'Sin contacto')}${inv.contact_role ? ' · ' + _escHtml(inv.contact_role) : ''}${inv.contact_phone ? ` · <a href="tel:${_escHtml(inv.contact_phone.replace(/[^\d+]/g, ''))}" style="color:var(--clr-blue);">📞 ${_escHtml(inv.contact_phone)}</a>` : ''}`;
+    document.getElementById('svSurvey_comments').value = r.comments || '';
+    _svRenderSurveyForm();
+    document.getElementById('svSurveyModal').classList.add('active');
+}
+
+const _SV_QUESTIONS = {
+    q_punctual:     '¿La gestión fue realizada puntualmente?',
+    q_verbal:       '¿Cómo califica el reporte verbal entregado por el analista al finalizar la gestión?',
+    q_reports_time: '¿Recibió sus informes a tiempo?',
+    q_clarity:      '¿Somos claros con la información suministrada en el reporte?',
+    q_accuracy:     '¿Considera que los diagnósticos fueron acertados?',
+    q_recommend:    '¿Recomendaría los servicios de A-MAQ S.A.?',
+    q_ally:         '¿Considera a A-MAQ un aliado en la confiabilidad de su planta?'
+};
+
+function _svRatingButtons(field, current, onclickFn) {
+    const btn = (v) => {
+        const on = current === v;
+        return `<button onclick="${onclickFn}('${field}', ${v})" style="min-width:40px;padding:4px 0;border-radius:8px;border:1.5px solid ${on ? '#1d4ed8' : '#cbd5e1'};background:${on ? '#dbeafe' : '#fff'};color:${on ? '#1d4ed8' : '#64748b'};font-weight:800;font-size:0.85rem;cursor:pointer;">${v}</button>`;
+    };
+    const half = current !== null && current !== undefined && !Number.isInteger(current);
+    return `<div style="display:flex;gap:0.3rem;align-items:center;flex-wrap:wrap;">${[1, 2, 3, 4, 5].map(btn).join('')}
+        <button onclick="svToggleHalf('${field}')" title="Medio punto menos (ej. 4,5)" style="padding:4px 8px;border-radius:8px;border:1.5px solid ${half ? '#b45309' : '#e2e8f0'};background:${half ? '#fef3c7' : '#fff'};color:${half ? '#b45309' : '#94a3b8'};font-size:0.72rem;cursor:pointer;">−½</button>
+        ${current !== null && current !== undefined ? `<span style="font-size:0.78rem;color:#64748b;margin-left:4px;">${_svFmt(current, 1)}</span>` : ''}</div>`;
+}
+
+function svSetRating(field, v) {
+    _svForm.vals[field] = _svForm.vals[field] === v ? null : v;
+    _svRenderSurveyForm();
+}
+
+function svToggleHalf(field) {
+    const cur = _svForm.vals[field];
+    if(cur === null || cur === undefined) return;
+    _svForm.vals[field] = Number.isInteger(cur) ? Math.max(1, cur - 0.5) : Math.ceil(cur);
+    _svRenderSurveyForm();
+}
+
+function svSetClosingScore(field, v) {
+    _svForm.closing = _svForm.closing === String(v) ? '' : String(v);
+    _svForm.closingNote = '';
+    _svRenderSurveyForm();
+}
+
+function svSetClosingNote(text) {
+    _svForm.closing = '';
+    _svForm.closingNote = _svForm.closingNote === text ? '' : text;
+    _svRenderSurveyForm();
+}
+
+function svSetEmotion(v) {
+    _svForm.emotion = _svForm.emotion === v ? '' : v;
+    _svRenderSurveyForm();
+}
+
+function _svRenderSurveyForm() {
+    const f = _svForm;
+    const block = (title, inner) => `<div style="padding:0.55rem 0;border-bottom:1px solid #f1f5f9;"><div style="font-size:0.82rem;font-weight:600;margin-bottom:0.35rem;">${title}</div>${inner}</div>`;
+    const dimBlock = (k) => block(_SV_QUESTIONS[k], _svRatingButtons(k, f.vals[k], 'svSetRating'));
+    const closingNotes = ['No la conoce', 'No la ha tenido', 'No asistió'];
+    const emo = (v, label, color, bg) => `<button onclick="svSetEmotion('${v}')" style="padding:4px 12px;border-radius:99px;border:1.5px solid ${f.emotion === v ? color : '#cbd5e1'};background:${f.emotion === v ? bg : '#fff'};color:${f.emotion === v ? color : '#64748b'};font-weight:700;font-size:0.8rem;cursor:pointer;">${label}</button>`;
+    document.getElementById('svSurvey_body').innerHTML =
+        dimBlock('q_punctual') + dimBlock('q_verbal') + dimBlock('q_reports_time') + dimBlock('q_clarity') + dimBlock('q_accuracy') +
+        block('¿Cómo califica la reunión de cierre de gestión a la luz de la plataforma A-Report? <span style="font-weight:400;color:#94a3b8;">(no entra en el promedio)</span>',
+            `<div style="display:flex;gap:0.3rem;flex-wrap:wrap;align-items:center;">
+                ${[1, 2, 3, 4, 5].map(v => `<button onclick="svSetClosingScore('closing', ${v})" style="min-width:40px;padding:4px 0;border-radius:8px;border:1.5px solid ${f.closing === String(v) ? '#1d4ed8' : '#cbd5e1'};background:${f.closing === String(v) ? '#dbeafe' : '#fff'};color:${f.closing === String(v) ? '#1d4ed8' : '#64748b'};font-weight:800;font-size:0.85rem;cursor:pointer;">${v}</button>`).join('')}
+                ${closingNotes.map(n => `<button onclick="svSetClosingNote('${n}')" style="padding:4px 10px;border-radius:99px;border:1.5px solid ${f.closingNote === n ? '#475569' : '#e2e8f0'};background:${f.closingNote === n ? '#e2e8f0' : '#fff'};color:#475569;font-size:0.74rem;cursor:pointer;">${n}</button>`).join('')}
+            </div>`) +
+        block('¿A-MAQ S.A. como empresa le genera emociones positivas o negativas?',
+            `<div style="display:flex;gap:0.4rem;">${emo('positivas', 'Positivas', '#15803d', '#dcfce7')}${emo('neutras', 'Neutras', '#475569', '#e2e8f0')}${emo('negativas', 'Negativas', '#b91c1c', '#fee2e2')}</div>`) +
+        dimBlock('q_recommend') + dimBlock('q_ally');
+}
+
+async function svSaveSurvey() {
+    const f = _svForm;
+    if(!f) return;
+    const inv = _svInviteById(f.inviteId);
+    if(!inv) return;
+    const answered = _SV_DIMS.some(d => f.vals[d.k] !== null && f.vals[d.k] !== undefined);
+    if(!answered) { showToast('Califica al menos una pregunta', 'error'); return; }
+    const payload = {
+        invite_id: inv.id,
+        answered_at: new Date().toISOString(),
+        answered_by: currentUserProfile?.display_name || currentUserProfile?.analyst_name || currentUser?.email || null,
+        q_closing_meeting: f.closing ? Number(f.closing) : null,
+        closing_meeting_note: f.closingNote || null,
+        emotion: f.emotion || null,
+        comments: document.getElementById('svSurvey_comments').value.trim() || null
+    };
+    _SV_DIMS.forEach(d => { payload[d.k] = f.vals[d.k] ?? null; });
+    const { error } = await supabaseClient.from('survey_responses').upsert(payload, { onConflict: 'invite_id' });
+    if(error) { showToast('No se pudo guardar: ' + error.message, 'error'); return; }
+    await supabaseClient.from('survey_invites').update({ status: 'respondida' }).eq('id', inv.id);
+    closeModal('svSurveyModal');
+    showToast('Encuesta guardada ✓', 'success');
+    await loadSurveyData();
+    renderSurveysView();
+}
+
+// ── Contactos ─────────────────────────────────────────────────────────────────
+function _svPlannerCompanies() {
+    const map = new Map();
+    (dbClients || []).forEach(c => {
+        const base = cleanClientName(getClientDisplayName(c)).split(' - ')[0].trim();
+        const key = _svKey(base);
+        if(key && !map.has(key)) map.set(key, base);
+    });
+    return map;   // key → nombre
+}
+
+function _svContactsFor(companyKey) {
+    return dbClientContacts.filter(c => _svSameCompany(c.company_key, companyKey))
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+}
+
+function _svContactsTable() {
+    const planner = _svPlannerCompanies();
+    const all = new Map();
+    planner.forEach((name, key) => all.set(key, { key, name, contacts: [] }));
+    dbClientContacts.forEach(c => {
+        const hit = [...all.keys()].find(k => _svSameCompany(k, c.company_key));
+        const key = hit || c.company_key;
+        if(!all.has(key)) all.set(key, { key, name: c.company_name, contacts: [] });
+        all.get(key).contacts.push(c);
+    });
+    const q = _svKey(_svContactSearch);
+    const list = [...all.values()].filter(x => !q || _svKey(x.name).includes(q) || x.contacts.some(c => _svKey(c.name).includes(q)))
+        .sort((a, b) => (b.contacts.length ? 1 : 0) - (a.contacts.length ? 1 : 0) || a.name.localeCompare(b.name, 'es'));
+    return `
+        <div class="stats-card" style="padding:0;overflow-x:auto;"><table class="data-table" style="font-size:0.82rem;">
+            <thead><tr><th>Empresa</th><th>Contacto</th><th>Cargo</th><th>Teléfono</th><th>Correo</th><th></th></tr></thead>
+            <tbody>${list.map(x => x.contacts.length ? x.contacts.map((c, i) => `<tr>
+                ${i === 0 ? `<td rowspan="${x.contacts.length}" style="vertical-align:top;"><strong>${_escHtml(x.name)}</strong></td>` : ''}
+                <td>${_escHtml(c.name)}</td><td style="color:#64748b;">${_escHtml(c.role || '')}</td>
+                <td style="white-space:nowrap;">${_escHtml(c.phone || '')}</td><td style="font-size:0.76rem;">${_escHtml(c.email || '')}</td>
+                <td style="text-align:right;white-space:nowrap;">
+                    <button class="btn-secondary" onclick="svOpenContactModal({ mode: 'contact', id: '${c.id}' })" style="font-size:0.74rem;padding:2px 8px;">✏️</button>
+                    ${currentUserProfile?.role === 'admin' ? `<button class="btn-secondary" onclick="svDeleteContact('${c.id}')" style="font-size:0.74rem;padding:2px 8px;color:#dc2626;">🗑</button>` : ''}</td></tr>`).join('')
+                : `<tr><td><strong>${_escHtml(x.name)}</strong></td><td colspan="4" style="color:#dc2626;font-size:0.78rem;">Sin contacto</td>
+                    <td style="text-align:right;"><button class="btn-outline" onclick="svOpenContactModal({ mode: 'contact', company: '${_escHtml(x.name).replace(/'/g, "\\'")}' })" style="font-size:0.74rem;padding:2px 10px;">+ Agregar</button></td></tr>`).join('')}
+            </tbody></table></div>`;
+}
+
+function _svContactsTab() {
+    return `
+        <div style="display:flex;justify-content:space-between;gap:0.75rem;margin-bottom:0.8rem;flex-wrap:wrap;">
+            <input type="text" value="${_escHtml(_svContactSearch)}" placeholder="Buscar empresa o contacto…" oninput="svSetContactSearch(this.value)" style="padding:0.45rem 0.7rem;border:1px solid #cbd5e1;border-radius:8px;font-size:0.84rem;min-width:260px;">
+            <button class="btn-primary" onclick="svOpenContactModal({ mode: 'contact' })">+ Nuevo contacto</button>
+        </div>
+        <div id="sv_contacts_table">${_svContactsTable()}</div>`;
+}
+
+function svSetContactSearch(v) {
+    _svContactSearch = v;
+    const el = document.getElementById('sv_contacts_table');
+    if(el) el.innerHTML = _svContactsTable();
+}
+
+/** ctx: { mode: 'contact' | 'invite' | 'newInvite', id?, company? } */
+function svOpenContactModal(ctx) {
+    _svContactCtx = ctx;
+    let v = { company: ctx.company || '', name: '', role: '', phone: '', email: '' };
+    let title = 'Nuevo contacto';
+    if(ctx.mode === 'contact' && ctx.id) {
+        const c = dbClientContacts.find(x => x.id === ctx.id);
+        if(c) { v = { company: c.company_name, name: c.name, role: c.role || '', phone: c.phone || '', email: c.email || '' }; title = 'Editar contacto'; }
+    } else if(ctx.mode === 'invite') {
+        const i = _svInviteById(ctx.id);
+        if(i) { v = { company: i.company_name, name: i.contact_name || '', role: i.contact_role || '', phone: i.contact_phone || '', email: i.contact_email || '' }; title = 'Editar contacto de la ronda'; }
+    } else if(ctx.mode === 'newInvite') {
+        title = 'Agregar cliente a la ronda';
+    }
+    document.getElementById('svContact_title').textContent = title;
+    document.getElementById('svContact_company').value = v.company;
+    document.getElementById('svContact_company').disabled = ctx.mode === 'invite';
+    document.getElementById('svContact_name').value = v.name;
+    document.getElementById('svContact_role').value = v.role;
+    document.getElementById('svContact_phone').value = v.phone;
+    document.getElementById('svContact_email').value = v.email;
+    const names = new Set([..._svPlannerCompanies().values(), ...dbClientContacts.map(c => c.company_name)]);
+    document.getElementById('svContact_companies').innerHTML = [...names].sort().map(n => `<option value="${_escHtml(n)}">`).join('');
+    document.getElementById('svContact_saveContact').style.display = ctx.mode === 'contact' ? 'none' : '';
+    document.getElementById('svContactModal').classList.add('active');
+}
+
+function svContactCompanyChanged() {
+    if(_svContactCtx?.mode !== 'newInvite') return;
+    const key = _svKey(document.getElementById('svContact_company').value);
+    const c = _svContactsFor(key)[0];
+    if(c) {
+        document.getElementById('svContact_name').value = c.name;
+        document.getElementById('svContact_role').value = c.role || '';
+        document.getElementById('svContact_phone').value = c.phone || '';
+        document.getElementById('svContact_email').value = c.email || '';
+    }
+}
+
+async function svSaveContact() {
+    const ctx = _svContactCtx;
+    if(!ctx) return;
+    const company = document.getElementById('svContact_company').value.trim();
+    const v = {
+        name: document.getElementById('svContact_name').value.trim(),
+        role: document.getElementById('svContact_role').value.trim() || null,
+        phone: document.getElementById('svContact_phone').value.trim() || null,
+        email: document.getElementById('svContact_email').value.trim() || null
+    };
+    if(!company) { showToast('Escribe la empresa', 'error'); return; }
+    if(ctx.mode !== 'newInvite' && !v.name) { showToast('Escribe el nombre del contacto', 'error'); return; }
+    let error;
+    if(ctx.mode === 'contact') {
+        const row = { company_key: _svKey(company), company_name: company, ...v };
+        if(ctx.id) ({ error } = await supabaseClient.from('client_contacts').update(row).eq('id', ctx.id));
+        else {
+            row.sort_order = _svContactsFor(row.company_key).length;
+            ({ error } = await supabaseClient.from('client_contacts').insert(row));
+        }
+    } else if(ctx.mode === 'invite') {
+        ({ error } = await supabaseClient.from('survey_invites').update({ contact_name: v.name, contact_role: v.role, contact_phone: v.phone, contact_email: v.email }).eq('id', ctx.id));
+    } else {
+        ({ error } = await supabaseClient.from('survey_invites').insert({
+            round_id: _svOpenRound, company_name: company, company_key: _svKey(company),
+            contact_name: v.name || null, contact_role: v.role, contact_phone: v.phone, contact_email: v.email
+        }));
+    }
+    if(error) { showToast('No se pudo guardar: ' + error.message, 'error'); return; }
+    closeModal('svContactModal');
+    await loadSurveyData();
+    renderSurveysView();
+}
+
+/** Guarda en la ficha de contactos el contacto escrito en una invitación (para reutilizarlo en rondas futuras). */
+async function svSaveInviteContactToBook() {
+    const company = document.getElementById('svContact_company').value.trim();
+    const name = document.getElementById('svContact_name').value.trim();
+    if(!company || !name) { showToast('Escribe empresa y contacto', 'error'); return; }
+    const key = _svKey(company);
+    const exists = _svContactsFor(key).some(c => _svKey(c.name) === _svKey(name));
+    if(exists) { showToast('Ese contacto ya está en la ficha', 'success'); return; }
+    const { error } = await supabaseClient.from('client_contacts').insert({
+        company_key: key, company_name: company, name,
+        role: document.getElementById('svContact_role').value.trim() || null,
+        phone: document.getElementById('svContact_phone').value.trim() || null,
+        email: document.getElementById('svContact_email').value.trim() || null,
+        sort_order: _svContactsFor(key).length
+    });
+    if(error) { showToast(error.message, 'error'); return; }
+    await loadSurveyData();
+    showToast('Contacto guardado en la ficha ✓', 'success');
+}
+
+function svEditInviteContact(inviteId) { svOpenContactModal({ mode: 'invite', id: inviteId }); }
+function svAddInvite() { svOpenContactModal({ mode: 'newInvite' }); }
+
+async function svDeleteContact(id) {
+    const c = dbClientContacts.find(x => x.id === id);
+    if(!c || !confirm(`¿Eliminar a ${c.name} (${c.company_name})?`)) return;
+    const { error } = await supabaseClient.from('client_contacts').delete().eq('id', id);
+    if(error) { showToast(error.message, 'error'); return; }
+    await loadSurveyData();
+    renderSurveysView();
+}
+
+// ── Asistente: nueva ronda con sugerencia de clientes ─────────────────────────
+function _svPrevQuarter() {
+    const now = new Date();
+    let y = now.getFullYear();
+    let q = Math.floor(now.getMonth() / 3) - 1;
+    if(q < 0) { q = 3; y -= 1; }
+    const start = new Date(y, q * 3, 1), end = new Date(y, q * 3 + 3, 0);
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return { start: iso(start), end: iso(end), label: `Encuesta Q${q + 1} ${y}` };
+}
+
+function _svLastSurveyDate(companyKey) {
+    let best = null;
+    dbSurveyResponses.forEach(r => {
+        const inv = _svInviteById(r.invite_id);
+        if(!inv || !_svSameCompany(inv.company_key, companyKey)) return;
+        const d = r.answered_at ? new Date(r.answered_at) : null;
+        if(d && (!best || d > best)) best = d;
+    });
+    return best;
+}
+
+function _svMonthsAgo(d) {
+    const now = new Date();
+    return (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth()) - (now.getDate() < d.getDate() ? 1 : 0);
+}
+
+function _svBuildCandidates(start, end) {
+    const m0 = start.slice(0, 7), m1 = end.slice(0, 7);
+    const groups = new Map();
+    tasks.forEach(t => {
+        if(t.isAbsence || !['ejecutada', 'facturada'].includes(t.status)) return;
+        if(t.serviceType === 'Metro Administrativo' || t.serviceType === 'Metro Terceros') return;
+        const field = (t.scheduledDays || []).filter(d => d.type === 'field' && d.date);
+        let months = [];
+        if(field.length) {
+            const inWin = field.filter(d => d.date >= start && d.date <= end);
+            if(!inWin.length) return;
+            months = inWin.map(d => parseInt(d.date.slice(5, 7), 10));
+        } else {
+            const p = String(t.period || '');
+            if(!p || p < m0 || p > m1) return;
+            months = [parseInt(p.slice(5, 7), 10)];
+        }
+        const name = cleanClientName(t.client).split(' - ')[0].trim();
+        const key = _svKey(name);
+        if(!key) return;
+        if(!groups.has(key)) groups.set(key, { key, name, tasks: 0, services: new Set(), months: new Set(), analysts: new Set() });
+        const g = groups.get(key);
+        g.tasks++;
+        if(t.serviceType) g.services.add(t.serviceType);
+        months.forEach(m => g.months.add(m));
+        _effAnalystsOf(t).forEach(a => g.analysts.add(a));
+    });
+    return [...groups.values()].map(g => {
+        const last = _svLastSurveyDate(g.key);
+        const ago = last ? _svMonthsAgo(last) : null;
+        const contacts = _svContactsFor(g.key);
+        return { ...g, last, ago, recent: ago !== null && ago < 6, contacts, checked: !(ago !== null && ago < 6) };
+    }).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+}
+
+function svOpenNewRound() {
+    const pq = _svPrevQuarter();
+    _svWizard = { name: pq.label, start: pq.start, end: pq.end, candidates: [], allContacts: false, extras: [] };
+    _svWizard.candidates = _svBuildCandidates(pq.start, pq.end);
+    document.getElementById('svRound_name').value = _svWizard.name;
+    document.getElementById('svRound_start').value = _svWizard.start;
+    document.getElementById('svRound_end').value = _svWizard.end;
+    document.getElementById('svRound_allContacts').checked = false;
+    _svRenderWizard();
+    document.getElementById('svRoundModal').classList.add('active');
+}
+
+function svWizardWindowChanged() {
+    if(!_svWizard) return;
+    _svWizard.start = document.getElementById('svRound_start').value;
+    _svWizard.end = document.getElementById('svRound_end').value;
+    const prev = new Map(_svWizard.candidates.map(c => [c.key, c.checked]));
+    _svWizard.candidates = _svBuildCandidates(_svWizard.start, _svWizard.end);
+    _svWizard.candidates.forEach(c => { if(prev.has(c.key)) c.checked = prev.get(c.key); });
+    _svRenderWizard();
+}
+
+function svWizardToggle(key) {
+    const c = _svWizard.candidates.find(x => x.key === key);
+    if(c) c.checked = !c.checked;
+    _svRenderWizard();
+}
+
+function svWizardAddCompany() {
+    const input = document.getElementById('svRound_extra');
+    const name = input.value.trim();
+    if(!name) return;
+    const key = _svKey(name);
+    if(_svWizard.candidates.some(c => c.key === key)) { showToast('Esa empresa ya está en la lista', 'error'); return; }
+    const last = _svLastSurveyDate(key);
+    const ago = last ? _svMonthsAgo(last) : null;
+    const contacts = _svContactsFor(key);
+    _svWizard.candidates.push({ key, name, tasks: 0, services: new Set(), months: new Set(), analysts: new Set(), last, ago, recent: ago !== null && ago < 6, contacts, checked: true, manual: true });
+    input.value = '';
+    _svRenderWizard();
+}
+
+function _svRenderWizard() {
+    const w = _svWizard;
+    const checked = w.candidates.filter(c => c.checked).length;
+    document.getElementById('svRound_count').textContent = `${checked} de ${w.candidates.length} seleccionados`;
+    const names = new Set([..._svPlannerCompanies().values()]);
+    document.getElementById('svRound_companies').innerHTML = [...names].sort().map(n => `<option value="${_escHtml(n)}">`).join('');
+    document.getElementById('svRound_list').innerHTML = w.candidates.length ? `
+        <table class="data-table" style="font-size:0.8rem;">
+            <thead><tr><th style="width:32px;"></th><th>Empresa</th><th>Servicios del período</th><th>Analistas</th><th>Última encuesta</th><th>Contacto</th></tr></thead>
+            <tbody>${w.candidates.map(c => `<tr style="${c.checked ? '' : 'opacity:.6;'}">
+                <td><input type="checkbox" ${c.checked ? 'checked' : ''} onchange="svWizardToggle('${c.key}')"></td>
+                <td><strong>${_escHtml(c.name)}</strong>${c.manual ? ' <span style="font-size:0.68rem;color:#94a3b8;">(manual)</span>' : ''}</td>
+                <td style="font-size:0.74rem;">${[...c.services].map(s => `<span style="background:#eff6ff;color:#1d4ed8;border-radius:99px;padding:1px 7px;margin-right:3px;">${_escHtml(s)}</span>`).join('')}${c.months.size ? `<div style="color:#94a3b8;margin-top:2px;">${[...c.months].sort((a, b) => a - b).map(m => _SV_MONTHS[m - 1]).join(', ')} · ${c.tasks} gestión${c.tasks !== 1 ? 'es' : ''}</div>` : ''}</td>
+                <td style="font-size:0.74rem;color:#64748b;">${_escHtml([...c.analysts].join(', '))}</td>
+                <td style="font-size:0.76rem;">${c.last ? (c.recent
+                    ? `<span style="color:#b45309;font-weight:700;" title="Se encuestó hace menos de 6 meses">⚠ hace ${c.ago} mes${c.ago !== 1 ? 'es' : ''}</span>`
+                    : `<span style="color:#64748b;">hace ${c.ago} meses</span>`) : '<span style="color:#94a3b8;">Nunca</span>'}</td>
+                <td style="font-size:0.76rem;">${c.contacts.length ? `${_escHtml(c.contacts[0].name)}${c.contacts.length > 1 ? ` <span style="color:#94a3b8;">+${c.contacts.length - 1}</span>` : ''}` : '<span style="color:#dc2626;">Sin contacto</span>'}</td>
+            </tr>`).join('')}</tbody></table>` : '<div style="text-align:center;padding:2rem;color:#94a3b8;">No hay gestiones ejecutadas en esa ventana. Agrega clientes a mano abajo.</div>';
+}
+
+async function svCreateRound() {
+    const w = _svWizard;
+    if(!w) return;
+    const name = document.getElementById('svRound_name').value.trim();
+    const chosen = w.candidates.filter(c => c.checked);
+    if(!name) { showToast('Escribe el nombre de la ronda', 'error'); return; }
+    if(!chosen.length) { showToast('Selecciona al menos un cliente', 'error'); return; }
+    const recent = chosen.filter(c => c.recent);
+    if(recent.length && !confirm(`${recent.length} cliente(s) ya se encuestaron hace menos de 6 meses:\n\n${recent.map(c => '• ' + c.name).join('\n')}\n\n¿Los incluyes de todas formas?`)) return;
+    const allContacts = document.getElementById('svRound_allContacts').checked;
+    const today = new Date().toISOString().slice(0, 10);
+    const { data: round, error } = await supabaseClient.from('survey_rounds').insert({
+        name, window_start: w.start || null, window_end: w.end || null, survey_date: today,
+        status: 'abierta', source: 'app', created_by: currentUserProfile?.display_name || currentUser?.email || null
+    }).select().single();
+    if(error || !round) { showToast('No se pudo crear la ronda: ' + (error?.message || ''), 'error'); return; }
+
+    const rows = [];
+    chosen.forEach(c => {
+        const base = {
+            round_id: round.id, company_name: c.name, company_key: c.key,
+            service_months: [...c.months].sort((a, b) => a - b).map(m => _SV_MONTHS[m - 1]).join(', ') || null,
+            analysts: [...c.analysts].join(', ') || null
+        };
+        const people = c.contacts.length ? (allContacts ? c.contacts : [c.contacts[0]]) : [null];
+        people.forEach(p => rows.push({
+            ...base,
+            contact_name: p?.name || null, contact_role: p?.role || null, contact_phone: p?.phone || null, contact_email: p?.email || null
+        }));
+    });
+    const { error: e2 } = await supabaseClient.from('survey_invites').insert(rows);
+    if(e2) { showToast('Ronda creada, pero fallaron las invitaciones: ' + e2.message, 'error'); }
+    closeModal('svRoundModal');
+    await loadSurveyData();
+    _svTab = 'rounds';
+    _svOpenRound = round.id;
+    renderSurveysView();
+    showToast(`Ronda creada con ${rows.length} contactos ✓`, 'success');
+}
+
+// ── Dashboard de resultados ───────────────────────────────────────────────────
+function svSetScope(v) { _svDashScope = v; renderSurveysView(); }
+function svToggleAlerts() { _svOnlyAlerts = !_svOnlyAlerts; renderSurveysView(); }
+
+function _svScopeRounds() {
+    const rounds = dbSurveyRounds.slice().sort((a, b) => _svRoundDate(a).localeCompare(_svRoundDate(b)));
+    const s = _svDashScope;
+    if(s === 'all') return rounds;
+    if(s === 'last12') {
+        const d = new Date(); d.setMonth(d.getMonth() - 12);
+        return rounds.filter(r => _svRoundDate(r) >= d.toISOString().slice(0, 10));
+    }
+    if(s.startsWith('year:')) return rounds.filter(r => _svRoundDate(r).startsWith(s.slice(5)));
+    if(s.startsWith('round:')) return rounds.filter(r => r.id === s.slice(6));
+    return rounds;
+}
+
+/** Respuestas del alcance, con su invitación y ronda. */
+function _svScopeResponses(rounds) {
+    const ids = new Set(rounds.map(r => r.id));
+    const out = [];
+    dbSurveyInvites.forEach(inv => {
+        if(!ids.has(inv.round_id)) return;
+        const resp = _svResponseOf(inv.id);
+        if(resp) out.push({ resp, inv, round: _svRoundById(inv.round_id) });
+    });
+    return out;
+}
+
+function _svDashboard() {
+    const rounds = _svScopeRounds();
+    const rows = _svScopeResponses(rounds);
+    const years = [...new Set(dbSurveyRounds.map(r => _svRoundDate(r).slice(0, 4)))].sort().reverse();
+    const allSorted = dbSurveyRounds.slice().sort((a, b) => _svRoundDate(b).localeCompare(_svRoundDate(a)));
+    const scopeSel = `
+        <select class="filter-select" onchange="svSetScope(this.value)" style="min-width:200px;">
+            <option value="all" ${_svDashScope === 'all' ? 'selected' : ''}>Todas las rondas</option>
+            <option value="last12" ${_svDashScope === 'last12' ? 'selected' : ''}>Últimos 12 meses</option>
+            ${years.map(y => `<option value="year:${y}" ${_svDashScope === 'year:' + y ? 'selected' : ''}>Año ${y}</option>`).join('')}
+            ${allSorted.map(r => `<option value="round:${r.id}" ${_svDashScope === 'round:' + r.id ? 'selected' : ''}>${_escHtml(r.name)}</option>`).join('')}
+        </select>`;
+    if(!rows.length) return `<div class="filter-toolbar">${scopeSel}</div><div class="stats-card" style="text-align:center;padding:3rem;color:#94a3b8;">Aún no hay respuestas en este alcance.</div>`;
+
+    const avg = _svAverages(rows.map(x => x.resp));
+    const invitesIn = dbSurveyInvites.filter(i => rounds.some(r => r.id === i.round_id) && i.status !== 'omitida').length;
+    const rate = invitesIn ? Math.round(rows.length / invitesIn * 100) : 0;
+
+    // cambio de la última ronda del alcance frente a la anterior (cronológica, entre todas las rondas con respuestas)
+    const chronoAll = dbSurveyRounds.filter(r => dbSurveyInvites.some(i => i.round_id === r.id && _svResponseOf(i.id)))
+        .sort((a, b) => _svRoundDate(a).localeCompare(_svRoundDate(b)));
+    const lastRound = rounds.filter(r => chronoAll.some(c => c.id === r.id)).slice(-1)[0];
+    const lastIdx = lastRound ? chronoAll.findIndex(c => c.id === lastRound.id) : -1;
+    const prevRound = lastIdx > 0 ? chronoAll[lastIdx - 1] : null;
+    const lastAvg = lastRound ? _svAverages(_svScopeResponses([lastRound]).map(x => x.resp)) : avg;
+    const prevAvg = prevRound ? _svAverages(_svScopeResponses([prevRound]).map(x => x.resp)) : null;
+    const delta = (k) => {
+        if(!prevAvg || lastAvg.dims[k] === null || prevAvg.dims[k] === null) return '';
+        const d = lastAvg.dims[k] - prevAvg.dims[k];
+        if(Math.abs(d) < 0.005) return '<span style="color:#94a3b8;font-size:0.72rem;"> =</span>';
+        return `<span style="color:${d > 0 ? '#15803d' : '#b91c1c'};font-size:0.72rem;font-weight:700;"> ${d > 0 ? '▲' : '▼'} ${_svFmt(Math.abs(d))}</span>`;
+    };
+
+    // última respuesta por empresa
+    const byCompany = new Map();
+    rows.forEach(x => {
+        const key = [...byCompany.keys()].find(k => _svSameCompany(k, x.inv.company_key)) || x.inv.company_key;
+        const cur = byCompany.get(key);
+        const date = x.resp.answered_at || '';
+        if(!cur || date > (cur.resp.answered_at || '')) byCompany.set(key, x);
+    });
+    let clients = [...byCompany.values()].map(x => ({ ...x, score: _svResponseScore(x.resp), alert: _SV_DIMS.some(d => _svNum(x.resp[d.k]) !== null && _svNum(x.resp[d.k]) < 4) }));
+    const alerts = clients.filter(c => c.alert).length;
+    if(_svOnlyAlerts) clients = clients.filter(c => c.alert);
+    clients.sort((a, b) => (a.score ?? 9) - (b.score ?? 9));
+
+    // por analista (a partir de las invitaciones)
+    const byAnalyst = new Map();
+    rows.forEach(x => {
+        String(x.inv.analysts || '').split(/\s*(?:,|\/|&|\+|\by\b)\s*/i).map(s => s.trim()).filter(s => s.length > 1).forEach(a => {
+            if(!byAnalyst.has(a)) byAnalyst.set(a, []);
+            byAnalyst.get(a).push(x.resp);
+        });
+    });
+    const analystRows = [...byAnalyst.entries()].map(([name, rs]) => ({ name, n: rs.length, avg: _svAverages(rs) })).sort((a, b) => (b.avg.overall ?? 0) - (a.avg.overall ?? 0));
+
+    const comments = rows.filter(x => x.resp.comments).sort((a, b) => String(b.resp.answered_at).localeCompare(String(a.resp.answered_at))).slice(0, 25);
+
+    const kpi = (title, value, sub) => `<div class="stats-card" style="text-align:center;padding:1rem;"><div style="font-size:0.72rem;font-weight:700;color:#64748b;text-transform:uppercase;">${title}</div><div style="margin:0.35rem 0;">${value}</div><div style="font-size:0.72rem;color:#94a3b8;">${sub}</div></div>`;
+
+    return `
+        <div class="filter-toolbar" style="align-items:flex-end;">
+            <div><label class="filter-label">Alcance</label><br>${scopeSel}</div>
+            <button class="btn-outline" onclick="svExportCSV()" style="font-size:0.8rem;">⬇ Exportar respuestas (CSV)</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:0.75rem;margin:1rem 0;">
+            ${kpi('Promedio general', _svBadge(avg.overall, true).replace('1rem', '1.5rem'), 'sobre 5')}
+            ${kpi('Respuestas', `<span style="font-size:1.5rem;font-weight:800;">${rows.length}</span>`, `${rounds.length} ronda${rounds.length !== 1 ? 's' : ''}`)}
+            ${kpi('Tasa de respuesta', `<span style="font-size:1.5rem;font-weight:800;">${rate}%</span>`, `${rows.length} de ${invitesIn} contactos`)}
+            ${kpi('Clientes en alerta', `<span style="font-size:1.5rem;font-weight:800;color:${alerts ? '#b91c1c' : '#15803d'};">${alerts}</span>`, 'con alguna nota menor a 4')}
+            ${kpi('Reunión de cierre', _svBadge(avg.closing, false), 'no entra en el promedio')}
+        </div>
+        <div style="display:grid;grid-template-columns:minmax(280px,1fr) minmax(300px,1.3fr);gap:1rem;" class="sv-two-col">
+            <div class="stats-card"><h4 style="margin-bottom:0.75rem;">Por dimensión${prevAvg ? ' <span style="font-weight:400;font-size:0.72rem;color:#94a3b8;">(cambio de la última ronda vs. la anterior)</span>' : ''}</h4>
+                ${_SV_DIMS.map(d => `<div style="margin-bottom:0.6rem;">
+                    <div style="display:flex;justify-content:space-between;font-size:0.8rem;"><span>${d.label}</span><span>${_svBadge(avg.dims[d.k], false)}${delta(d.k)}</span></div>
+                    <div style="background:#e2e8f0;border-radius:99px;height:6px;margin-top:3px;overflow:hidden;"><div style="width:${Math.max(0, ((avg.dims[d.k] ?? 0) - 1) / 4 * 100)}%;height:100%;background:${_svScoreStyle(avg.dims[d.k]).color};"></div></div></div>`).join('')}
+            </div>
+            <div class="stats-card"><h4 style="margin-bottom:0.5rem;">Tendencia por ronda</h4><div style="position:relative;height:250px;"><canvas id="svTrendChart"></canvas></div></div>
+        </div>
+        <div class="stats-card" style="margin-top:1rem;padding:0;overflow-x:auto;">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:0.8rem 1rem;"><h4 style="margin:0;">Clientes (última respuesta)</h4>
+                <button class="btn-outline" onclick="svToggleAlerts()" style="font-size:0.76rem;padding:3px 12px;${_svOnlyAlerts ? 'background:#fee2e2;border-color:#b91c1c;color:#b91c1c;' : ''}">${_svOnlyAlerts ? '⚠ Solo alertas (quitar)' : '⚠ Solo alertas'}</button></div>
+            <table class="data-table" style="font-size:0.8rem;"><thead><tr><th>Cliente</th><th>Ronda</th><th style="text-align:center;">Promedio</th>${_SV_DIMS.map(d => `<th style="text-align:center;" title="${d.label}">${d.label.split(' ').slice(-1)[0]}</th>`).join('')}</tr></thead>
+            <tbody>${clients.map(c => `<tr>
+                <td><strong>${_escHtml(c.inv.company_name)}</strong><div style="font-size:0.7rem;color:#94a3b8;">${_escHtml(c.inv.contact_name || '')}</div></td>
+                <td style="font-size:0.74rem;color:#64748b;white-space:nowrap;">${_escHtml(c.round?.name || '')}</td>
+                <td style="text-align:center;">${_svBadge(c.score, false)}</td>
+                ${_SV_DIMS.map(d => { const v = _svNum(c.resp[d.k]); return `<td style="text-align:center;font-size:0.76rem;${v !== null && v < 4 ? 'color:#b91c1c;font-weight:800;background:#fef2f2;' : 'color:#64748b;'}">${v === null ? '—' : _svFmt(v, 1)}</td>`; }).join('')}
+            </tr>`).join('') || '<tr><td colspan="10" style="text-align:center;padding:1.5rem;color:#94a3b8;">Sin clientes en alerta.</td></tr>'}</tbody></table>
+        </div>
+        <div style="display:grid;grid-template-columns:minmax(280px,1fr) minmax(300px,1.3fr);gap:1rem;margin-top:1rem;" class="sv-two-col">
+            <div class="stats-card" style="padding:0;overflow-x:auto;"><h4 style="padding:0.8rem 1rem 0.2rem;">Por analista</h4>
+                <div style="padding:0 1rem 0.4rem;font-size:0.72rem;color:#94a3b8;">Según los analistas que atendieron a cada cliente en la ventana de la ronda.</div>
+                <table class="data-table" style="font-size:0.8rem;"><thead><tr><th>Analista</th><th style="text-align:center;">Resp.</th><th style="text-align:center;">Promedio</th><th style="text-align:center;">Mediciones</th><th style="text-align:center;">Claridad</th><th style="text-align:center;">Certeza</th></tr></thead>
+                <tbody>${analystRows.map(a => `<tr><td><strong>${_escHtml(a.name)}</strong></td><td style="text-align:center;">${a.n}</td><td style="text-align:center;">${_svBadge(a.avg.overall, false)}</td>
+                    <td style="text-align:center;">${_svFmt(a.avg.dims.q_punctual, 1)}</td><td style="text-align:center;">${_svFmt(a.avg.dims.q_clarity, 1)}</td><td style="text-align:center;">${_svFmt(a.avg.dims.q_accuracy, 1)}</td></tr>`).join('') || '<tr><td colspan="6" style="text-align:center;padding:1rem;color:#94a3b8;">Sin datos de analistas.</td></tr>'}</tbody></table></div>
+            <div class="stats-card"><h4 style="margin-bottom:0.6rem;">Comentarios recientes</h4>
+                <div style="max-height:340px;overflow-y:auto;">${comments.map(x => `<div style="padding:0.5rem 0;border-bottom:1px solid #f1f5f9;">
+                    <div style="font-size:0.74rem;color:#64748b;"><strong>${_escHtml(x.inv.company_name)}</strong> · ${_escHtml(x.round?.name || '')} ${_svBadge(_svResponseScore(x.resp), false)}</div>
+                    <div style="font-size:0.82rem;margin-top:2px;">${_escHtml(x.resp.comments)}</div></div>`).join('') || '<div style="color:#94a3b8;font-size:0.82rem;">Sin comentarios.</div>'}</div></div>
+        </div>`;
+}
+
+function _svDrawChart() {
+    const canvas = document.getElementById('svTrendChart');
+    if(!canvas || typeof Chart === 'undefined') return;
+    if(_svChart) { _svChart.destroy(); _svChart = null; }
+    const rounds = _svScopeRounds();
+    const points = rounds.map(r => ({ label: r.name, avg: _svAverages(_svScopeResponses([r]).map(x => x.resp)) })).filter(p => p.avg.overall !== null);
+    if(!points.length) return;
+    _svChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels: points.map(p => p.label),
+            datasets: [{ label: 'Promedio general', data: points.map(p => Number(p.avg.overall.toFixed(2))), borderColor: '#2563eb', backgroundColor: '#2563eb22', fill: true, tension: 0.3, pointRadius: 4 }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: { y: { min: 3, max: 5, ticks: { stepSize: 0.5 } } },
+            plugins: { legend: { display: false } }
+        }
+    });
+}
+
+function svExportCSV() {
+    const rows = _svScopeResponses(_svScopeRounds());
+    if(!rows.length) { showToast('No hay respuestas para exportar', 'error'); return; }
+    const head = ['Ronda', 'Fecha', 'Empresa', 'Contacto', 'Cargo', ..._SV_DIMS.map(d => d.label), 'Promedio', 'Reunión de cierre', 'Nota reunión', 'Emoción', 'Comentarios'];
+    const data = rows.map(x => [
+        x.round?.name || '', _svRoundDate(x.round || {}), x.inv.company_name, x.inv.contact_name || '', x.inv.contact_role || '',
+        ..._SV_DIMS.map(d => x.resp[d.k] ?? ''), _svFmt(_svResponseScore(x.resp), 2), x.resp.q_closing_meeting ?? '', x.resp.closing_meeting_note || '', x.resp.emotion || '', x.resp.comments || ''
+    ]);
+    const csv = [head, ...data].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = `encuestas_satisfaccion_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+}
+
+
+// ── Tarjeta de satisfacción en el Panel de Control ───────────────────────────
+function renderDashboardSurveyCard() {
+    const el = document.getElementById('dash-survey-card');
+    if(!el) return;
+    if(!_svCanResults() || !dbSurveyRounds.length) { el.style.display = 'none'; return; }
+    const chrono = dbSurveyRounds.filter(r => dbSurveyInvites.some(i => i.round_id === r.id && _svResponseOf(i.id)))
+        .sort((a, b) => _svRoundDate(b).localeCompare(_svRoundDate(a)));
+    if(!chrono.length) { el.style.display = 'none'; return; }
+    const last = chrono[0], prev = chrono[1] || null;
+    const a = _svAverages(_svScopeResponses([last]).map(x => x.resp));
+    const p = prev ? _svAverages(_svScopeResponses([prev]).map(x => x.resp)) : null;
+    const st = _svRoundStats(last.id);
+    const delta = p && p.overall !== null && a.overall !== null ? a.overall - p.overall : null;
+    el.style.display = '';
+    el.innerHTML = `
+        <div class="card-header"><h3>Satisfacción del cliente</h3><p class="subtitle">Última encuesta: ${_escHtml(last.name)}</p></div>
+        <div style="display:flex;align-items:center;gap:1rem;margin:0.6rem 0 0.9rem;">
+            <div style="font-size:2.4rem;font-weight:800;color:${_svScoreStyle(a.overall).color};line-height:1;">${_svFmt(a.overall)}</div>
+            <div style="font-size:0.78rem;color:#64748b;">sobre 5
+                ${delta !== null ? `<div style="font-weight:700;color:${delta >= 0 ? '#15803d' : '#b91c1c'};">${delta >= 0 ? '▲' : '▼'} ${_svFmt(Math.abs(delta))} vs. ${_escHtml(prev.name)}</div>` : ''}
+                <div>${st.answered} de ${st.invites} respondieron</div></div>
+        </div>
+        ${_SV_DIMS.map(d => `<div style="display:flex;justify-content:space-between;font-size:0.78rem;padding:2px 0;"><span style="color:#475569;">${d.label}</span>${_svBadge(a.dims[d.k], false)}</div>`).join('')}
+        <button class="btn-outline" onclick="svGoToResults()" style="margin-top:0.8rem;font-size:0.78rem;padding:4px 12px;width:100%;">Ver resultados →</button>`;
+}
+
+function svGoToResults() {
+    _svTab = 'dashboard';
+    _svOpenRound = null;
+    switchView('surveys');
 }
 
 // ══════════════════════════════════════════
@@ -11618,6 +12580,7 @@ async function initializeApp() {
             currentUserProfile = profileData;
             // Cargar perfiles de todos los usuarios (necesario para dirigir notifs a otros usuarios)
             loadAllProfiles().catch(() => {});
+            if(_svCanResults()) loadSurveyData().then(() => renderDashboardSurveyCard()).catch(() => {});
             loadTaskChecklists().then(() => { if(document.getElementById('view-mywork')?.classList.contains('active-view')) renderMyWorkView(); }).catch(() => {});
             // Cargar notificaciones propias y correr los chequeos (CSAT vencidos, resumen mensual)
             loadMyNotifications().then(() => runNotificationsCheck()).catch(() => {});
