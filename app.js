@@ -6224,7 +6224,7 @@ async function updateEquipment(e, equipmentId) {
 // Rondas → invitaciones (clientes a llamar) → respuestas. Dashboard de resultados.
 // ══════════════════════════════════════════
 
-let dbSurveyRounds = [], dbSurveyInvites = [], dbSurveyResponses = [], dbClientContacts = [];
+let dbSurveyRounds = [], dbSurveyInvites = [], dbSurveyResponses = [], dbClientContacts = [], dbSurveyCompanyMap = [];
 let _svTab = 'rounds';          // 'rounds' | 'dashboard' | 'contacts'
 let _svOpenRound = null;        // id de la ronda abierta
 let _svMissing = false;         // tablas sin migrar
@@ -6317,17 +6317,20 @@ function _svRoundDate(r) { return r.survey_date || (r.created_at || '').slice(0,
 
 async function loadSurveyData() {
     if(!supabaseClient) return;
-    const [r1, r2, r3, r4] = await Promise.all([
+    const [r1, r2, r3, r4, r5] = await Promise.all([
         supabaseClient.from('survey_rounds').select('*'),
         supabaseClient.from('survey_invites').select('*'),
         supabaseClient.from('survey_responses').select('*'),
-        supabaseClient.from('client_contacts').select('*').order('sort_order')
+        supabaseClient.from('client_contacts').select('*').order('sort_order'),
+        supabaseClient.from('survey_company_map').select('*')
     ]);
     _svMissing = !!(r1.error && /survey_rounds|schema cache|does not exist/i.test(r1.error.message || ''));
     if(r1.data) dbSurveyRounds = r1.data;
     if(r2.data) dbSurveyInvites = r2.data;
     if(r3.data) dbSurveyResponses = r3.data;
     if(r4.data) dbClientContacts = r4.data;
+    if(r5.data) dbSurveyCompanyMap = r5.data;
+    _svApplyCompanyMap();
 }
 
 async function initSurveysView() {
@@ -6355,11 +6358,13 @@ function renderSurveysView() {
     if(canFill || canRes) tabs.push({ id: 'rounds', label: '📋 Rondas' });
     if(canRes) tabs.push({ id: 'dashboard', label: '📊 Resultados' });
     if(canFill) tabs.push({ id: 'contacts', label: '👥 Contactos' });
+    if(canFill) { const pend = _svReconcileRows().filter(r => r.status === 'pending' || r.status === 'suggested').length; tabs.push({ id: 'reconcile', label: `🔗 Conciliar clientes${pend ? ` <span style="background:#d97706;color:#fff;border-radius:99px;padding:0 6px;font-size:0.7rem;margin-left:4px;">${pend}</span>` : ''}` }); }
     if(!tabs.some(t => t.id === _svTab)) _svTab = tabs[0].id;
 
     let body = '';
     if(_svTab === 'rounds') body = _svOpenRound ? _svRoundDetail() : _svRoundsList();
     else if(_svTab === 'dashboard') body = _svDashboard();
+    else if(_svTab === 'reconcile') body = _svReconcileTab();
     else body = _svContactsTab();
 
     el.innerHTML = `
@@ -7256,6 +7261,170 @@ function svExportCSV() {
     a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
     a.download = `encuestas_satisfaccion_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
+}
+
+// ── Conciliación: compañía de la encuesta ↔ cliente del planner ───────────────
+const _SV_STOP = new Set(['de', 'del', 'la', 'el', 'los', 'las', 'sa', 'sas', 'ltda', 'y', 'e', 'cia', 'compania']);
+
+function _svTokens(key) {
+    return new Set(String(key || '').split(' ').filter(t => t.length > 1 && !_SV_STOP.has(t)));
+}
+
+/** Parecido entre dos nombres normalizados (0 a 1). */
+function _svNameScore(a, b) {
+    if(!a || !b) return 0;
+    if(a === b) return 1;
+    const short = a.length <= b.length ? a : b, long = a.length <= b.length ? b : a;
+    if(short.length >= 4 && (` ${long} `).includes(` ${short} `)) return 0.9;
+    const ta = _svTokens(a), tb = _svTokens(b);
+    if(!ta.size || !tb.size) return 0;
+    let hit = 0;
+    ta.forEach(x => {
+        if(tb.has(x) || [...tb].some(y => (x.length >= 4 && y.startsWith(x)) || (y.length >= 4 && x.startsWith(y)))) hit++;
+    });
+    return hit / (ta.size + tb.size - hit);
+}
+
+/** Mejor cliente del planner para un nombre de la encuesta: { key, name, score } o null. */
+function _svSuggestPlanner(surveyKey) {
+    let best = null;
+    _svPlannerCompanies().forEach((name, key) => {
+        const score = _svNameScore(surveyKey, key);
+        if(!best || score > best.score) best = { key, name, score };
+    });
+    return best && best.score >= 0.5 ? best : null;
+}
+
+/** Aplica la correspondencia a las encuestas ya cargadas (sin tocar la base de datos). */
+function _svApplyCompanyMap() {
+    const map = new Map(dbSurveyCompanyMap.map(m => [m.survey_key, m]));
+    const apply = (row) => {
+        if(row._origKey === undefined) { row._origKey = row.company_key; row._origName = row.company_name; }
+        const m = map.get(row._origKey);
+        if(m && m.planner_key) { row.company_key = m.planner_key; row.company_name = m.planner_name || m.planner_key; }
+        else { row.company_key = row._origKey; row.company_name = row._origName; }
+    };
+    dbSurveyInvites.forEach(apply);
+    dbClientContacts.forEach(apply);
+}
+
+/** Compañías tal como quedaron en las encuestas, con su estado de conciliación. */
+function _svReconcileRows() {
+    const planner = _svPlannerCompanies();
+    const map = new Map(dbSurveyCompanyMap.map(m => [m.survey_key, m]));
+    const rows = new Map();
+    const get = (key, name) => {
+        if(!rows.has(key)) rows.set(key, { key, name, responses: 0, rounds: new Set(), contacts: 0, last: '' });
+        return rows.get(key);
+    };
+    dbSurveyInvites.forEach(i => {
+        const r = get(i._origKey ?? i.company_key, i._origName ?? i.company_name);
+        const resp = _svResponseOf(i.id);
+        r.rounds.add(i.round_id);
+        if(resp) {
+            r.responses++;
+            const d = String(resp.answered_at || '').slice(0, 10);
+            if(d > r.last) r.last = d;
+        }
+    });
+    dbClientContacts.forEach(c => { get(c._origKey ?? c.company_key, c._origName ?? c.company_name).contacts++; });
+    return [...rows.values()].map(r => {
+        const m = map.get(r.key);
+        let status, planner_key = null, planner_name = '', suggestion = null;
+        if(m) {
+            status = m.planner_key ? 'mapped' : 'none';
+            planner_key = m.planner_key; planner_name = m.planner_name || '';
+        } else if(planner.has(r.key)) {
+            status = 'match'; planner_key = r.key; planner_name = planner.get(r.key);
+        } else {
+            suggestion = _svSuggestPlanner(r.key);
+            status = suggestion ? 'suggested' : 'pending';
+        }
+        return { ...r, status, planner_key, planner_name, suggestion };
+    }).sort((a, b) => {
+        const rank = { pending: 0, suggested: 1, none: 2, mapped: 3, match: 4 };
+        return rank[a.status] - rank[b.status] || b.responses - a.responses || a.name.localeCompare(b.name, 'es');
+    });
+}
+
+function _svReconcileTab() {
+    const rows = _svReconcileRows();
+    const planner = [...(_svPlannerCompanies().entries())].map(([key, name]) => ({ key, name })).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    const cnt = (st) => rows.filter(r => r.status === st).length;
+    const todo = cnt('pending') + cnt('suggested');
+    const chip = (r) => ({
+        match:     '<span style="background:#dcfce7;color:#15803d;border-radius:99px;padding:2px 10px;font-size:0.72rem;font-weight:700;">✓ Coincide</span>',
+        mapped:    '<span style="background:#dbeafe;color:#1d4ed8;border-radius:99px;padding:2px 10px;font-size:0.72rem;font-weight:700;">✓ Conciliado</span>',
+        none:      '<span style="background:#f1f5f9;color:#64748b;border-radius:99px;padding:2px 10px;font-size:0.72rem;font-weight:700;">No está en el planner</span>',
+        suggested: '<span style="background:#fef3c7;color:#b45309;border-radius:99px;padding:2px 10px;font-size:0.72rem;font-weight:700;">Sugerido</span>',
+        pending:   '<span style="background:#fee2e2;color:#b91c1c;border-radius:99px;padding:2px 10px;font-size:0.72rem;font-weight:700;">Sin coincidencia</span>'
+    }[r.status]);
+    const options = (r) => {
+        const sug = r.suggestion;
+        return `<option value="">— Elegir cliente del planner —</option>
+            ${sug ? `<option value="${_escHtml(sug.key)}" ${r.status === 'suggested' ? 'selected' : ''}>★ ${_escHtml(sug.name)} (sugerido)</option>` : ''}
+            <option value="__none__" ${r.status === 'none' ? 'selected' : ''}>✕ No está en el planner</option>
+            ${planner.filter(p => !sug || p.key !== sug.key).map(p => `<option value="${_escHtml(p.key)}" ${(r.status === 'mapped' || r.status === 'match') && r.planner_key === p.key ? 'selected' : ''}>${_escHtml(p.name)}</option>`).join('')}`;
+    };
+    return `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.8rem;">
+            <div style="font-size:0.82rem;color:#64748b;max-width:640px;">Indica a qué cliente del planner corresponde cada compañía de las encuestas. Así los filtros, los contactos y el aviso de "encuestado hace menos de 6 meses" usan los mismos nombres. No modifica las encuestas originales y se puede deshacer.
+                <div style="margin-top:4px;"><strong>${cnt('match') + cnt('mapped')}</strong> conciliadas · <strong style="color:#b45309;">${todo}</strong> por revisar · ${cnt('none')} fuera del planner</div></div>
+            ${cnt('suggested') ? `<button class="btn-primary" onclick="svAcceptAllSuggestions()">✔ Aceptar las ${cnt('suggested')} sugerencias</button>` : ''}
+        </div>
+        <div class="stats-card" style="padding:0;overflow-x:auto;"><table class="data-table" style="font-size:0.82rem;">
+            <thead><tr><th>Compañía en la encuesta</th><th style="text-align:center;">Respuestas</th><th style="min-width:280px;">Cliente del planner</th><th>Estado</th><th></th></tr></thead>
+            <tbody>${rows.map(r => `<tr>
+                <td><strong>${_escHtml(r.name)}</strong><div style="font-size:0.7rem;color:#94a3b8;">${r.rounds.size} ronda${r.rounds.size !== 1 ? 's' : ''}${r.contacts ? ` · ${r.contacts} contacto${r.contacts !== 1 ? 's' : ''}` : ''}${r.last ? ` · última ${_escHtml(r.last)}` : ''}</div></td>
+                <td style="text-align:center;">${r.responses}</td>
+                <td><select onchange="svMapCompany('${_escHtml(r.key)}', this.value)" style="width:100%;padding:0.4rem 0.5rem;border:1px solid ${r.status === 'pending' ? '#fca5a5' : r.status === 'suggested' ? '#fcd34d' : '#cbd5e1'};border-radius:6px;font-size:0.8rem;">${options(r)}</select></td>
+                <td>${chip(r)}</td>
+                <td style="text-align:right;white-space:nowrap;">
+                    ${r.status === 'suggested' ? `<button class="btn-outline" onclick="svMapCompany('${_escHtml(r.key)}', '${_escHtml(r.suggestion.key)}')" style="font-size:0.74rem;padding:2px 10px;">Aceptar</button>` : ''}
+                    ${(r.status === 'mapped' || r.status === 'none') ? `<button class="btn-secondary" onclick="svUndoMap('${_escHtml(r.key)}')" title="Deshacer" style="font-size:0.74rem;padding:2px 8px;">↺</button>` : ''}</td>
+            </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;padding:2rem;color:#94a3b8;">Aún no hay compañías en las encuestas.</td></tr>'}</tbody></table></div>`;
+}
+
+async function _svSaveMapping(rows) {
+    const by = currentUserProfile?.display_name || currentUser?.email || null;
+    const { error } = await supabaseClient.from('survey_company_map').upsert(
+        rows.map(r => ({ survey_key: r.surveyKey, survey_name: r.surveyName, planner_key: r.plannerKey, planner_name: r.plannerName, confirmed_by: by, updated_at: new Date().toISOString() })),
+        { onConflict: 'survey_key' });
+    if(error) {
+        showToast(/survey_company_map|schema cache/i.test(error.message || '') ? 'Falta ejecutar la migración de conciliación en Supabase.' : error.message, 'error');
+        return false;
+    }
+    return true;
+}
+
+async function svMapCompany(surveyKey, value) {
+    if(!value) return;
+    const row = _svReconcileRows().find(r => r.key === surveyKey);
+    if(!row) return;
+    const planner = _svPlannerCompanies();
+    const plannerKey = value === '__none__' ? null : value;
+    const ok = await _svSaveMapping([{ surveyKey, surveyName: row.name, plannerKey, plannerName: plannerKey ? (planner.get(plannerKey) || '') : null }]);
+    if(!ok) return;
+    await loadSurveyData();
+    renderSurveysView();
+}
+
+async function svAcceptAllSuggestions() {
+    const sug = _svReconcileRows().filter(r => r.status === 'suggested');
+    if(!sug.length) return;
+    if(!confirm(`Se aceptarán las ${sug.length} sugerencias:\n\n${sug.slice(0, 12).map(r => `• ${r.name} → ${r.suggestion.name}`).join('\n')}${sug.length > 12 ? `\n… y ${sug.length - 12} más` : ''}\n\nPuedes deshacer cualquiera después. ¿Continuar?`)) return;
+    const ok = await _svSaveMapping(sug.map(r => ({ surveyKey: r.key, surveyName: r.name, plannerKey: r.suggestion.key, plannerName: r.suggestion.name })));
+    if(!ok) return;
+    await loadSurveyData();
+    renderSurveysView();
+    showToast(`${sug.length} compañías conciliadas ✓`, 'success');
+}
+
+async function svUndoMap(surveyKey) {
+    const { error } = await supabaseClient.from('survey_company_map').delete().eq('survey_key', surveyKey);
+    if(error) { showToast(error.message, 'error'); return; }
+    await loadSurveyData();
+    renderSurveysView();
 }
 
 // ── Tarjeta de satisfacción en el Panel de Control ───────────────────────────
