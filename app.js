@@ -1409,6 +1409,7 @@ const SVG_ICONS = {
     reopen: `<svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>`,
     note:   `<svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
     checklist: `<svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>`,
+    contacts: `<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="11" r="2.2"/><path d="M5.5 17c.6-1.6 2-2.4 3.5-2.4s2.9.8 3.5 2.4"/><line x1="15" y1="9" x2="19" y2="9"/><line x1="15" y1="13" x2="19" y2="13"/></svg>`,
     consume: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>`,
     entry:   `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>`,
     adjust:  `<svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>`,
@@ -6696,11 +6697,81 @@ function _svContactsTable() {
             </tbody></table></div>`;
 }
 
+// ── Contactos de la empresa dentro de la ficha de clientes del planner ─────────
+let _ccClientId = null;
+
+/** Empresa (parte antes del guion) de un cliente del planner: { key, name }. */
+function _svClientCompany(c) {
+    const name = cleanClientName(getClientDisplayName(c)).split(' - ')[0].trim();
+    return { key: _svKey(name), name };
+}
+
+function openClientContacts(clientId) {
+    const c = dbClients.find(x => x.id === clientId);
+    if(!c) return;
+    _ccClientId = clientId;
+    renderClientContactsModal();
+    document.getElementById('clientContactsModal').classList.add('active');
+}
+
+function renderClientContactsModal() {
+    const c = dbClients.find(x => x.id === _ccClientId);
+    if(!c) return;
+    const cc = _svClientCompany(c);
+    const list = _svContactsFor(cc.key);
+    document.getElementById('cc_title').textContent = `Contactos — ${cc.name}`;
+    document.getElementById('cc_add').setAttribute('onclick', `svOpenContactModal({ mode: 'contact', company: '${cc.name.replace(/'/g, "\\'")}' })`);
+    const isAdmin = currentUserProfile?.role === 'admin';
+    document.getElementById('cc_body').innerHTML = list.length ? `
+        <table class="data-table" style="font-size:0.82rem;">
+            <thead><tr><th>Contacto</th><th>Cargo</th><th>Teléfono</th><th>Correo</th><th></th></tr></thead>
+            <tbody>${list.map(x => `<tr>
+                <td><strong>${_escHtml(x.name)}</strong></td><td style="color:#64748b;">${_escHtml(x.role || '')}</td>
+                <td style="white-space:nowrap;">${_escHtml(x.phone || '')}</td><td style="font-size:0.76rem;">${_escHtml(x.email || '')}</td>
+                <td style="text-align:right;white-space:nowrap;">
+                    <button class="btn-secondary" onclick="svOpenContactModal({ mode: 'contact', id: '${x.id}' })" style="font-size:0.74rem;padding:2px 8px;">✏️</button>
+                    ${isAdmin ? `<button class="btn-secondary" onclick="svDeleteContact('${x.id}')" style="font-size:0.74rem;padding:2px 8px;color:#dc2626;">🗑</button>` : ''}</td></tr>`).join('')}</tbody></table>`
+        : `<div style="text-align:center;padding:1.5rem;color:#94a3b8;font-size:0.85rem;">Esta empresa aún no tiene contactos.${c.contact_name ? `<br>En su ficha figura: <strong>${_escHtml(c.contact_name)}</strong>.` : ''}</div>`;
+}
+
+function _refreshClientContactsViews() {
+    if(document.getElementById('clientContactsModal')?.classList.contains('active')) renderClientContactsModal();
+    if(document.getElementById('view-admin')?.classList.contains('active-view')) renderAdminView();
+}
+
+/** Trae a la libreta los contactos que ya figuran en la ficha de cada cliente del planner (sin duplicar). */
+async function svImportPlannerContacts() {
+    const toAdd = [];
+    const seen = new Set(dbClientContacts.map(c => `${c.company_key}|${_svKey(c.name)}`));
+    const counters = new Map();
+    dbClients.forEach(c => {
+        const name = String(c.contact_name || '').trim();
+        if(name.length < 3) return;
+        const cc = _svClientCompany(c);
+        const k = `${cc.key}|${_svKey(name)}`;
+        if(seen.has(k)) return;
+        seen.add(k);
+        const n = counters.get(cc.key) ?? _svContactsFor(cc.key).length;
+        counters.set(cc.key, n + 1);
+        toAdd.push({ company_key: cc.key, company_name: cc.name, name, sort_order: n });
+    });
+    if(!toAdd.length) { showToast('No hay contactos nuevos en las fichas del planner', 'success'); return; }
+    if(!confirm(`Se agregarán ${toAdd.length} contactos que figuran en las fichas de clientes del planner:\n\n${toAdd.slice(0, 12).map(x => `• ${x.name} (${x.company_name})`).join('\n')}${toAdd.length > 12 ? `\n… y ${toAdd.length - 12} más` : ''}\n\n¿Continuar?`)) return;
+    const { error } = await supabaseClient.from('client_contacts').insert(toAdd);
+    if(error) { showToast(error.message, 'error'); return; }
+    await loadSurveyData();
+    renderSurveysView();
+    showToast(`${toAdd.length} contactos agregados ✓`, 'success');
+}
+
 function _svContactsTab() {
     return `
         <div style="display:flex;justify-content:space-between;gap:0.75rem;margin-bottom:0.8rem;flex-wrap:wrap;">
             <input type="text" value="${_escHtml(_svContactSearch)}" placeholder="Buscar empresa o contacto…" oninput="svSetContactSearch(this.value)" style="padding:0.45rem 0.7rem;border:1px solid #cbd5e1;border-radius:8px;font-size:0.84rem;min-width:260px;">
-            <button class="btn-primary" onclick="svOpenContactModal({ mode: 'contact' })">+ Nuevo contacto</button>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                <button class="btn-outline" onclick="svImportPlannerContacts()" title="Agrega a la libreta los contactos que ya figuran en la ficha de cada cliente del planner">⬇ Traer contactos del planner</button>
+                <button class="btn-primary" onclick="svOpenContactModal({ mode: 'contact' })">+ Nuevo contacto</button>
+            </div>
         </div>
         <div id="sv_contacts_table">${_svContactsTable()}</div>`;
 }
@@ -6782,6 +6853,7 @@ async function svSaveContact() {
     closeModal('svContactModal');
     await loadSurveyData();
     renderSurveysView();
+    _refreshClientContactsViews();
 }
 
 /** Guarda en la ficha de contactos el contacto escrito en una invitación (para reutilizarlo en rondas futuras). */
@@ -6814,6 +6886,7 @@ async function svDeleteContact(id) {
     if(error) { showToast(error.message, 'error'); return; }
     await loadSurveyData();
     renderSurveysView();
+    _refreshClientContactsViews();
 }
 
 // ── Asistente: nueva ronda con sugerencia de clientes ─────────────────────────
@@ -12374,6 +12447,7 @@ async function adminCheckIn(loanId, itemId) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 async function renderAdminView() {
+    if(!_svAllContacts.length && !_svMissing && typeof loadSurveyData === 'function') { try { await loadSurveyData(); } catch(e) { /* sin tablas de encuestas */ } }
     const analystsList = document.getElementById('admin-analysts-list');
     const clientsList = document.getElementById('admin-clients-list');
     if(!analystsList || !clientsList) return;
@@ -12429,12 +12503,18 @@ async function renderAdminView() {
                 </tr>
             </thead>
             <tbody>
-                ${dbClients.map(c => `
+                ${dbClients.map(c => {
+                    const cc = _svClientCompany(c);
+                    const book = _svContactsFor(cc.key);
+                    const main = c.contact_name || book[0]?.name || '-';
+                    const more = book.length - (c.contact_name ? 0 : (book.length ? 1 : 0));
+                    return `
                     <tr>
                         <td><strong>${getClientDisplayName(c)}</strong></td>
-                        <td>${c.contact_name || '-'}</td>
+                        <td>${_escHtml(main)}${more > 0 ? ` <span style="color:#94a3b8;font-size:0.68rem;" title="Contactos en la libreta de la empresa">+${more}</span>` : ''}</td>
                         <td>
                             <div class="action-icons" style="gap:0.3rem;">
+                                ${actionIcon('contacts', `openClientContacts('${c.id}')`, `Contactos de ${_escHtml(cc.name)} (${book.length})`)}
                                 ${actionIcon('plant',  `openPlantsModal('${c.id}')`,      'Gestionar Plantas')}
                                 ${actionIcon('pref',   `openPreferenceModal('${c.id}')`,  'Asignar Analistas')}
                                 ${actionIcon('edit',   `editClient('${c.id}')`,            'Editar')}
@@ -12442,7 +12522,7 @@ async function renderAdminView() {
                             </div>
                         </td>
                     </tr>
-                `).join('')}
+                `; }).join('')}
                 <tr>
                     <td><input type="text" id="qa_client_plant" placeholder="Nueva planta..." style="width:100%; padding:0.4rem; font-size:0.8rem"></td>
                     <td><input type="text" id="qa_client_contact" placeholder="Contacto..." style="width:100%; padding:0.4rem; font-size:0.8rem"></td>

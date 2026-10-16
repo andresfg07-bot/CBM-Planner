@@ -1268,6 +1268,19 @@
         </div>
     </div>
 
+    <div id="clientContactsModal" class="modal">
+        <div class="modal-content" style="max-width:720px;">
+            <span class="close-btn" onclick="closeModal('clientContactsModal')">&times;</span>
+            <h2 id="cc_title" style="margin-bottom:0.15rem;font-size:1.1rem;padding-right:2rem;"></h2>
+            <p style="font-size:0.78rem;color:#64748b;margin-bottom:0.9rem;">Estos contactos se comparten con las encuestas de satisfacción y con todas las plantas de la empresa.</p>
+            <div id="cc_body"></div>
+            <div style="display:flex;justify-content:space-between;gap:0.75rem;margin-top:1rem;">
+                <button class="btn-primary" id="cc_add" onclick="">+ Agregar contacto</button>
+                <button class="btn-secondary" onclick="closeModal('clientContactsModal')">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
     <div id="svContactModal" class="modal" style="z-index:120;">
         <div class="modal-content" style="max-width:460px;">
             <span class="close-btn" onclick="closeModal('svContactModal')">&times;</span>
