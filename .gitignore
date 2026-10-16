@@ -11,3 +11,7 @@ cbm_tasks.json
 Thumbs.db
 
 .vercel
+
+# Datos de clientes (historial de encuestas): nunca al repositorio
+seed_*.sql
+*historial*.sql

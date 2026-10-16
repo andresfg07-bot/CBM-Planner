@@ -1,0 +1,8 @@
+# Archivos de desarrollo: NO se publican en la web (la app solo necesita
+# index.html, app.js, styles.css, logo.png, la carpeta api/ y vercel.json).
+*.sql
+*.md
+estilo.jpg
+tmp/
+.claude/
+.agents/
