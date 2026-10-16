@@ -6975,24 +6975,70 @@ async function svCreateRound() {
     showToast(`Ronda creada con ${rows.length} contactos ✓`, 'success');
 }
 
-// ── Dashboard de resultados ───────────────────────────────────────────────────
+// ── Dashboard de resultados (con filtros por compañía, analista y fechas) ──────
+let _svFilters = { company: '', analyst: '', from: '', to: '' };
+let _svTrendMetric = 'overall';
+
 function svSetScope(v) { _svDashScope = v; renderSurveysView(); }
+function svSetFilter(k, v) { _svFilters[k] = v; renderSurveysView(); }
+function svClearFilters() {
+    _svFilters = { company: '', analyst: '', from: '', to: '' };
+    _svDashScope = 'all';
+    _svOnlyAlerts = false;
+    renderSurveysView();
+}
 function svToggleAlerts() { _svOnlyAlerts = !_svOnlyAlerts; renderSurveysView(); }
+function svSetTrendMetric(v) { _svTrendMetric = v; _svDrawChart(); }
+
+function _svAnalystList(text) {
+    return String(text || '').split(/\s*(?:,|\/|&|\+|\by\b)\s*/i).map(s => s.trim()).filter(s => s.length > 1);
+}
+
+function _svCompanyOptions() {
+    const map = new Map();
+    dbSurveyInvites.forEach(inv => {
+        if(!_svResponseOf(inv.id)) return;
+        const hit = [...map.keys()].find(k => _svSameCompany(k, inv.company_key));
+        if(!hit) map.set(inv.company_key, inv.company_name);
+    });
+    return [...map.entries()].map(([key, name]) => ({ key, name })).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+}
+
+function _svAnalystOptions() {
+    const map = new Map();
+    dbSurveyInvites.forEach(inv => {
+        if(!_svResponseOf(inv.id)) return;
+        _svAnalystList(inv.analysts).forEach(a => { const k = _svKey(a); if(k && !map.has(k)) map.set(k, a); });
+    });
+    return [...map.entries()].map(([key, name]) => ({ key, name })).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+}
+
+function _svInviteMatches(inv) {
+    const f = _svFilters;
+    if(f.company && !_svSameCompany(inv.company_key, f.company)) return false;
+    if(f.analyst && !_svAnalystList(inv.analysts).some(a => _svKey(a) === f.analyst)) return false;
+    return true;
+}
 
 function _svScopeRounds() {
     const rounds = dbSurveyRounds.slice().sort((a, b) => _svRoundDate(a).localeCompare(_svRoundDate(b)));
     const s = _svDashScope;
-    if(s === 'all') return rounds;
     if(s === 'last12') {
         const d = new Date(); d.setMonth(d.getMonth() - 12);
         return rounds.filter(r => _svRoundDate(r) >= d.toISOString().slice(0, 10));
     }
     if(s.startsWith('year:')) return rounds.filter(r => _svRoundDate(r).startsWith(s.slice(5)));
     if(s.startsWith('round:')) return rounds.filter(r => r.id === s.slice(6));
+    if(s === 'custom') {
+        return rounds.filter(r => {
+            const d = _svRoundDate(r);
+            return (!_svFilters.from || d >= _svFilters.from) && (!_svFilters.to || d <= _svFilters.to);
+        });
+    }
     return rounds;
 }
 
-/** Respuestas del alcance, con su invitación y ronda. */
+/** Respuestas de las rondas dadas, con su invitación y ronda. */
 function _svScopeResponses(rounds) {
     const ids = new Set(rounds.map(r => r.id));
     const out = [];
@@ -7004,32 +7050,72 @@ function _svScopeResponses(rounds) {
     return out;
 }
 
-function _svDashboard() {
-    const rounds = _svScopeRounds();
-    const rows = _svScopeResponses(rounds);
+/** Respuestas del alcance elegido y de los filtros de compañía / analista. */
+function _svFilteredRows() {
+    return _svScopeResponses(_svScopeRounds()).filter(x => _svInviteMatches(x.inv));
+}
+
+/** Respuestas agrupadas por ronda, en orden cronológico. */
+function _svRoundsOf(rows) {
+    const byRound = new Map();
+    rows.forEach(x => {
+        if(!byRound.has(x.round.id)) byRound.set(x.round.id, { round: x.round, resp: [] });
+        byRound.get(x.round.id).resp.push(x.resp);
+    });
+    return [...byRound.values()].sort((a, b) => _svRoundDate(a.round).localeCompare(_svRoundDate(b.round)));
+}
+
+function _svFilterBar() {
     const years = [...new Set(dbSurveyRounds.map(r => _svRoundDate(r).slice(0, 4)))].sort().reverse();
     const allSorted = dbSurveyRounds.slice().sort((a, b) => _svRoundDate(b).localeCompare(_svRoundDate(a)));
-    const scopeSel = `
-        <select class="filter-select" onchange="svSetScope(this.value)" style="min-width:200px;">
-            <option value="all" ${_svDashScope === 'all' ? 'selected' : ''}>Todas las rondas</option>
-            <option value="last12" ${_svDashScope === 'last12' ? 'selected' : ''}>Últimos 12 meses</option>
-            ${years.map(y => `<option value="year:${y}" ${_svDashScope === 'year:' + y ? 'selected' : ''}>Año ${y}</option>`).join('')}
-            ${allSorted.map(r => `<option value="round:${r.id}" ${_svDashScope === 'round:' + r.id ? 'selected' : ''}>${_escHtml(r.name)}</option>`).join('')}
-        </select>`;
-    if(!rows.length) return `<div class="filter-toolbar">${scopeSel}</div><div class="stats-card" style="text-align:center;padding:3rem;color:#94a3b8;">Aún no hay respuestas en este alcance.</div>`;
+    const f = _svFilters;
+    const active = f.company || f.analyst || _svDashScope !== 'all' || _svOnlyAlerts;
+    const sel = (extra = '') => `class="filter-select" style="min-width:170px;margin-top:4px;${extra}"`;
+    return `
+        <div class="filter-toolbar" style="align-items:flex-end;flex-wrap:wrap;">
+            <div><label class="filter-label">Compañía</label><br>
+                <select ${sel('min-width:210px;')} onchange="svSetFilter('company', this.value)">
+                    <option value="">Todas las compañías</option>
+                    ${_svCompanyOptions().map(c => `<option value="${_escHtml(c.key)}" ${f.company === c.key ? 'selected' : ''}>${_escHtml(c.name)}</option>`).join('')}
+                </select></div>
+            <div><label class="filter-label">Analista</label><br>
+                <select ${sel()} onchange="svSetFilter('analyst', this.value)">
+                    <option value="">Todos los analistas</option>
+                    ${_svAnalystOptions().map(a => `<option value="${_escHtml(a.key)}" ${f.analyst === a.key ? 'selected' : ''}>${_escHtml(a.name)}</option>`).join('')}
+                </select></div>
+            <div><label class="filter-label">Período</label><br>
+                <select ${sel()} onchange="svSetScope(this.value)">
+                    <option value="all" ${_svDashScope === 'all' ? 'selected' : ''}>Todas las rondas</option>
+                    <option value="last12" ${_svDashScope === 'last12' ? 'selected' : ''}>Últimos 12 meses</option>
+                    ${years.map(y => `<option value="year:${y}" ${_svDashScope === 'year:' + y ? 'selected' : ''}>Año ${y}</option>`).join('')}
+                    <option value="custom" ${_svDashScope === 'custom' ? 'selected' : ''}>Rango de fechas…</option>
+                    <optgroup label="Una ronda">
+                        ${allSorted.map(r => `<option value="round:${r.id}" ${_svDashScope === 'round:' + r.id ? 'selected' : ''}>${_escHtml(r.name)}</option>`).join('')}
+                    </optgroup>
+                </select></div>
+            ${_svDashScope === 'custom' ? `
+            <div><label class="filter-label">Desde</label><br><input type="date" value="${_escHtml(f.from)}" onchange="svSetFilter('from', this.value)" class="filter-select" style="margin-top:4px;"></div>
+            <div><label class="filter-label">Hasta</label><br><input type="date" value="${_escHtml(f.to)}" onchange="svSetFilter('to', this.value)" class="filter-select" style="margin-top:4px;"></div>` : ''}
+            ${active ? '<button onclick="svClearFilters()" class="filter-clear-btn">✕ Limpiar</button>' : ''}
+            <button class="btn-outline" onclick="svExportCSV()" style="font-size:0.8rem;margin-left:auto;">⬇ Exportar (CSV)</button>
+        </div>`;
+}
+
+function _svDashboard() {
+    const rounds = _svScopeRounds();
+    const rows = _svFilteredRows();
+    const bar = _svFilterBar();
+    if(!rows.length) return `${bar}<div class="stats-card" style="text-align:center;padding:3rem;color:#94a3b8;margin-top:1rem;">No hay respuestas con estos filtros.</div>`;
 
     const avg = _svAverages(rows.map(x => x.resp));
-    const invitesIn = dbSurveyInvites.filter(i => rounds.some(r => r.id === i.round_id) && i.status !== 'omitida').length;
+    const roundIds = new Set(rounds.map(r => r.id));
+    const invitesIn = dbSurveyInvites.filter(i => roundIds.has(i.round_id) && i.status !== 'omitida' && _svInviteMatches(i)).length;
     const rate = invitesIn ? Math.round(rows.length / invitesIn * 100) : 0;
 
-    // cambio de la última ronda del alcance frente a la anterior (cronológica, entre todas las rondas con respuestas)
-    const chronoAll = dbSurveyRounds.filter(r => dbSurveyInvites.some(i => i.round_id === r.id && _svResponseOf(i.id)))
-        .sort((a, b) => _svRoundDate(a).localeCompare(_svRoundDate(b)));
-    const lastRound = rounds.filter(r => chronoAll.some(c => c.id === r.id)).slice(-1)[0];
-    const lastIdx = lastRound ? chronoAll.findIndex(c => c.id === lastRound.id) : -1;
-    const prevRound = lastIdx > 0 ? chronoAll[lastIdx - 1] : null;
-    const lastAvg = lastRound ? _svAverages(_svScopeResponses([lastRound]).map(x => x.resp)) : avg;
-    const prevAvg = prevRound ? _svAverages(_svScopeResponses([prevRound]).map(x => x.resp)) : null;
+    // cambio de la última ronda con datos frente a la anterior, dentro de los filtros
+    const chrono = _svRoundsOf(rows);
+    const lastAvg = chrono.length ? _svAverages(chrono[chrono.length - 1].resp) : avg;
+    const prevAvg = chrono.length > 1 ? _svAverages(chrono[chrono.length - 2].resp) : null;
     const delta = (k) => {
         if(!prevAvg || lastAvg.dims[k] === null || prevAvg.dims[k] === null) return '';
         const d = lastAvg.dims[k] - prevAvg.dims[k];
@@ -7053,27 +7139,30 @@ function _svDashboard() {
     // por analista (a partir de las invitaciones)
     const byAnalyst = new Map();
     rows.forEach(x => {
-        String(x.inv.analysts || '').split(/\s*(?:,|\/|&|\+|\by\b)\s*/i).map(s => s.trim()).filter(s => s.length > 1).forEach(a => {
-            if(!byAnalyst.has(a)) byAnalyst.set(a, []);
-            byAnalyst.get(a).push(x.resp);
+        _svAnalystList(x.inv.analysts).forEach(a => {
+            const k = _svKey(a);
+            if(!byAnalyst.has(k)) byAnalyst.set(k, { name: a, rs: [] });
+            byAnalyst.get(k).rs.push(x.resp);
         });
     });
-    const analystRows = [...byAnalyst.entries()].map(([name, rs]) => ({ name, n: rs.length, avg: _svAverages(rs) })).sort((a, b) => (b.avg.overall ?? 0) - (a.avg.overall ?? 0));
+    const analystRows = [...byAnalyst.values()].map(a => ({ name: a.name, n: a.rs.length, avg: _svAverages(a.rs) })).sort((a, b) => (b.avg.overall ?? 0) - (a.avg.overall ?? 0));
 
     const comments = rows.filter(x => x.resp.comments).sort((a, b) => String(b.resp.answered_at).localeCompare(String(a.resp.answered_at))).slice(0, 25);
 
+    // historial detallado cuando se filtra por una compañía
+    const history = _svFilters.company ? rows.slice().sort((a, b) => _svRoundDate(a.round).localeCompare(_svRoundDate(b.round))) : [];
+    const companyName = _svFilters.company ? (_svCompanyOptions().find(c => c.key === _svFilters.company)?.name || '') : '';
+
     const kpi = (title, value, sub) => `<div class="stats-card" style="text-align:center;padding:1rem;"><div style="font-size:0.72rem;font-weight:700;color:#64748b;text-transform:uppercase;">${title}</div><div style="margin:0.35rem 0;">${value}</div><div style="font-size:0.72rem;color:#94a3b8;">${sub}</div></div>`;
+    const metricOptions = [{ k: 'overall', label: 'Promedio general' }, ..._SV_DIMS.map(d => ({ k: d.k, label: d.label }))];
 
     return `
-        <div class="filter-toolbar" style="align-items:flex-end;">
-            <div><label class="filter-label">Alcance</label><br>${scopeSel}</div>
-            <button class="btn-outline" onclick="svExportCSV()" style="font-size:0.8rem;">⬇ Exportar respuestas (CSV)</button>
-        </div>
+        ${bar}
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:0.75rem;margin:1rem 0;">
             ${kpi('Promedio general', _svBadge(avg.overall, true).replace('1rem', '1.5rem'), 'sobre 5')}
-            ${kpi('Respuestas', `<span style="font-size:1.5rem;font-weight:800;">${rows.length}</span>`, `${rounds.length} ronda${rounds.length !== 1 ? 's' : ''}`)}
+            ${kpi('Respuestas', `<span style="font-size:1.5rem;font-weight:800;">${rows.length}</span>`, `${chrono.length} ronda${chrono.length !== 1 ? 's' : ''}`)}
             ${kpi('Tasa de respuesta', `<span style="font-size:1.5rem;font-weight:800;">${rate}%</span>`, `${rows.length} de ${invitesIn} contactos`)}
-            ${kpi('Clientes en alerta', `<span style="font-size:1.5rem;font-weight:800;color:${alerts ? '#b91c1c' : '#15803d'};">${alerts}</span>`, 'con alguna nota menor a 4')}
+            ${kpi('Compañías en alerta', `<span style="font-size:1.5rem;font-weight:800;color:${alerts ? '#b91c1c' : '#15803d'};">${alerts}</span>`, 'con alguna nota menor a 4')}
             ${kpi('Reunión de cierre', _svBadge(avg.closing, false), 'no entra en el promedio')}
         </div>
         <div style="display:grid;grid-template-columns:minmax(280px,1fr) minmax(300px,1.3fr);gap:1rem;" class="sv-two-col">
@@ -7082,22 +7171,41 @@ function _svDashboard() {
                     <div style="display:flex;justify-content:space-between;font-size:0.8rem;"><span>${d.label}</span><span>${_svBadge(avg.dims[d.k], false)}${delta(d.k)}</span></div>
                     <div style="background:#e2e8f0;border-radius:99px;height:6px;margin-top:3px;overflow:hidden;"><div style="width:${Math.max(0, ((avg.dims[d.k] ?? 0) - 1) / 4 * 100)}%;height:100%;background:${_svScoreStyle(avg.dims[d.k]).color};"></div></div></div>`).join('')}
             </div>
-            <div class="stats-card"><h4 style="margin-bottom:0.5rem;">Tendencia por ronda</h4><div style="position:relative;height:250px;"><canvas id="svTrendChart"></canvas></div></div>
+            <div class="stats-card">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;margin-bottom:0.5rem;flex-wrap:wrap;">
+                    <h4 style="margin:0;">Tendencia por ronda</h4>
+                    <select class="filter-select" onchange="svSetTrendMetric(this.value)" style="font-size:0.78rem;">
+                        ${metricOptions.map(m => `<option value="${m.k}" ${_svTrendMetric === m.k ? 'selected' : ''}>${m.label}</option>`).join('')}
+                    </select>
+                </div>
+                <div style="position:relative;height:250px;"><canvas id="svTrendChart"></canvas></div>
+            </div>
         </div>
+        ${history.length ? `
         <div class="stats-card" style="margin-top:1rem;padding:0;overflow-x:auto;">
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:0.8rem 1rem;"><h4 style="margin:0;">Clientes (última respuesta)</h4>
+            <h4 style="padding:0.8rem 1rem 0.3rem;">Evolución de ${_escHtml(companyName)}</h4>
+            <table class="data-table" style="font-size:0.8rem;"><thead><tr><th>Ronda</th><th>Contacto</th><th style="text-align:center;">Promedio</th>${_SV_DIMS.map(d => `<th style="text-align:center;" title="${d.label}">${d.label.split(' ').slice(-1)[0]}</th>`).join('')}<th>Comentario</th></tr></thead>
+            <tbody>${history.map(x => `<tr>
+                <td style="white-space:nowrap;"><strong>${_escHtml(x.round?.name || '')}</strong><div style="font-size:0.68rem;color:#94a3b8;">${_escHtml(_svRoundDate(x.round))}</div></td>
+                <td style="font-size:0.76rem;">${_escHtml(x.inv.contact_name || '')}</td>
+                <td style="text-align:center;">${_svBadge(_svResponseScore(x.resp), false)}</td>
+                ${_SV_DIMS.map(d => { const v = _svNum(x.resp[d.k]); return `<td style="text-align:center;font-size:0.76rem;${v !== null && v < 4 ? 'color:#b91c1c;font-weight:800;background:#fef2f2;' : 'color:#64748b;'}">${v === null ? '—' : _svFmt(v, 1)}</td>`; }).join('')}
+                <td style="font-size:0.74rem;color:#475569;max-width:280px;">${_escHtml(x.resp.comments || '')}</td></tr>`).join('')}</tbody></table>
+        </div>` : ''}
+        <div class="stats-card" style="margin-top:1rem;padding:0;overflow-x:auto;">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:0.8rem 1rem;"><h4 style="margin:0;">Compañías (última respuesta)</h4>
                 <button class="btn-outline" onclick="svToggleAlerts()" style="font-size:0.76rem;padding:3px 12px;${_svOnlyAlerts ? 'background:#fee2e2;border-color:#b91c1c;color:#b91c1c;' : ''}">${_svOnlyAlerts ? '⚠ Solo alertas (quitar)' : '⚠ Solo alertas'}</button></div>
-            <table class="data-table" style="font-size:0.8rem;"><thead><tr><th>Cliente</th><th>Ronda</th><th style="text-align:center;">Promedio</th>${_SV_DIMS.map(d => `<th style="text-align:center;" title="${d.label}">${d.label.split(' ').slice(-1)[0]}</th>`).join('')}</tr></thead>
+            <table class="data-table" style="font-size:0.8rem;"><thead><tr><th>Compañía</th><th>Ronda</th><th style="text-align:center;">Promedio</th>${_SV_DIMS.map(d => `<th style="text-align:center;" title="${d.label}">${d.label.split(' ').slice(-1)[0]}</th>`).join('')}</tr></thead>
             <tbody>${clients.map(c => `<tr>
                 <td><strong>${_escHtml(c.inv.company_name)}</strong><div style="font-size:0.7rem;color:#94a3b8;">${_escHtml(c.inv.contact_name || '')}</div></td>
                 <td style="font-size:0.74rem;color:#64748b;white-space:nowrap;">${_escHtml(c.round?.name || '')}</td>
                 <td style="text-align:center;">${_svBadge(c.score, false)}</td>
                 ${_SV_DIMS.map(d => { const v = _svNum(c.resp[d.k]); return `<td style="text-align:center;font-size:0.76rem;${v !== null && v < 4 ? 'color:#b91c1c;font-weight:800;background:#fef2f2;' : 'color:#64748b;'}">${v === null ? '—' : _svFmt(v, 1)}</td>`; }).join('')}
-            </tr>`).join('') || '<tr><td colspan="10" style="text-align:center;padding:1.5rem;color:#94a3b8;">Sin clientes en alerta.</td></tr>'}</tbody></table>
+            </tr>`).join('') || '<tr><td colspan="10" style="text-align:center;padding:1.5rem;color:#94a3b8;">Sin compañías en alerta.</td></tr>'}</tbody></table>
         </div>
         <div style="display:grid;grid-template-columns:minmax(280px,1fr) minmax(300px,1.3fr);gap:1rem;margin-top:1rem;" class="sv-two-col">
             <div class="stats-card" style="padding:0;overflow-x:auto;"><h4 style="padding:0.8rem 1rem 0.2rem;">Por analista</h4>
-                <div style="padding:0 1rem 0.4rem;font-size:0.72rem;color:#94a3b8;">Según los analistas que atendieron a cada cliente en la ventana de la ronda.</div>
+                <div style="padding:0 1rem 0.4rem;font-size:0.72rem;color:#94a3b8;">Según los analistas que atendieron a cada compañía en la ventana de la ronda.</div>
                 <table class="data-table" style="font-size:0.8rem;"><thead><tr><th>Analista</th><th style="text-align:center;">Resp.</th><th style="text-align:center;">Promedio</th><th style="text-align:center;">Mediciones</th><th style="text-align:center;">Claridad</th><th style="text-align:center;">Certeza</th></tr></thead>
                 <tbody>${analystRows.map(a => `<tr><td><strong>${_escHtml(a.name)}</strong></td><td style="text-align:center;">${a.n}</td><td style="text-align:center;">${_svBadge(a.avg.overall, false)}</td>
                     <td style="text-align:center;">${_svFmt(a.avg.dims.q_punctual, 1)}</td><td style="text-align:center;">${_svFmt(a.avg.dims.q_clarity, 1)}</td><td style="text-align:center;">${_svFmt(a.avg.dims.q_accuracy, 1)}</td></tr>`).join('') || '<tr><td colspan="6" style="text-align:center;padding:1rem;color:#94a3b8;">Sin datos de analistas.</td></tr>'}</tbody></table></div>
@@ -7112,29 +7220,35 @@ function _svDrawChart() {
     const canvas = document.getElementById('svTrendChart');
     if(!canvas || typeof Chart === 'undefined') return;
     if(_svChart) { _svChart.destroy(); _svChart = null; }
-    const rounds = _svScopeRounds();
-    const points = rounds.map(r => ({ label: r.name, avg: _svAverages(_svScopeResponses([r]).map(x => x.resp)) })).filter(p => p.avg.overall !== null);
+    const metric = _svTrendMetric;
+    const label = metric === 'overall' ? 'Promedio general' : (_SV_DIMS.find(d => d.k === metric)?.label || metric);
+    const points = _svRoundsOf(_svFilteredRows()).map(g => {
+        const a = _svAverages(g.resp);
+        return { label: g.round.name, value: metric === 'overall' ? a.overall : a.dims[metric] };
+    }).filter(p => p.value !== null && p.value !== undefined);
     if(!points.length) return;
+    const vals = points.map(p => p.value);
+    const yMin = Math.max(1, Math.floor((Math.min(...vals) - 0.3) * 2) / 2);
     _svChart = new Chart(canvas, {
         type: 'line',
         data: {
             labels: points.map(p => p.label),
-            datasets: [{ label: 'Promedio general', data: points.map(p => Number(p.avg.overall.toFixed(2))), borderColor: '#2563eb', backgroundColor: '#2563eb22', fill: true, tension: 0.3, pointRadius: 4 }]
+            datasets: [{ label, data: vals.map(v => Number(v.toFixed(2))), borderColor: '#2563eb', backgroundColor: '#2563eb22', fill: true, tension: 0.3, pointRadius: 4 }]
         },
         options: {
             responsive: true, maintainAspectRatio: false,
-            scales: { y: { min: 3, max: 5, ticks: { stepSize: 0.5 } } },
+            scales: { y: { min: Math.min(yMin, 3), max: 5, ticks: { stepSize: 0.5 } } },
             plugins: { legend: { display: false } }
         }
     });
 }
 
 function svExportCSV() {
-    const rows = _svScopeResponses(_svScopeRounds());
+    const rows = _svFilteredRows();
     if(!rows.length) { showToast('No hay respuestas para exportar', 'error'); return; }
-    const head = ['Ronda', 'Fecha', 'Empresa', 'Contacto', 'Cargo', ..._SV_DIMS.map(d => d.label), 'Promedio', 'Reunión de cierre', 'Nota reunión', 'Emoción', 'Comentarios'];
+    const head = ['Ronda', 'Fecha', 'Empresa', 'Contacto', 'Cargo', 'Analistas', ..._SV_DIMS.map(d => d.label), 'Promedio', 'Reunión de cierre', 'Nota reunión', 'Emoción', 'Comentarios'];
     const data = rows.map(x => [
-        x.round?.name || '', _svRoundDate(x.round || {}), x.inv.company_name, x.inv.contact_name || '', x.inv.contact_role || '',
+        x.round?.name || '', _svRoundDate(x.round || {}), x.inv.company_name, x.inv.contact_name || '', x.inv.contact_role || '', x.inv.analysts || '',
         ..._SV_DIMS.map(d => x.resp[d.k] ?? ''), _svFmt(_svResponseScore(x.resp), 2), x.resp.q_closing_meeting ?? '', x.resp.closing_meeting_note || '', x.resp.emotion || '', x.resp.comments || ''
     ]);
     const csv = [head, ...data].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -7143,7 +7257,6 @@ function svExportCSV() {
     a.download = `encuestas_satisfaccion_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
 }
-
 
 // ── Tarjeta de satisfacción en el Panel de Control ───────────────────────────
 function renderDashboardSurveyCard() {
