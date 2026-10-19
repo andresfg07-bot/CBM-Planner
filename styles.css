@@ -2336,6 +2336,18 @@ body.role-assistant .calendar-task-pill:active {
     transition: background 0.15s, transform 0.1s;
 }
 .mywork-eye-btn:hover { background: #e0f2fe; transform: scale(1.08); }
+.mywork-ck-btn { position: relative; background: #f0fdfa; border-color: #99f6e4; }
+.mywork-ck-btn:hover { background: #ccfbf1; }
+.mywork-ck-btn.ck-done { background: #dcfce7; border-color: #86efac; }
+.mywork-ck-btn.ck-warn { background: #fef3c7; border-color: #fcd34d; }
+.mywork-ck-btn .ck-badge {
+    position: absolute; bottom: -7px; right: -6px;
+    background: #0f766e; color: #fff; border-radius: 99px;
+    font-size: 0.58rem; font-weight: 800; line-height: 1; padding: 2px 5px;
+    border: 1.5px solid #fff;
+}
+.mywork-ck-btn.ck-done .ck-badge { background: #15803d; }
+.mywork-ck-btn.ck-warn .ck-badge { background: #b45309; }
 .mywork-eye-btn.has-details {
     background: #dcfce7;
     border-color: #86efac;

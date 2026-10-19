@@ -1059,11 +1059,18 @@ function renderMyWorkCard(task) {
                     ${task.equipment || task.equipmentName
                         ? `<p class="mywork-card-equip">${task.equipment || task.equipmentName}</p>` : ''}
                 </div>
-                <button class="mywork-eye-btn ${task.serviceDetails ? 'has-details' : ''}"
-                        onclick="event.stopPropagation(); openServiceDetailsModal('${task.id}')"
-                        title="${task.serviceDetails ? 'Editar detalles para el comercial' : 'Agregar detalles del servicio para el comercial'}">
-                    👁️
-                </button>
+                <div style="display:flex; gap:0.4rem; flex-shrink:0;">
+                    ${hasChecklist ? `<button class="mywork-eye-btn mywork-ck-btn ${ckProg.answered === ckProg.total ? 'ck-done' : (ckProg.fails ? 'ck-warn' : '')}"
+                            onclick="event.stopPropagation(); openTaskChecklist('${task.id}')"
+                            title="Checklist de servicio (${ckProg.answered} de ${ckProg.total} puntos${ckProg.fails ? ' · ' + ckProg.fails + ' con novedad' : ''})">
+                        📋<span class="ck-badge">${ckProg.answered}/${ckProg.total}</span>
+                    </button>` : ''}
+                    <button class="mywork-eye-btn ${task.serviceDetails ? 'has-details' : ''}"
+                            onclick="event.stopPropagation(); openServiceDetailsModal('${task.id}')"
+                            title="${task.serviceDetails ? 'Editar detalles para el comercial' : 'Agregar detalles del servicio para el comercial'}">
+                        👁️
+                    </button>
+                </div>
             </div>
 
             <div class="mywork-card-dates">
@@ -1076,9 +1083,8 @@ function renderMyWorkCard(task) {
                 </div>
             </div>
 
-            ${canExecute || canCsat || csatDone || hasChecklist ? `
+            ${canExecute || canCsat || csatDone ? `
             <div class="mywork-card-actions">
-                ${hasChecklist ? `<button class="mywork-btn" onclick="openTaskChecklist('${task.id}')" style="background:#f0fdfa;color:#0f766e;border:1px solid #99f6e4;">📋 Checklist de servicio (${ckProg.answered}/${ckProg.total})</button>` : ''}
                 ${canExecute ? `<button class="mywork-btn btn-execute" onclick="analystMarkExecuted('${task.id}')">✓ Marcar como Ejecutada</button>` : ''}
                 ${canCsat    ? `<button class="mywork-btn btn-csat"    onclick="analystOpenCsat('${task.id}')">📋 Llenar Encuesta CSAT</button>` : ''}
                 ${csatDone && task.clientNoResponse ? `
@@ -2045,7 +2051,7 @@ function confirmExecutionChecklist(serviceType, taskId = null) {
         const itemsContainer = document.getElementById('execChecklistItems');
         if(!modal || !confirmBtn || !itemsContainer) { resolve(true); return; } // fallback si el modal no existe
 
-        const ckInfo = (serviceType === 'Rotodinámico' && taskId && currentUserProfile?.role === 'admin')
+        const ckInfo = (serviceType === 'Rotodinámico' && taskId && _ckHasChecklist(tasks.find(t => t.id === taskId)))
             ? (() => { const p = _ckProgress(_ckRowOf(taskId)?.data); return `<div style="font-size:0.78rem;color:${p.answered === p.total ? '#15803d' : '#b45309'};background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:0.5rem 0.7rem;margin-bottom:0.6rem;">📋 Checklist de servicio: ${p.answered} de ${p.total} puntos${p.fails ? ` · ${p.fails} con novedad` : ''}</div>`; })()
             : '';
         itemsContainer.innerHTML = ckInfo + items.map((label, i) => `
@@ -9914,10 +9920,16 @@ function _ckProgress(data) {
     return { answered, fails, total: _CK_ITEM_TOTAL, byStage };
 }
 
-// Por ahora el checklist de servicio solo lo ve el admin (aún no se habilita a los analistas).
+// El checklist de servicio lo ve el admin y los analistas asignados a la gestión.
 function _ckHasChecklist(task) {
-    return currentUserProfile?.role === 'admin'
-        && task && task.serviceType === 'Rotodinámico' && !task.isAbsence && task.status !== 'proyectada';
+    if(!task || task.serviceType !== 'Rotodinámico' || task.isAbsence || task.status === 'proyectada') return false;
+    const role = currentUserProfile?.role;
+    if(role === 'admin') return true;
+    if(role === 'analyst') {
+        const me = currentUserProfile?.analyst_name;
+        return !!me && ((task.analysts_assignment || []).some(a => a.name === me) || task.analyst === me);
+    }
+    return false;
 }
 
 async function loadTaskChecklists() {
