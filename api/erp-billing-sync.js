@@ -23,20 +23,21 @@ async function authorize(req) {
     const auth = req.headers.authorization || '';
     const token = auth.replace(/^Bearer\s+/i, '');
     if(process.env.CRON_SECRET && token === process.env.CRON_SECRET) return { who: 'cron' };
-    if(!token) return null;
+    if(!token) return { error: 'Falta la sesión (vuelve a iniciar sesión en el planner)' };
     const u = await fetch(`${SB_URL()}/auth/v1/user`, { headers: { apikey: SB_KEY(), Authorization: `Bearer ${token}` } });
-    if(!u.ok) return null;
+    if(!u.ok) return { error: 'Sesión no válida o SUPABASE_URL / clave de servicio incorrectas en Vercel' };
     const user = await u.json();
     const prof = await sb(`profiles?id=eq.${user.id}&select=role`);
-    if(prof?.[0] && ['admin', 'assistant'].includes(prof[0].role)) return { who: user.email };
-    return null;
+    if(!prof?.[0]) return { error: 'No se pudo leer el perfil: SUPABASE_SERVICE_ROLE_KEY probablemente no es la clave service_role' };
+    if(!['admin', 'assistant'].includes(prof[0].role)) return { error: `Tu rol (${prof[0].role}) no puede sincronizar` };
+    return { who: user.email };
 }
 
 module.exports = async function handler(req, res) {
     try {
         if(!SB_URL() || !SB_KEY()) return res.status(500).json({ error: 'Falta SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY' });
         const caller = await authorize(req);
-        if(!caller) return res.status(401).json({ error: 'No autorizado' });
+        if(caller.error) return res.status(401).json({ error: caller.error });
 
         const settings = (await sb('erp_sync_settings?id=eq.1&select=mode'))?.[0] || { mode: 'prueba' };
         const active = settings.mode === 'activo';
