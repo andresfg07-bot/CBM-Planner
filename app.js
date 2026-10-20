@@ -6728,7 +6728,7 @@ function _svRenderSurveyForm() {
     const emo = (v, label, color, bg) => `<button onclick="svSetEmotion('${v}')" style="padding:4px 12px;border-radius:99px;border:1.5px solid ${f.emotion === v ? color : '#cbd5e1'};background:${f.emotion === v ? bg : '#fff'};color:${f.emotion === v ? color : '#64748b'};font-weight:700;font-size:0.8rem;cursor:pointer;">${label}</button>`;
     document.getElementById('svSurvey_body').innerHTML =
         dimBlock('q_punctual') + dimBlock('q_verbal') + dimBlock('q_reports_time') + dimBlock('q_clarity') + dimBlock('q_accuracy') +
-        block('¿Cómo califica la reunión de cierre de gestión a la luz de la plataforma A-Report? <span style="font-weight:400;color:#94a3b8;">(no entra en el promedio)</span>',
+        block('¿Cómo califica la reunión de cierre de gestión a la luz de la plataforma ALERTVOX? <span style="font-weight:400;color:#94a3b8;">(no entra en el promedio)</span>',
             `<div style="display:flex;gap:0.3rem;flex-wrap:wrap;align-items:center;">
                 ${[1, 2, 3, 4, 5].map(v => `<button onclick="svSetClosingScore('closing', ${v})" style="min-width:40px;padding:4px 0;border-radius:8px;border:1.5px solid ${f.closing === String(v) ? '#1d4ed8' : '#cbd5e1'};background:${f.closing === String(v) ? '#dbeafe' : '#fff'};color:${f.closing === String(v) ? '#1d4ed8' : '#64748b'};font-weight:800;font-size:0.85rem;cursor:pointer;">${v}</button>`).join('')}
                 ${closingNotes.map(n => `<button onclick="svSetClosingNote('${n}')" style="padding:4px 10px;border-radius:99px;border:1.5px solid ${f.closingNote === n ? '#475569' : '#e2e8f0'};background:${f.closingNote === n ? '#e2e8f0' : '#fff'};color:#475569;font-size:0.74rem;cursor:pointer;">${n}</button>`).join('')}
