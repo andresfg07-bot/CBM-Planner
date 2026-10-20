@@ -157,7 +157,7 @@ function applyRoleUI() {
         analyst:    ['mywork', 'planning', 'inventory'],
         assistant:  ['dashboard', 'tasks', 'planning', 'finance', 'reports', 'surveys'],
         commercial: ['dashboard', 'tasks', 'planning', 'finance', 'reports'],
-        viewer:     ['dashboard', 'tasks', 'planning', 'finance', 'reports', 'inventory'],
+        viewer:     ['dashboard', 'tasks', 'planning', 'finance', 'reports', 'efficiency', 'surveys', 'inventory'],
     };
     const allowed = allowedViews[role] || allowedViews.viewer;
 
@@ -1976,6 +1976,7 @@ function renderTasksTable(container) {
                                     ${t.status === 'programada' ? actionIcon('revert', `revertToProjected('${t.id}')`, 'Revertir a Proyectada') : ''}
                                     ${actionIcon('delete', `deleteTask('${t.id}')`,              'Borrar')}
                                 ` : (role === 'commercial' || role === 'viewer') ? `
+                                    ${role === 'viewer' && _ckHasChecklist(t) ? actionIcon('checklist', `openTaskChecklist('${t.id}')`, `Checklist de servicio (${_ckProgress(_ckRowOf(t.id)?.data).answered}/${_CK_ITEM_TOTAL})`) : ''}
                                     ${serviceDetailsIcon(t)}
                                 ` : role === 'assistant' ? `
                                     <div style="display:flex;gap:0.3rem;align-items:center;flex-wrap:wrap;">
@@ -6246,7 +6247,7 @@ let _svContactCtx = null;
 let _svAttemptId = null;
 
 // Roles que ven los resultados (agregar 'commercial' y 'viewer' cuando se habilite para ellos).
-const _SV_RESULTS_ROLES = ['admin'];
+const _SV_RESULTS_ROLES = ['admin', 'viewer'];
 const _SV_FILL_ROLES = ['admin', 'assistant'];
 
 const _SV_DIMS = [
@@ -7958,7 +7959,7 @@ function _effCountCell(e) {
 function renderEfficiencyView() {
     const el = document.getElementById('efficiency-container');
     if(!el) return;
-    if(currentUserProfile?.role !== 'admin') {
+    if(!['admin', 'viewer'].includes(currentUserProfile?.role)) {
         el.innerHTML = '<div style="text-align:center;padding:3rem;color:#94a3b8;">No tienes permiso para ver esta sección.</div>';
         return;
     }
@@ -9924,7 +9925,7 @@ function _ckProgress(data) {
 function _ckHasChecklist(task) {
     if(!task || task.serviceType !== 'Rotodinámico' || task.isAbsence || task.status === 'proyectada') return false;
     const role = currentUserProfile?.role;
-    if(role === 'admin') return true;
+    if(role === 'admin' || role === 'viewer') return true;
     if(role === 'analyst') {
         const me = currentUserProfile?.analyst_name;
         return !!me && ((task.analysts_assignment || []).some(a => a.name === me) || task.analyst === me);
@@ -9962,7 +9963,7 @@ function openTaskChecklist(taskId) {
     } catch(e) { /* sin acceso a localStorage */ }
 
     state.data.items = state.data.items || {};
-    _ck = { taskId, ...state, stage: _CK_STAGES[0].id, status: '' };
+    _ck = { taskId, ...state, stage: _CK_STAGES[0].id, status: '', readOnly: currentUserProfile?.role === 'viewer' };
     // Abre en la primera etapa con puntos pendientes
     const prog = _ckProgress(_ck.data);
     const firstOpen = _CK_STAGES.find(st => prog.byStage[st.id].answered < prog.byStage[st.id].total);
@@ -9976,7 +9977,7 @@ function openTaskChecklist(taskId) {
 
 function closeTaskChecklist() {
     clearTimeout(_ckSaveTimer);
-    if(_ck && _ck.dirty) _ckPersist();
+    if(_ck && _ck.dirty && !_ck.readOnly) _ckPersist();
     closeModal('taskChecklistModal');
     // Refresca los avances visibles en Mi Trabajo / Gestiones
     if(document.getElementById('view-mywork')?.classList.contains('active-view')) renderMyWorkView();
@@ -9985,7 +9986,7 @@ function closeTaskChecklist() {
 }
 
 function _ckSchedule() {
-    if(!_ck) return;
+    if(!_ck || _ck.readOnly) return;
     _ck.dirty = true;
     try {
         localStorage.setItem(_ckDraftKey(_ck.taskId), JSON.stringify({ data: _ck.data, arrived: _ck.arrived, left: _ck.left, savedAt: new Date().toISOString() }));
@@ -10918,6 +10919,10 @@ function renderTaskChecklist() {
         </details>` : '';
 
     body.innerHTML = _a001Section(stage, task) + itemsHtml + _ckStageExtras(stage.id) + guideHtml;
+    if(_ck.readOnly) {
+        body.querySelectorAll('input, select, textarea, button').forEach(el => { el.disabled = true; });
+        document.getElementById('ck_subtitle').insertAdjacentHTML('beforeend', '<br><span style="color:#b45309;font-weight:700;">👁 Solo lectura</span>');
+    }
     _ckUpdateStatus();
 }
 
