@@ -438,6 +438,8 @@
                     </div>
                 </div>
                 
+                <section id="erp-sync-panel" style="display:none; margin-bottom:1.5rem;"><!-- Rendered by JS --></section>
+
                 <div id="finance-filters" class="filter-toolbar" style="align-items:flex-end;">
                     <div style="flex: 1; min-width: 200px;">
                         <label class="filter-label">Período de Facturación (Analíticos)</label>
@@ -769,6 +771,10 @@
                     <label>Valor Presupuestado ($)</label>
                     <input type="number" id="taskBudget" required>
                     <div id="budgetSuggestion" style="display:none;"></div>
+                </div>
+                <div class="form-group" id="group-negocio">
+                    <label>N° de negocio del ERP <span style="font-weight:400; color:#64748b; font-size:0.72rem;">(ej. N2939 · opcional · varias gestiones pueden compartirlo)</span></label>
+                    <input type="text" id="taskNegocio" placeholder="N2939" maxlength="12" style="text-transform:uppercase;">
                 </div>
                 <div style="display: flex; gap: 1rem;">
                     <div class="form-group" style="flex: 1;">

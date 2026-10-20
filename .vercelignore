@@ -6,3 +6,4 @@ estilo.jpg
 tmp/
 .claude/
 .agents/
+tests/

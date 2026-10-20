@@ -4720,7 +4720,101 @@ function toggleFinanceCardExpand(key) {
     renderFinanceView();
 }
 
+// ── Facturación automática desde el ERP (el ERP solo se consulta, nunca se modifica) ──────
+let _erpSettings = null, _erpLog = [], _erpBusy = false;
+const _ERP_REASONS = {
+    coincide: 'Valor coincide', valor_corregido: 'Valor corregido al de la factura', coincide_varias: 'Total de varias gestiones coincide',
+    nota_credito: 'Hay nota crédito', envio_desconocido: 'No se pudo saber si la factura fue enviada',
+    diferencia_mayor: 'Diferencia grande con el valor del planner', no_coincide_varias: 'El total facturado no coincide con la suma de las gestiones'
+};
+
+async function renderErpSyncPanel() {
+    const el = document.getElementById('erp-sync-panel');
+    if(!el) return;
+    if(!['admin', 'assistant', 'viewer'].includes(currentUserProfile?.role)) { el.style.display = 'none'; return; }
+    try {
+        const [s, l] = await Promise.all([
+            supabaseClient.from('erp_sync_settings').select('*').eq('id', 1).maybeSingle(),
+            supabaseClient.from('erp_billing_log').select('*').order('created_at', { ascending: false }).limit(60)
+        ]);
+        if(s.error || l.error) { el.style.display = 'none'; return; }   // migración aún no ejecutada
+        _erpSettings = s.data; _erpLog = l.data || [];
+    } catch(e) { el.style.display = 'none'; return; }
+
+    const canAct = ['admin', 'assistant'].includes(currentUserProfile.role);
+    const isAdmin = currentUserProfile.role === 'admin';
+    const mode = _erpSettings?.mode || 'prueba';
+    const last = _erpSettings?.last_run_at ? new Date(_erpSettings.last_run_at).toLocaleString('es-CO') : 'nunca';
+    const pending = _erpLog.filter(x => x.state === 'por_revisar');
+    const proposed = _erpLog.filter(x => x.state === 'propuesto');
+    const applied = _erpLog.filter(x => x.state === 'aplicado').slice(0, 8);
+    const money = v => v === null || v === undefined ? '—' : '$' + Number(v).toLocaleString('es-CO');
+    const row = x => `<tr>
+        <td><strong>${_escHtml(x.negocio)}</strong></td>
+        <td style="font-size:0.76rem;">${_escHtml((x.invoice_refs || []).join(', '))}</td>
+        <td style="text-align:right;">${money(x.invoiced_total)}</td>
+        <td style="font-size:0.76rem;color:#64748b;">${_escHtml(_ERP_REASONS[x.reason] || x.reason || '')}${x.details?.diff ? ` (${money(x.details.diff)})` : ''}</td>
+        <td style="text-align:right;">${x.state === 'por_revisar' && canAct ? `<button class="btn-secondary" style="font-size:0.72rem;padding:2px 8px;" onclick="erpResolve('${x.id}')">Ya lo revisé</button>` : ''}</td></tr>`;
+    const table = (rows) => `<table class="data-table" style="font-size:0.82rem;"><thead><tr><th>Negocio</th><th>Facturas</th><th style="text-align:right;">Total antes de IVA</th><th>Detalle</th><th></th></tr></thead><tbody>${rows.map(row).join('')}</tbody></table>`;
+
+    el.style.display = '';
+    el.innerHTML = `
+        <div class="stats-card" style="padding:1.25rem;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;margin-bottom:0.75rem;">
+                <div>
+                    <h3 style="margin:0 0 0.2rem;font-size:1rem;">Facturación desde el ERP</h3>
+                    <p style="margin:0;font-size:0.75rem;color:var(--text-secondary);">Compara las facturas enviadas en el ERP con los N° de negocio del planner. El ERP solo se consulta. Última revisión: ${last}.</p>
+                </div>
+                <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                    <span style="background:${mode === 'activo' ? '#dcfce7' : '#fef3c7'};color:${mode === 'activo' ? '#15803d' : '#a16207'};font-size:0.68rem;font-weight:700;padding:3px 10px;border-radius:999px;text-transform:uppercase;">${mode === 'activo' ? 'Activo' : 'Modo prueba'}</span>
+                    ${isAdmin ? `<button class="btn-outline" onclick="erpToggleMode()">${mode === 'activo' ? 'Volver a modo prueba' : 'Activar'}</button>` : ''}
+                    ${canAct ? `<button class="btn-primary" id="erp-sync-btn" onclick="erpSyncNow()" ${_erpBusy ? 'disabled' : ''}>Sincronizar ahora</button>` : ''}
+                </div>
+            </div>
+            ${mode !== 'activo' ? '<p style="font-size:0.76rem;color:#a16207;background:#fffbeb;border-radius:8px;padding:0.5rem 0.75rem;margin:0 0 0.75rem;">En modo prueba solo se registra lo que se haría; no se cambia ninguna gestión.</p>' : ''}
+            ${pending.length ? `<h4 style="margin:0.75rem 0 0.4rem;font-size:0.85rem;">Por revisar (${pending.length})</h4>${table(pending)}` : ''}
+            ${proposed.length ? `<h4 style="margin:0.75rem 0 0.4rem;font-size:0.85rem;">Se facturaría al activar (${proposed.length})</h4>${table(proposed)}` : ''}
+            ${applied.length ? `<h4 style="margin:0.75rem 0 0.4rem;font-size:0.85rem;">Facturado automáticamente (últimos ${applied.length})</h4>${table(applied)}` : ''}
+            ${!pending.length && !proposed.length && !applied.length ? '<p style="font-size:0.8rem;color:#94a3b8;margin:0.5rem 0 0;">Aún no hay movimientos. Asigna el N° de negocio a las gestiones para empezar.</p>' : ''}
+        </div>`;
+}
+
+async function erpSyncNow() {
+    if(_erpBusy) return;
+    _erpBusy = true;
+    const btn = document.getElementById('erp-sync-btn');
+    if(btn) { btn.disabled = true; btn.textContent = 'Sincronizando…'; }
+    try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        const res = await fetch('/api/erp-billing-sync', { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || ''}` } });
+        const out = await res.json().catch(() => ({}));
+        if(!res.ok) throw new Error(out.error || `Error ${res.status}`);
+        showToast(`Revisión lista · ${out.applied} facturadas, ${out.proposed} propuestas, ${out.review} por revisar`, 'success');
+        if(out.applied) { await loadTasksFromSupabase(); renderTasksView(); }
+    } catch(e) {
+        showToast('No se pudo sincronizar con el ERP: ' + e.message, 'error');
+    } finally {
+        _erpBusy = false;
+        renderErpSyncPanel();
+    }
+}
+
+async function erpToggleMode() {
+    const next = _erpSettings?.mode === 'activo' ? 'prueba' : 'activo';
+    if(next === 'activo' && !confirm('En modo activo el planner pasará solo a "facturada" las gestiones cuyas facturas ya fueron enviadas en el ERP, y corregirá el valor cuando difiera. ¿Activar?')) return;
+    const { error } = await supabaseClient.from('erp_sync_settings').update({ mode: next }).eq('id', 1);
+    if(error) { showToast(error.message, 'error'); return; }
+    renderErpSyncPanel();
+}
+
+async function erpResolve(id) {
+    const { error } = await supabaseClient.from('erp_billing_log').update({ state: 'resuelto', resolved_by: currentUserProfile?.display_name || currentUser?.email || null, resolved_at: new Date().toISOString() }).eq('id', id);
+    if(error) { showToast(error.message, 'error'); return; }
+    renderErpSyncPanel();
+}
+
 function renderFinanceView() {
+    renderErpSyncPanel();
     const container = document.getElementById('finance-summary-container');
     if(!container) return;
 
@@ -4998,6 +5092,7 @@ async function saveTaskToSupabase(task) {
             service_type: task.serviceType,
             is_absence: task.isAbsence || false,
             absence_notes: task.absenceNotes || null,
+            ...((task.negocio || task.negocioLoaded) ? { negocio: task.negocio || null } : {}),
             csat_score: task.csatScore || null,
             csat_observations: task.csatObservations || null,
             alertvox_checked: task.alertvoxChecked || false,
@@ -5085,6 +5180,8 @@ async function loadTasksFromSupabase() {
                 csatScore: t.csat_score || null,
                 csatObservations: t.csat_observations || '',
                 absenceNotes: t.absence_notes || '',
+                negocio: t.negocio || '',
+                negocioLoaded: !!t.negocio,
                 alertvoxChecked: t.alertvox_checked || false,
                 clientNoResponse: t.client_no_response || false,
                 evidenceNotes: t.evidence_notes || '',
@@ -5313,7 +5410,9 @@ function openEditTaskModal(taskId) {
 
         const budgetEl = document.getElementById('taskBudget');
         if (budgetEl) budgetEl.value = task.budget;
-        
+        const negocioEl = document.getElementById('taskNegocio');
+        if (negocioEl) negocioEl.value = task.negocio || '';
+
         const fieldEl = document.getElementById('taskDaysField');
         if (fieldEl) fieldEl.value = task.daysField ?? 1;
 
@@ -5612,6 +5711,10 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
                 tasks[idx].period = document.getElementById('taskPeriodMonth')?.value || tasks[idx].period;
                 tasks[idx].mesFacturacion = isAbsence ? tasks[idx].period : document.getElementById('taskBillingMonth').value;
                 if(isAbsence) tasks[idx].absenceNotes = absenceNotes;
+                if(!isAbsence) {
+                    const negNew = (document.getElementById('taskNegocio')?.value || '').toUpperCase().replace(/\s+/g, '');
+                    if(negNew !== (tasks[idx].negocio || '')) { tasks[idx].negocio = negNew; tasks[idx].negocioLoaded = true; }
+                }
                 // Si se desactivó la medición por turnos, los días de planta vuelven a ser comunes
                 if(!splitRequested) (tasks[idx].scheduledDays || []).forEach(d => { if(d.type === 'field') delete d.analyst; });
                 // Un día de planta asignado a mano a alguien que ya no es titular se vuelve a repartir
@@ -5686,7 +5789,8 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
                 mesFacturacion: isAbsence
                     ? (document.getElementById('taskPeriodMonth')?.value || formatPeriod())
                     : document.getElementById('taskBillingMonth').value,
-                absenceNotes: absenceNotes || ''
+                absenceNotes: absenceNotes || '',
+                negocio: isAbsence ? '' : (document.getElementById('taskNegocio')?.value || '').toUpperCase().replace(/\s+/g, '')
             };
             tasks.push(newTask);
 
