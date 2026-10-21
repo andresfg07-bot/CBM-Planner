@@ -9483,7 +9483,31 @@ function renderInventoryView() {
     else if(_inventoryTab === 'historial') renderInventoryHistorial();
 }
 
+let _analystInvTab = 'mis';
+
+function switchAnalystInvTab(tab) {
+    _analystInvTab = tab;
+    renderInventoryView();
+}
+
 function renderAnalystInventory(container) {
+    if(_analystInvTab === 'catalogo') {
+        container.innerHTML = `
+            <div class="kanban-header" style="margin-bottom:1.5rem;">
+                <div>
+                    <h2>Inventario CBM</h2>
+                    <p class="subtitle">Listado de equipos y herramientas del departamento (solo consulta).</p>
+                </div>
+                <button class="btn-primary" onclick="openInventoryScannerModal()" style="display:flex;align-items:center;gap:0.5rem;">Escanear QR</button>
+            </div>
+            <div class="view-toggle-group" style="margin-bottom:1.5rem;">
+                <button onclick="switchAnalystInvTab('mis')">🚚 Mis equipos</button>
+                <button class="active" onclick="switchAnalystInvTab('catalogo')">📦 Listado</button>
+            </div>
+            <div id="inv-tab-content"></div>`;
+        renderInventoryCatalog();
+        return;
+    }
     const analystName = currentUserProfile?.analyst_name;
     const myLoans = dbInventoryLoans.filter(l => l.analyst_name === analystName);
     const myItems = myLoans.map(l => {
@@ -9503,6 +9527,10 @@ function renderAnalystInventory(container) {
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>
                 Escanear QR
             </button>
+        </div>
+        <div class="view-toggle-group" style="margin-bottom:1.5rem;">
+            <button class="active" onclick="switchAnalystInvTab('mis')">🚚 Mis equipos</button>
+            <button onclick="switchAnalystInvTab('catalogo')">📦 Listado</button>
         </div>
         <div style="background:#fff;border:1px solid #e2e8f0;border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1.25rem;">
             <h4 style="margin:0 0 1rem;color:var(--clr-blue);">🚚 En mi poder (${myItems.length})</h4>
@@ -9560,6 +9588,7 @@ function renderInventoryCatalog() {
     if(!el) return;
 
     const categories = _invCategories;
+    const readOnly = currentUserProfile?.role === 'analyst';   // el analista consulta el listado, no lo edita
 
     const theadHtml = `
         <thead>
@@ -9614,14 +9643,14 @@ function renderInventoryCatalog() {
                 ${item.is_permanently_assigned ? `📌 ${item.assigned_analyst||'—'}` : '—'}
             </td>
             <td style="text-align:center;white-space:nowrap;">
-                <span class="viewer-hide">
+                ${readOnly ? '' : `<span class="viewer-hide">
                     <button onclick="openEditInventoryItemModal('${item.id}')" title="Editar" style="background:none;border:none;cursor:pointer;color:#3b82f6;font-size:1rem;">✏️</button>
                     <button onclick="deleteInventoryItem('${item.id}')" title="Eliminar" style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:1rem;">🗑️</button>
                     ${item.requires_calibration ? `<button onclick="registerCalibrationToday('${item.id}')" title="Registrar calibración hoy" style="background:none;border:none;cursor:pointer;font-size:1rem;">📅</button>` : ''}
                     ${isTrouble
                         ? `<button onclick="openResolveIncidentModal('${item.id}')" title="Marcar como disponible" style="background:none;border:none;cursor:pointer;color:#16a34a;font-size:1rem;">✅</button>`
                         : `<button onclick="openReportIncidentModal('${item.id}')" title="Reportar daño/pérdida" style="background:none;border:none;cursor:pointer;color:#d97706;font-size:1rem;">⚠️</button>`}
-                </span>
+                </span>`}
             </td>
         </tr>`;
     };
@@ -9639,7 +9668,7 @@ function renderInventoryCatalog() {
             <button onclick="printAllInventoryQRs()" title="Imprimir todos los QR" ${dbInventoryItems.length===0?'disabled':''} style="background:none;border:1px solid #cbd5e1;border-radius:6px;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;color:#64748b;cursor:pointer;">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
             </button>
-            <button class="btn-primary viewer-hide" onclick="openAddInventoryItemModal()">+ Agregar ítem</button>
+            ${readOnly ? '' : '<button class="btn-primary viewer-hide" onclick="openAddInventoryItemModal()">+ Agregar ítem</button>'}
         </div>
         ${categories.map(cat => {
             const items = dbInventoryItems.filter(i => i.category === cat);
