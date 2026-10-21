@@ -9590,6 +9590,18 @@ function renderInventoryCatalog() {
     const categories = _invCategories;
     const readOnly = currentUserProfile?.role === 'analyst';   // el analista consulta el listado, no lo edita
 
+    const _norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const q = _norm(_invSearch).trim();
+    const matches = item => {
+        if(!q) return true;
+        const kit = dbInventoryKits.find(k => k.id === item.kit_id);
+        const loan = dbInventoryLoans.find(l => l.item_id === item.id);
+        const hay = _norm([item.name, item.serial_number, item.description, kit?.name, item.assigned_analyst, loan?.analyst_name,
+            _invStatusLabel[item.status], _invCatLabel[item.category], item.category].join(' '));
+        return q.split(/\s+/).every(w => hay.includes(w));
+    };
+    const visibleItems = dbInventoryItems.filter(matches);
+
     const theadHtml = `
         <thead>
             <tr>
@@ -9664,16 +9676,21 @@ function renderInventoryCatalog() {
         </div>`;
 
     el.innerHTML = `
-        <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-bottom:1rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;margin-bottom:1rem;flex-wrap:wrap;">
+            <input type="search" id="invSearchInput" value="${_escHtml(_invSearch)}" oninput="invSearch(this.value)" placeholder="🔍 Buscar por nombre, serial, kit, analista, estado…" autocomplete="off"
+                style="flex:1;min-width:220px;max-width:420px;padding:0.5rem 0.85rem;border:1px solid #cbd5e1;border-radius:8px;font-size:0.85rem;">
+            <div style="display:flex;gap:0.75rem;">
             <button onclick="printAllInventoryQRs()" title="Imprimir todos los QR" ${dbInventoryItems.length===0?'disabled':''} style="background:none;border:1px solid #cbd5e1;border-radius:6px;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;color:#64748b;cursor:pointer;">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
             </button>
             ${readOnly ? '' : '<button class="btn-primary viewer-hide" onclick="openAddInventoryItemModal()">+ Agregar ítem</button>'}
+            </div>
         </div>
+        ${q ? `<div style="font-size:0.78rem;color:#64748b;margin-bottom:0.75rem;">${visibleItems.length} resultado${visibleItems.length !== 1 ? 's' : ''} de ${dbInventoryItems.length}</div>` : ''}
         ${categories.map(cat => {
-            const items = dbInventoryItems.filter(i => i.category === cat);
+            const items = visibleItems.filter(i => i.category === cat);
             if(items.length === 0) return '';
-            const collapsed = _invCatalogCollapsed.has(cat);
+            const collapsed = !q && _invCatalogCollapsed.has(cat);
 
             const standaloneItems = items.filter(i => !i.kit_id);
             const kitGroups = [...new Set(items.filter(i => i.kit_id).map(i => i.kit_id))]
@@ -9693,7 +9710,7 @@ function renderInventoryCatalog() {
                 <div style="${collapsed?'display:none;':''}">
                     ${standaloneItems.length > 0 ? renderItemsTable(standaloneItems) : ''}
                     ${kitGroups.map(({ kit, items: kitItems }) => {
-                        const kitCollapsed = _invCatalogKitsCollapsed.has(kit.id);
+                        const kitCollapsed = !q && _invCatalogKitsCollapsed.has(kit.id);
                         return `
                         <div style="margin-top:0.5rem;">
                             <div onclick="toggleInvCatalogKit('${kit.id}')" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;padding:6px 12px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;margin-bottom:${kitCollapsed?'0':'4px'};">
@@ -9708,7 +9725,18 @@ function renderInventoryCatalog() {
             </div>`;
         }).join('')}
         ${dbInventoryItems.length === 0 ? '<div style="text-align:center;padding:3rem;color:#94a3b8;">No hay ítems en el inventario todavía. Agrega el primero.</div>' : ''}
+        ${dbInventoryItems.length > 0 && visibleItems.length === 0 ? '<div style="text-align:center;padding:3rem;color:#94a3b8;">Ningún ítem coincide con la búsqueda.</div>' : ''}
     `;
+}
+
+let _invSearch = '';
+
+/** Filtra el catálogo mientras se escribe, sin perder el foco del buscador. */
+function invSearch(value) {
+    _invSearch = value;
+    renderInventoryCatalog();
+    const input = document.getElementById('invSearchInput');
+    if(input) { input.focus(); input.setSelectionRange(value.length, value.length); }
 }
 
 function renderInventoryKits() {
