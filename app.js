@@ -4789,7 +4789,7 @@ async function erpSyncNow() {
         const res = await fetch('/api/erp-billing-sync', { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || ''}` } });
         const out = await res.json().catch(() => ({}));
         if(!res.ok) throw new Error(out.error || `Error ${res.status}`);
-        showToast(`Revisión lista · ${out.applied} facturadas, ${out.proposed} propuestas, ${out.review} por revisar`, 'success');
+        showToast(`ERP conectado · ${out.invoices} facturas leídas, ${out.tasks_with_negocio} gestiones con negocio · ${out.applied} facturadas, ${out.proposed} propuestas, ${out.review} por revisar`, 'success');
         if(out.applied) { await loadTasksFromSupabase(); renderTasksView(); }
     } catch(e) {
         showToast('No se pudo sincronizar con el ERP: ' + e.message, 'error');

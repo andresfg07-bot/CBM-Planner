@@ -2,7 +2,7 @@
 // Llamada: POST desde el planner (JWT de admin/asistente) o GET desde un cron (Bearer CRON_SECRET).
 // Modo 'prueba': solo registra lo que haría. Modo 'activo': pasa ejecutada → facturada.
 
-const { fetchInvoices } = require('./_lib/dolibarr');
+const { fetchInvoices, erpPing } = require('./_lib/dolibarr');
 const { planBilling, fingerprintOf } = require('./_lib/billing-engine');
 
 const SB_URL = () => (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
@@ -42,12 +42,14 @@ module.exports = async function handler(req, res) {
         const settings = (await sb('erp_sync_settings?id=eq.1&select=mode'))?.[0] || { mode: 'prueba' };
         const active = settings.mode === 'activo';
 
+        const erpVersion = await erpPing();   // falla con un mensaje claro si la URL o la clave del ERP no sirven
+
         const [invoices, tasks] = await Promise.all([
             fetchInvoices(),
             sb('tasks?negocio=not.is.null&is_absence=eq.false&select=id,negocio,status,budget,client,service_type')
         ]);
         const actions = planBilling({ invoices, tasks });
-        const summary = { mode: settings.mode, invoices: invoices.length, applied: 0, proposed: 0, review: 0, skipped: 0 };
+        const summary = { mode: settings.mode, erp: erpVersion, invoices: invoices.length, tasks_with_negocio: tasks.length, applied: 0, proposed: 0, review: 0, skipped: 0 };
 
         for(const a of actions) {
             const state = a.kind === 'review' ? 'por_revisar' : (active ? 'aplicado' : 'propuesto');

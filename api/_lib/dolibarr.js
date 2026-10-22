@@ -25,6 +25,18 @@ async function erpGet(path, params = {}) {
     return res.json();
 }
 
+/** Comprueba que la URL y la clave del ERP sean válidas (a diferencia de las listas, aquí un 404 es un error). */
+async function erpPing() {
+    const base = (process.env.DOLIBARR_URL || '').replace(/\/+$/, '');
+    const key = process.env.DOLIBARR_API_KEY;
+    if(!base || !key) throw new Error('Falta configurar DOLIBARR_URL / DOLIBARR_API_KEY');
+    const res = await fetch(`${base}/api/index.php/status`, { method: 'GET', headers: { DOLAPIKEY: key, Accept: 'application/json' } });
+    if(res.status === 401 || res.status === 403) throw new Error('El ERP rechazó la clave de API');
+    if(!res.ok) throw new Error(`No se pudo conectar con el ERP (respuesta ${res.status}); revisa DOLIBARR_URL y que el módulo API REST esté activo`);
+    const j = await res.json().catch(() => ({}));
+    return j?.success?.dolibarr_version || 'ok';
+}
+
 function extractNegocio(inv) {
     const extra = inv.array_options || {};
     const field = process.env.DOLIBARR_NEGOCIO_FIELD;
@@ -69,4 +81,4 @@ async function fetchInvoices({ limit = 100, pages = 5 } = {}) {
     return out;
 }
 
-module.exports = { erpGet, fetchInvoices, extractNegocio, extractSent };
+module.exports = { erpGet, erpPing, fetchInvoices, extractNegocio, extractSent };
