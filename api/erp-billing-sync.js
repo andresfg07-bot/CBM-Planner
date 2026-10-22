@@ -48,7 +48,8 @@ module.exports = async function handler(req, res) {
             fetchInvoices(),
             sb('tasks?negocio=not.is.null&is_absence=eq.false&select=id,negocio,status,budget,client,service_type')
         ]);
-        const actions = planBilling({ invoices, tasks });
+        // Yoli envía la factura desde Siigo y después la registra en el ERP: una factura validada en el ERP ya cuenta como facturada.
+        const actions = planBilling({ invoices, tasks, requireSent: false });
         const summary = { mode: settings.mode, erp: erpVersion, invoices: invoices.length, tasks_with_negocio: tasks.length, applied: 0, proposed: 0, review: 0, skipped: 0 };
 
         for(const a of actions) {
