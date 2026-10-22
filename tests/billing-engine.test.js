@@ -48,4 +48,18 @@ t('gestión que no está ejecutada → no se toca', () => {
 t('negocio con espacios/minúsculas coincide', () => {
     assert.equal(planBilling({ invoices: [inv({ negocio: 'n 1' })], tasks: [task()] }).length, 1);
 });
+t('negocio numérico del ERP ("1") coincide con "N1" del planner', () => {
+    assert.equal(planBilling({ invoices: [inv({ negocio: '1' })], tasks: [task({ negocio: 'N-1' })] }).length, 1);
+});
+
+const { extractNegocio, extractSent } = require('../api/_lib/dolibarr');
+t('conector: negocio desde options_acrm_negocio', () => {
+    assert.equal(extractNegocio({ array_options: { options_acrm_negocio: '3293' } }), 'N3293');
+    assert.equal(extractNegocio({ array_options: { options_acrm_negocio: '' } }), '');
+});
+t('conector: envío por correo o acuse DIAN = enviada; sin rastro = desconocido', () => {
+    assert.equal(extractSent({ email_sent_counter: '1', array_options: {} }), true);
+    assert.equal(extractSent({ email_sent_counter: '0', array_options: { options_amaq_dian_acuse: 'x' } }), true);
+    assert.equal(extractSent({ email_sent_counter: '0', array_options: { options_amaq_dian_acuse: '' } }), null);
+});
 console.log(`\n${n} pruebas OK`);

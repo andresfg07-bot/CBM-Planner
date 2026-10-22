@@ -13,8 +13,11 @@
 //  - Notas crédito, envío desconocido o diferencias grandes → "por revisar".
 // ======================================================================================
 
+/** "n 2939", "N-2939" y "2939" son el mismo negocio → "N2939". */
 function normNegocio(v) {
-    return String(v || '').toUpperCase().replace(/\s+/g, '').trim();
+    const s = String(v || '').toUpperCase().replace(/[\s\-]+/g, '').trim();
+    const m = /^N?(\d+)$/.exec(s);
+    return m ? 'N' + m[1] : s;
 }
 
 function num(v) {

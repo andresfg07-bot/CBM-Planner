@@ -37,28 +37,25 @@ async function erpPing() {
     return j?.success?.dolibarr_version || 'ok';
 }
 
+/** El ERP guarda el negocio como número en el campo extra "acrm_negocio" (ej. "3293"); el planner lo escribe N3293. */
 function extractNegocio(inv) {
     const extra = inv.array_options || {};
-    const field = process.env.DOLIBARR_NEGOCIO_FIELD;
-    const candidates = [
-        field && extra[field],
-        ...Object.values(extra),
-        inv.ref_client, inv.ref_customer, inv.note_public, inv.note_private
-    ];
-    for(const c of candidates) {
-        const m = NEGOCIO_RE.exec(String(c || ''));
-        if(m) return 'N' + m[1];
-    }
-    return '';
+    const field = process.env.DOLIBARR_NEGOCIO_FIELD || 'options_acrm_negocio';
+    const direct = String(extra[field] ?? '').trim();
+    if(/^\d{1,7}$/.test(direct)) return 'N' + direct;
+    const m = NEGOCIO_RE.exec(direct);
+    return m ? 'N' + m[1] : '';
 }
 
-/** true / false / null (desconocido). Hasta verificar el ERP, solo se usa un campo explícito si existe. */
+/**
+ * true / false / null (desconocido). Una factura cuenta como enviada si el ERP registró un envío por correo
+ * (email_sent_counter) o si hay acuse/recibo de la DIAN. Si no hay rastro, queda desconocido (null) para que
+ * la revise una persona, en vez de asumir que no se envió.
+ */
 function extractSent(inv) {
-    const field = process.env.DOLIBARR_SENT_FIELD;
-    if(field && inv.array_options && field in inv.array_options) {
-        const v = inv.array_options[field];
-        return v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'si';
-    }
+    const extra = inv.array_options || {};
+    if(Number(inv.email_sent_counter) > 0) return true;
+    if(String(extra.options_amaq_dian_acuse || '').trim() || String(extra.options_amaq_dian_recibo || '').trim()) return true;
     return null;
 }
 
