@@ -7303,6 +7303,25 @@ function _svQuality(v) {
     return { label: 'Bajo', bg: '#fee2e2', color: '#b91c1c' };
 }
 
+/** Color arco iris según la posición en la escala 0–5 (rojo → naranja → amarillo → verde → azul → violeta). */
+function _svRainbowAt(v) {
+    const t = Math.min(1, Math.max(0, v / 5));
+    return `hsl(${Math.round(t * 270)}, 85%, 44%)`;
+}
+
+const _SV_RAINBOW_CSS = 'linear-gradient(90deg,#ef4444,#f97316,#facc15,#22c55e,#3b82f6,#8b5cf6)';
+
+/** Degradado cónico del semicírculo: de las 9 en punto a las 3, con todos los colores del arco iris. */
+function _svRainbowArc(context) {
+    const chart = context.chart;
+    const arc = chart.getDatasetMeta(0).data[0];
+    const p = arc ? arc.getProps(['x', 'y'], true) : null;
+    if(!p || !Number.isFinite(p.x) || !Number.isFinite(p.y) || typeof chart.ctx.createConicGradient !== 'function') return _svRainbowAt(context.raw);
+    const g = chart.ctx.createConicGradient(Math.PI, p.x, p.y);
+    for(let i = 0; i <= 10; i++) g.addColorStop(i / 20, _svRainbowAt(i / 2));
+    return g;
+}
+
 /** Un relojito por indicador: promedio general + las 7 dimensiones. */
 function _svGaugeItems(avg, prevAvg) {
     const mk = (label, v, pv) => ({ label, value: v, delta: (v !== null && v !== undefined && pv !== null && pv !== undefined) ? v - pv : null });
@@ -7324,14 +7343,14 @@ function _svGaugesHTML(items, prefix, title, subtitle) {
             <div class="gauges-grid">
                 ${items.map((it, i) => {
                     const has = it.value !== null && it.value !== undefined;
-                    const color = has ? _svScoreStyle(it.value).color : '#cbd5e1';
+                    const color = has ? _svRainbowAt(it.value) : '#cbd5e1';
                     const q = _svQuality(it.value);
                     const d = it.delta;
                     const deltaHtml = d === null || d === undefined ? '&nbsp;'
                         : Math.abs(d) < 0.005 ? '<span style="color:#94a3b8;">= igual que antes</span>'
                         : `<span style="color:${d > 0 ? '#15803d' : '#b91c1c'};font-weight:700;">${d > 0 ? '▲' : '▼'} ${_svFmt(Math.abs(d))} vs. anterior</span>`;
                     return `
-                    <div class="gauge-card" style="border-top:3px solid ${color}; background:#fff; border-radius:12px; padding:0.55rem 0.5rem 0.65rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
+                    <div class="gauge-card" style="border-top:3px solid transparent; border-image:${has ? _SV_RAINBOW_CSS : 'linear-gradient(90deg,#cbd5e1,#cbd5e1)'} 1; background:#fff; border-radius:12px; padding:0.55rem 0.5rem 0.65rem; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
                         <div class="gauge-card-canvas-wrap"><canvas id="${prefix}-${i}"></canvas></div>
                         <div class="gauge-value" style="color:${color};">${has ? _svFmt(it.value, 1) : '—'}<span class="gauge-max">/5</span></div>
                         <div style="display:flex; justify-content:center; gap:1px; margin:2px 0 4px;">${stars(it.value, color)}</div>
@@ -7357,7 +7376,7 @@ function _svDrawGauges(items, prefix) {
         const score = has ? it.value : 0;
         _svGaugeCharts[id] = new Chart(ctx, {
             type: 'doughnut',
-            data: { datasets: [{ data: [score, Math.max(0, 5 - score)], backgroundColor: [has ? _svScoreStyle(it.value).color : '#cbd5e1', '#eef2f7'], borderWidth: 0, borderRadius: 6, spacing: 1 }] },
+            data: { datasets: [{ data: [score, Math.max(0, 5 - score)], backgroundColor: c => c.dataIndex === 0 ? (has ? _svRainbowArc(c) : '#cbd5e1') : '#eef2f7', borderWidth: 0, borderRadius: 6, spacing: 1 }] },
             options: {
                 rotation: -90, circumference: 180, cutout: '68%', responsive: true, maintainAspectRatio: false,
                 plugins: { legend: { display: false }, tooltip: { backgroundColor: '#0f172a', padding: 8, cornerRadius: 6, displayColors: false,
