@@ -555,6 +555,12 @@ h1 {
     background-color: var(--clr-green);
 }
 
+/* Servicio ya facturado que aún se ejecuta: borde naranja punteado para distinguirlo */
+.calendar-task-pill.service-debt {
+    outline: 2px dashed #ea580c;
+    outline-offset: -2px;
+}
+
 /* ── Calendar row resize ─────────────────────────────────── */
 .calendar-row-resizer {
     display: block;

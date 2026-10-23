@@ -462,7 +462,9 @@ function renderNotificationsPanel() {
         'nuevos_detalles':     { s:'Nuevos detalles del servicio', p:'nuevos detalles del servicio' },
         'csat_admin_vencidos': { s:'Lista de CSAT vencidos',      p:'listas de CSAT vencidos' },
         'resumen_mensual':     { s:'Resumen mensual',             p:'resúmenes mensuales' },
-        'consumible_bajo':     { s:'Consumible por agotarse',     p:'consumibles por agotarse' }
+        'consumible_bajo':     { s:'Consumible por agotarse',     p:'consumibles por agotarse' },
+        'deuda_servicio':      { s:'Servicio facturado sin ejecutar', p:'servicios facturados sin ejecutar' },
+        'deuda_saldada':       { s:'Servicio facturado ejecutado',    p:'servicios facturados ejecutados' }
     };
 
     let html = '';
@@ -650,6 +652,9 @@ async function runNotificationsCheck() {
             });
         }
     }
+
+    // Admin → servicios facturados sin ejecutar (recordatorios a los 30 / 60 / 90 días)
+    if(role === 'admin') await runDebtRemindersCheck();
 
     // Admin → lista de CSAT vencidos hace >=15 días (agrupada por día)
     if(role === 'admin') {
@@ -852,6 +857,163 @@ function renderNotificationsHistory() {
         </table>`;
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// SERVICIOS FACTURADOS POR EJECUTAR ("deuda con el cliente")
+// Una gestión facturada antes de ejecutarse conserva status 'facturada' (y sus datos
+// de facturación bloqueados) pero lleva servicePending = true hasta que se ejecute.
+// Admin la programa → recién ahí le aparece al analista → el analista la ejecuta.
+// ══════════════════════════════════════════════════════════════════════════════
+const DEBT_REMINDER_DAYS = [30, 60, 90];
+
+function isServiceDebt(t) { return !!t && !t.isAbsence && t.status === 'facturada' && !!t.servicePending; }
+function isDebtScheduled(t) { return isServiceDebt(t) && Array.isArray(t.scheduledDays) && t.scheduledDays.length > 0; }
+function getServiceDebts() { return tasks.filter(isServiceDebt); }
+
+/** Días transcurridos desde que se facturó sin ejecutar. */
+function debtAgeDays(t) {
+    if(!t?.advanceBilledAt) return 0;
+    return Math.max(0, Math.floor((Date.now() - new Date(t.advanceBilledAt).getTime()) / 86400000));
+}
+
+/** Color según antigüedad: <30 d naranja suave, 30–59 naranja, 60–89 rojo, 90+ rojo oscuro. */
+function debtAgeColor(days) {
+    if(days >= 90) return '#991b1b';
+    if(days >= 60) return '#dc2626';
+    if(days >= 30) return '#ea580c';
+    return '#d97706';
+}
+
+/** Primer mes (YYYY-MM) en que cae un día programado. */
+function _firstScheduledPeriod(t) {
+    const dates = (t.scheduledDays || []).map(d => d.date).filter(Boolean).sort();
+    return dates.length ? dates[0].slice(0, 7) : null;
+}
+
+/** ¿Se ofrece "Servicio pendiente" en una gestión ya facturada? Solo si nunca se ejecutó
+ *  y no tiene días ya vencidos (una gestión sin programar, o programada hacia adelante). */
+function _canMarkServiceDebt(t) {
+    if(t.status !== 'facturada' || t.servicePending || t.isAbsence || t.executedAt) return false;
+    if(t.serviceType === 'Metro Administrativo' || t.serviceType === 'Metro Terceros') return false;
+    const dates = (t.scheduledDays || []).map(d => d.date).filter(Boolean).sort();
+    const today = new Date().toISOString().slice(0, 10);
+    return dates.length === 0 || dates[dates.length - 1] >= today;
+}
+
+/** Admin: marca una gestión YA facturada como "servicio pendiente" (para casos anteriores a esta función). */
+async function markServiceDebt(taskId) {
+    const task = tasks.find(t => t.id === taskId);
+    if(!task || task.status !== 'facturada' || task.servicePending) return;
+    if(!confirm(`¿Marcar "${task.client}" como facturada con servicio PENDIENTE?\n\nQuedará en la lista de servicios por ejecutar para que la programes, y recibirás recordatorios a los 30, 60 y 90 días contados desde hoy.`)) return;
+    task.servicePending = true;
+    task.advanceBilledAt = new Date().toISOString();
+    saveTasks();
+    await saveTaskToSupabase(task);
+    refreshDebtViews();
+    showToast('Marcada como servicio pendiente. Ya puedes programarla en el Planning.', 'success');
+}
+
+/** Ejecuta el servicio de una gestión ya facturada (analista asignado o admin, después de programarla). */
+async function executeServiceDebt(taskId) {
+    const task = tasks.find(t => t.id === taskId);
+    if(!isServiceDebt(task)) return;
+    if(!isDebtScheduled(task)) { showToast('Primero hay que programar el servicio en el Planning.', 'error'); return; }
+    const confirmed = await confirmExecutionChecklist(task.serviceType, task.id);
+    if(!confirmed) { refreshDebtViews(); return; }
+
+    task.servicePending = false;
+    task.executedAt = task.executedAt || new Date().toISOString();
+    saveTasks();
+    await saveTaskToSupabase(task);
+
+    // La deuda quedó saldada: cierra recordatorios y avisa al admin
+    resolveNotifsForTask({ task_id: task.id, type: 'deuda_servicio' }).catch(() => {});
+    resolveNotifsForTask({ task_id: task.id, type: 'nueva_gestion' }).catch(() => {});
+    for(const uid of getUserIdsByRole('admin')) {
+        if(uid === currentUser?.id) continue;
+        createNotification({
+            user_id: uid, type: 'deuda_saldada', is_urgent: false,
+            title: `Servicio facturado ejecutado: ${_clientLabelForNotif(task)}`,
+            body: `Se saldó el servicio pendiente (${task.serviceType || '—'}).`,
+            data: { task_id: task.id }
+        });
+    }
+    refreshDebtViews();
+    showToast('✓ Servicio ejecutado: la deuda con el cliente quedó saldada.', 'success');
+}
+
+function refreshDebtViews() {
+    renderBoard();
+    renderCalendar();
+    if(typeof renderPlanningSidebar === 'function') renderPlanningSidebar();
+    renderTasksView();
+    if(typeof renderMyWorkView === 'function') renderMyWorkView();
+    renderDebtsPanel();
+    updateDebtBadge();
+}
+
+/** Insignia roja en el menú "Gestiones" (solo admin) con el número de deudas abiertas. */
+function updateDebtBadge() {
+    const badge = document.getElementById('debt-badge');
+    if(!badge) return;
+    const n = currentUserProfile?.role === 'admin' ? getServiceDebts().length : 0;
+    badge.textContent = n;
+    badge.style.display = n > 0 ? 'inline-block' : 'none';
+}
+
+/** Panel del Dashboard (solo admin): servicios facturados por ejecutar, con antigüedad. */
+function renderDebtsPanel() {
+    const section = document.getElementById('debts-section');
+    if(!section) return;
+    const debts = currentUserProfile?.role === 'admin' ? getServiceDebts() : [];
+    if(debts.length === 0) { section.style.display = 'none'; section.innerHTML = ''; return; }
+    section.style.display = '';
+    debts.sort((a, b) => debtAgeDays(b) - debtAgeDays(a));
+    const total = debts.reduce((s, t) => s + (parseFloat(t.budget) || 0), 0);
+    section.innerHTML = `
+        <div class="stats-card" style="padding:1.25rem; border-left:4px solid #ea580c;">
+            <h3 style="margin:0 0 0.25rem; font-size:1rem;">⏳ Servicios facturados por ejecutar</h3>
+            <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 1rem;">
+                ${debts.length} servicio${debts.length !== 1 ? 's' : ''} ya cobrado${debts.length !== 1 ? 's' : ''} que aún no se ejecuta${debts.length !== 1 ? 'n' : ''} · $${total.toLocaleString('es-CO')}. Los que no tienen fecha están en <strong>Planning → Por programar</strong>.
+            </p>
+            <div style="display:flex; flex-direction:column; gap:0.4rem;">
+                ${debts.map(t => {
+                    const days = debtAgeDays(t);
+                    const color = debtAgeColor(days);
+                    const scheduled = isDebtScheduled(t);
+                    const when = scheduled ? `📅 ${(t.scheduledDays.map(d => d.date).sort()[0] || '')}` : '🗓️ Sin programar';
+                    return `
+                    <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap; padding:0.5rem 0.75rem; border:1px solid #e2e8f0; border-left:4px solid ${color}; border-radius:8px; background:#fff;">
+                        <div style="flex:1; min-width:180px;">
+                            <div style="font-weight:700; font-size:0.85rem;">${_escHtml(_clientLabelForNotif(t))}</div>
+                            <div style="font-size:0.72rem; color:#64748b;">${_escHtml(t.serviceType || '—')} · ${_escHtml(formatAnalystDisplay(t))} · $${(t.budget || 0).toLocaleString('es-CO')}</div>
+                        </div>
+                        <div style="font-size:0.75rem; color:#475569; white-space:nowrap;">${when}</div>
+                        <span style="background:${color}; color:#fff; font-size:0.7rem; font-weight:800; padding:2px 10px; border-radius:99px; white-space:nowrap;">${days} día${days !== 1 ? 's' : ''} facturada</span>
+                        ${scheduled ? `<button class="btn-outline" style="font-size:0.72rem; padding:0.2rem 0.6rem;" onclick="executeServiceDebt('${t.id}')">✓ Marcar ejecutado</button>` : `<button class="btn-outline" style="font-size:0.72rem; padding:0.2rem 0.6rem;" onclick="switchView('planning')">Ir a programar</button>`}
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>`;
+}
+
+/** Recordatorios al admin a los 30 / 60 / 90 días de una factura sin servicio ejecutado. */
+async function runDebtRemindersCheck() {
+    if(currentUserProfile?.role !== 'admin' || !currentUser?.id) return;
+    for(const t of getServiceDebts()) {
+        const days = debtAgeDays(t);
+        const tier = DEBT_REMINDER_DAYS.filter(d => days >= d).pop();
+        if(!tier) continue;
+        const scheduled = isDebtScheduled(t);
+        await notifyOncePerTaskAndType({
+            user_id: currentUser.id, task_id: null, type: 'deuda_servicio',
+            title: `Servicio facturado sin ejecutar hace ${days} días: ${_clientLabelForNotif(t)}`,
+            body: scheduled ? 'Ya está programado; falta que el analista lo ejecute.' : 'Aún no tiene fecha: programa el servicio en el Planning.',
+            is_urgent: tier >= 60,
+            extraData: { task_id: t.id, tier }
+        });
+    }
+}
+
 function updateCsatBadge() {
     const badge = document.getElementById('csat-badge');
     if(!badge) return;
@@ -896,6 +1058,8 @@ function renderMyWorkView() {
         .filter(t => {
             if (t.isAbsence) return false;
             if (!t.analysts_assignment?.some(a => a.name === analystName)) return false;
+            // Un servicio ya facturado solo le aparece al analista cuando el admin lo programó
+            if (isServiceDebt(t) && !isDebtScheduled(t)) return false;
             if (myWorkTimeFilter === 'month') {
                 return t.period === periodStr;
             } else {
@@ -915,9 +1079,9 @@ function renderMyWorkView() {
 
     // Barra de resumen
     const total      = myTasks.length;
-    const pendientes = myTasks.filter(t => t.status === 'programada' || t.status === 'proyectada').length;
+    const pendientes = myTasks.filter(t => t.status === 'programada' || t.status === 'proyectada' || isServiceDebt(t)).length;
     const ejecutadas = myTasks.filter(t => t.status === 'ejecutada').length;
-    const facturadas = myTasks.filter(t => t.status === 'facturada').length;
+    const facturadas = myTasks.filter(t => t.status === 'facturada' && !isServiceDebt(t)).length;
 
     // Etiqueta del período actual
     const periodLabel = myWorkTimeFilter === 'month'
@@ -990,13 +1154,17 @@ function renderMyWorkView() {
     const columns = [
         { key: 'proyectada', label: 'Proyectadas',  color: '#7c3aed', bg: '#f5f3ff', icon: '📋' },
         { key: 'programada', label: 'Programadas',  color: '#2563eb', bg: '#eff6ff', icon: '📅' },
+        { key: 'deuda',      label: 'Facturadas por ejecutar', color: '#ea580c', bg: '#fff7ed', icon: '⏳' },
         { key: 'ejecutada',  label: 'Ejecutadas',   color: '#d97706', bg: '#fffbeb', icon: '✅' },
         { key: 'facturada',  label: 'Facturadas',   color: '#16a34a', bg: '#f0fdf4', icon: '💰' },
     ];
 
     const grouped = {};
     columns.forEach(c => { grouped[c.key] = []; });
-    myTasks.forEach(t => { if(grouped[t.status]) grouped[t.status].push(t); });
+    myTasks.forEach(t => {
+        const key = isServiceDebt(t) ? 'deuda' : t.status;
+        if(grouped[key]) grouped[key].push(t);
+    });
 
     // Solo mostrar columnas con gestiones
     const activeCols = columns.filter(c => grouped[c.key].length > 0);
@@ -1042,10 +1210,11 @@ function renderMyWorkCard(task) {
     const makesReport  = assign?.makesReport;
 
     const canExecute   = task.status === 'programada';
+    const isDebt       = isServiceDebt(task);
     const hasChecklist = _ckHasChecklist(task);
     const ckProg       = hasChecklist ? _ckProgress(_ckRowOf(task.id)?.data) : null;
     // El cierre CSAT puede hacerse antes o después de facturar
-    const closable     = task.status === 'ejecutada' || task.status === 'facturada';
+    const closable     = (task.status === 'ejecutada' || task.status === 'facturada') && !isDebt; // con servicio pendiente aún no hay nada que calificar
     const canCsat      = closable && !task.csatScore && !task.clientNoResponse && task.serviceType !== 'Calibración';
     const csatDone     = closable && (task.csatScore || task.clientNoResponse);
 
@@ -1083,9 +1252,11 @@ function renderMyWorkCard(task) {
                 </div>
             </div>
 
-            ${canExecute || canCsat || csatDone ? `
+            ${isDebt ? `<div style="margin:0.35rem 0 0; font-size:0.72rem; font-weight:700; color:#c2410c; background:#fff7ed; border:1px solid #fed7aa; border-radius:6px; padding:0.3rem 0.5rem;">💰 Ya está facturada — falta ejecutar el servicio</div>` : ''}
+            ${canExecute || isDebt || canCsat || csatDone ? `
             <div class="mywork-card-actions">
                 ${canExecute ? `<button class="mywork-btn btn-execute" onclick="analystMarkExecuted('${task.id}')">✓ Marcar como Ejecutada</button>` : ''}
+                ${isDebt ? `<button class="mywork-btn btn-execute" onclick="analystExecuteDebt('${task.id}')">✓ Marcar servicio ejecutado</button>` : ''}
                 ${canCsat    ? `<button class="mywork-btn btn-csat"    onclick="analystOpenCsat('${task.id}')">📋 Llenar Encuesta CSAT</button>` : ''}
                 ${csatDone && task.clientNoResponse ? `
                     <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
@@ -1108,6 +1279,15 @@ async function analystMarkExecuted(taskId) {
         renderMyWorkView();
     } catch (e) {
         showToast('Error al actualizar el estado.', 'error');
+    }
+}
+
+async function analystExecuteDebt(taskId) {
+    try {
+        await executeServiceDebt(taskId);
+        renderMyWorkView();
+    } catch (e) {
+        showToast('Error al registrar la ejecución.', 'error');
     }
 }
 
@@ -1870,7 +2050,8 @@ function sortTasksBy(column) {
 
 function renderTasksTable(container) {
     const role = currentUserProfile?.role || 'admin';
-    let filteredTasks = tasks.slice().filter(t => !t.isAbsence && isTaskInCurrentPeriod(t));
+    // El admin ve siempre los servicios facturados por ejecutar, aunque sean de meses anteriores
+    let filteredTasks = tasks.slice().filter(t => !t.isAbsence && (isTaskInCurrentPeriod(t) || (role === 'admin' && isServiceDebt(t))));
 
     if(dashboardFilters.analyst) filteredTasks = filteredTasks.filter(t => t.analyst === dashboardFilters.analyst);
     if(dashboardFilters.client) { const _base = getClientCompanyBase(dashboardFilters.client); filteredTasks = filteredTasks.filter(t => getClientCompanyBase(t.client) === _base); }
@@ -1946,6 +2127,7 @@ function renderTasksTable(container) {
                     <tr data-task-id="${t.id}">
                         <td>
                             <strong>${t.client}</strong>${billBadge}
+                            ${isServiceDebt(t) ? `<div style="margin-top:2px;"><span style="background:${debtAgeColor(debtAgeDays(t))}; color:#fff; font-size:0.62rem; font-weight:800; padding:1px 7px; border-radius:99px;">⏳ Facturada · servicio por ejecutar · ${debtAgeDays(t)} d</span></div>` : ''}
                             ${t.plantName ? `<div style="font-size:0.7rem; color:var(--clr-blue); font-weight:600; margin-top:2px;">📍 ${t.plantName}</div>` : ''}
                         </td>
                         <td><span class="card-analyst" style="font-size:0.75rem">${t.serviceType || '-'}</span></td>
@@ -1974,6 +2156,8 @@ function renderTasksTable(container) {
                                     ${serviceDetailsIcon(t)}
                                     ${(t.csatScore || t.clientNoResponse) ? actionIcon('reopen', `reopenCsat('${t.id}')`, 'Reabrir CSAT (para que el analista lo llene de nuevo)') : ''}
                                     ${t.status === 'programada' ? actionIcon('revert', `revertToProjected('${t.id}')`, 'Revertir a Proyectada') : ''}
+                                    ${isDebtScheduled(t) ? `<button class="btn-outline" style="font-size:0.68rem;padding:0.2rem 0.5rem;white-space:nowrap;" onclick="executeServiceDebt('${t.id}')">✓ Servicio ejecutado</button>` : ''}
+                                    ${_canMarkServiceDebt(t) ? `<button class="btn-outline" style="font-size:0.68rem;padding:0.2rem 0.5rem;white-space:nowrap;" onclick="markServiceDebt('${t.id}')" title="Esta gestión ya está facturada pero el servicio aún no se ha hecho">⏳ Servicio pendiente</button>` : ''}
                                     ${actionIcon('delete', `deleteTask('${t.id}')`,              'Borrar')}
                                 ` : (role === 'commercial' || role === 'viewer') ? `
                                     ${role === 'viewer' && _ckHasChecklist(t) ? actionIcon('checklist', `openTaskChecklist('${t.id}')`, `Checklist de servicio (${_ckProgress(_ckRowOf(t.id)?.data).answered}/${_CK_ITEM_TOTAL})`) : ''}
@@ -2128,8 +2312,21 @@ async function updateTaskStatus(taskId, newStatus) {
         }
     }
 
+    // Facturar antes de ejecutar: la gestión queda facturada pero con el servicio PENDIENTE
+    // (aparece en el panel de deudas, se puede programar después y avisa a los 30/60/90 días).
+    const billedBeforeExecuting = newStatus === 'facturada' && task.status !== 'ejecutada' && !task.isAbsence
+        && task.serviceType !== 'Metro Administrativo' && task.serviceType !== 'Metro Terceros';
+    if(billedBeforeExecuting) {
+        const ok = confirm(`"${task.client}" aún NO se ha ejecutado.\n\nSi la pasas a facturada quedará como "facturada con servicio pendiente": podrás programarla después en el Planning, y el sistema te recordará la deuda con el cliente a los 30, 60 y 90 días.\n\n¿Continuar?`);
+        if(!ok) { renderBoard(); renderTasksView(); return; }
+    }
+
     const oldStatus = task.status;
     task.status = newStatus;
+    if(billedBeforeExecuting) {
+        task.servicePending = true;
+        task.advanceBilledAt = new Date().toISOString();
+    }
 
     // Marca el momento exacto en que el analista ejecuta: desde aquí cuentan los días
     // de cierre pendiente (antes se contaba desde el día programado del informe, no
@@ -2150,7 +2347,8 @@ async function updateTaskStatus(taskId, newStatus) {
             scheduled_days: task.scheduledDays || [],
             analyst: task.analyst,
             analysts_assignment: task.analysts_assignment || [],
-            executed_at: task.executedAt || null
+            executed_at: task.executedAt || null,
+            ...(billedBeforeExecuting ? { service_pending: true, advance_billed_at: task.advanceBilledAt } : {})
         }).eq('id', taskId);
     }
     
@@ -2181,6 +2379,7 @@ async function updateTaskStatus(taskId, newStatus) {
         renderTasksView();
         renderDashboardStats();
     }
+    if(billedBeforeExecuting) { renderDebtsPanel(); updateDebtBadge(); renderTasksView(); }
 }
 
 // ── Editar valor real de facturación (rol asistente) ──────────────────────────
@@ -2434,7 +2633,9 @@ function renderDashboardStats() {
     
     dashboardStats.innerHTML = html;
     dashboardStats.style.display = 'flex';
-    
+    renderDebtsPanel();
+    updateDebtBadge();
+
     // Solo renderizar gráficos si estamos en la vista de dashboard
     if (document.getElementById('view-dashboard').classList.contains('active-view')) {
         renderDashboardCharts();
@@ -2959,6 +3160,8 @@ function renderPlanningSidebar() {
     // Filtrado estricto: Una gestión en 'Por programar' NO DEBE tener días programados.
     // Metro Administrativo se excluye siempre (va directo a facturada, no necesita programarse).
     let filteredTasks = tasks.filter(t => {
+        // Servicios ya facturados por ejecutar: aparecen siempre (sin importar el mes) hasta que se programen
+        if(isServiceDebt(t)) return !isAssistant && !(t.scheduledDays && t.scheduledDays.length > 0);
         if(!t.status || t.status.toLowerCase() !== 'proyectada') return false;
         if(t.scheduledDays && t.scheduledDays.length > 0) return false;
         if(t.serviceType === 'Metro Administrativo' || t.serviceType === 'Metro Terceros') return false;
@@ -3003,10 +3206,13 @@ function renderPlanningSidebar() {
         const clr = getClientColor(t.client);
         item.style.background  = clr.bg;
         item.style.borderLeft  = `3px solid ${clr.border}`;
+        const debtDays = isServiceDebt(t) ? debtAgeDays(t) : null;
         item.innerHTML = `
             <div style="font-weight:700; margin-bottom:0.25rem; pointer-events:none;">${t.client}</div>
             <div style="font-size:0.7rem; color:var(--text-secondary); pointer-events:none;">${formatAnalystDisplay(t)}</div>
+            ${debtDays !== null ? `<div style="margin-top:3px; pointer-events:none;"><span style="background:${debtAgeColor(debtDays)}; color:#fff; font-size:0.62rem; font-weight:800; padding:1px 7px; border-radius:99px;">💰 Facturada · por ejecutar · ${debtDays} d</span></div>` : ''}
         `;
+        if(debtDays !== null) item.style.outline = `2px dashed ${debtAgeColor(debtDays)}`;
         
         item.addEventListener('dragstart', handleDragStart);
         item.addEventListener('dragend', handleDragEnd);
@@ -3190,14 +3396,15 @@ function renderCalendar() {
                 pill.id = `pill-${t.id}-${dayIdx}`;
                 pill.setAttribute('data-task-id', t.id);
                 pill.setAttribute('data-day-index', dayIdx);
-                pill.draggable = (t.status !== 'facturada');
-                
+                pill.draggable = (t.status !== 'facturada' || isServiceDebt(t));
+                if(isServiceDebt(t)) pill.classList.add('service-debt');
+
                 let label = t.isAbsence
                     ? (t.serviceType || 'Ausencia')
                     : String(t.client || '').split(' - ')[0].trim(); // solo la empresa, sin "- Planta"
                 const tooltipClient = t.isAbsence ? label : (t.plantName ? `${t.client} – ${t.plantName}` : t.client);
                 pill.textContent = label;
-                pill.title = `${tooltipClient} (${dayInfo.type === 'field' ? 'Campo' : 'Informe'})`;
+                pill.title = `${tooltipClient} (${dayInfo.type === 'field' ? 'Campo' : 'Informe'})${isServiceDebt(t) ? ' · Ya facturada, servicio por ejecutar' : ''}`;
                 
                 cell.appendChild(pill);
             });
@@ -3407,8 +3614,9 @@ function setupCalendarListeners() {
             e.stopPropagation();
             const taskId  = this.getAttribute('data-task-id');
             const dayIdx  = parseInt(this.getAttribute('data-day-index'));
+            const _pt = tasks.find(t => t.id === taskId);
             const canMove = !this.classList.contains('absence') &&
-                            !tasks.find(t => t.id === taskId)?.status?.match(/facturada/);
+                            (!_pt?.status?.match(/facturada/) || isServiceDebt(_pt));
             if(canMove) {
                 showMoveDayPopover(taskId, dayIdx, e);
             } else {
@@ -3754,6 +3962,13 @@ async function handleCalendarDrop(cell, dragInfo) {
     const targetDay = parseInt(cell.getAttribute('data-day'));
     const task = tasks[taskIndex];
 
+    // Una gestión facturada solo se puede programar si es un servicio facturado por ejecutar
+    if (task.status === 'facturada' && !isServiceDebt(task)) {
+        alert('Una gestión facturada no puede ser modificada.');
+        return;
+    }
+    const debtHadNoDays = isServiceDebt(task) && (!task.scheduledDays || task.scheduledDays.length === 0);
+
     let isAssignedToTarget = (task.analyst === targetAnalyst);
     if (!isAssignedToTarget && task.analysts_assignment && task.analysts_assignment.length > 0) {
         isAssignedToTarget = task.analysts_assignment.some(a => a.name === targetAnalyst);
@@ -3817,7 +4032,7 @@ async function handleCalendarDrop(cell, dragInfo) {
 
         // Medición por turnos: mover un día de planta a la fila de otro analista lo reasigna
         if (movedDay?.type === 'field' && isFieldSplit(task)) {
-            if (task.status === 'facturada') { alert('Una gestión facturada no puede ser modificada.'); return; }
+            if (task.status === 'facturada' && !isServiceDebt(task)) { alert('Una gestión facturada no puede ser modificada.'); return; }
             // Congelar los días implícitos para que no se redistribuyan al mover uno
             const currentFieldMap = getFieldDayAssignments(task);
             task.scheduledDays.forEach(d => {
@@ -3849,7 +4064,7 @@ async function handleCalendarDrop(cell, dragInfo) {
                 }
             }
             if (currentOwner !== targetAnalyst) {
-                if (task.status === 'facturada') { alert('Una gestión facturada no puede ser modificada.'); return; }
+                if (task.status === 'facturada' && !isServiceDebt(task)) { alert('Una gestión facturada no puede ser modificada.'); return; }
                 await reassignReportDay(task, dayIdx, targetAnalyst, targetDay, targetDateStr);
                 saveTasks();
                 postDropSync();
@@ -3923,12 +4138,31 @@ async function handleCalendarDrop(cell, dragInfo) {
     }
 
     // Unconditional status update - if it's on the calendar, it's programmed
+    // (salvo un servicio ya facturado: sigue 'facturada' con el servicio pendiente)
     const _prevStatus = task.status;
-    task.status = 'programada';
-
-    // Notif: al pasar a programada por primera vez → notificar a los analistas
-    if(_prevStatus !== 'programada') {
-        notifyNewTaskToAnalysts(task).catch(() => {});
+    if(isServiceDebt(task)) {
+        // Primera programación de la deuda: pasa al mes en que se hará el servicio (el mes de
+        // facturación se conserva) y recién ahora se le avisa al analista.
+        if(debtHadNoDays) {
+            task.mesFacturacion = task.mesFacturacion || task.period;
+            task.period = _firstScheduledPeriod(task) || task.period;
+            for(const a of (task.analysts_assignment || [])) {
+                for(const uid of getUserIdsByAnalystName(a.name)) {
+                    notifyOncePerTaskAndType({
+                        user_id: uid, task_id: task.id, type: 'nueva_gestion',
+                        title: `Servicio ya facturado por ejecutar: ${_clientLabelForNotif(task)}`,
+                        body: `Servicio: ${task.serviceType || '—'} · Programado desde el ${(task.scheduledDays.map(d => d.date).sort()[0] || '—')}.`,
+                        is_urgent: false
+                    }).catch(() => {});
+                }
+            }
+        }
+    } else {
+        task.status = 'programada';
+        // Notif: al pasar a programada por primera vez → notificar a los analistas
+        if(_prevStatus !== 'programada') {
+            notifyNewTaskToAnalysts(task).catch(() => {});
+        }
     }
 
     postDropSync();
@@ -3942,6 +4176,7 @@ async function handleCalendarDrop(cell, dragInfo) {
     try {
         await saveTaskToSupabase(task);
         postDropSync();
+        if(isServiceDebt(task)) { renderDebtsPanel(); updateDebtBadge(); }
         showToast('Gestión programada correctamente.', 'success');
     } catch(err) {
         console.error("Critical error saving task after drop:", err);
@@ -3988,6 +4223,18 @@ async function handleSidebarDrop(e) {
     }
     
     const task = tasks.find(t => t.id === taskId || t.supabaseId === taskId);
+    if (isServiceDebt(task)) {
+        // Servicio ya facturado: solo se quita la programación; sigue facturada con el servicio pendiente
+        if (task.scheduledDays && task.scheduledDays.length > 0) {
+            task.scheduledDays = [];
+            logActivity(`🔄 El servicio facturado de <strong>${task.client}</strong> volvió a <strong>Por programar</strong>.`, 'status');
+            deleteNotifsForTask({ task_id: task.id, type: 'nueva_gestion' }).catch(() => {});
+            postDropSync();
+            refreshDebtViews();
+            try { await saveTaskToSupabase(task); } catch (err) { console.error("Error saving debt to sidebar:", err); }
+        }
+        return;
+    }
     if (task && task.status !== 'proyectada') {
         console.log("Found task for sidebar drop:", task.client);
         logActivity(`🔄 La gestión <strong>${task.client}</strong> se ha devuelto al estado <strong>PROYECTADA</strong>.`, 'status');
@@ -5107,7 +5354,10 @@ async function saveTaskToSupabase(task) {
             plant_id:   task.plantId   || null,
             plant_name: task.plantName || null,
             executed_at:    task.executedAt    || null,
-            csat_closed_at: task.csatClosedAt  || null
+            csat_closed_at: task.csatClosedAt  || null,
+            // Solo se envían si la gestión estuvo en "servicio pendiente": así el guardado sigue
+            // funcionando aunque la migración SQL de estas columnas aún no se haya corrido.
+            ...((task.servicePending || task.advanceBilledAt) ? { service_pending: !!task.servicePending, advance_billed_at: task.advanceBilledAt || null } : {})
         };
 
         const existingId = task.supabaseId || (!isTemporaryId ? task.id : null);
@@ -5193,7 +5443,9 @@ async function loadTasksFromSupabase() {
                 plantId:   t.plant_id   || null,
                 plantName: t.plant_name || '',
                 executedAt:    t.executed_at    || null,
-                csatClosedAt:  t.csat_closed_at || null
+                csatClosedAt:  t.csat_closed_at || null,
+                servicePending:  !!t.service_pending,
+                advanceBilledAt: t.advance_billed_at || null
             }));
 
             // 1. Merge remote into local

@@ -102,6 +102,7 @@
                 <a href="#" class="nav-item" id="nav-tasks" data-view="tasks" onclick="switchView('tasks')">
                     <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></span>
                     <span class="nav-text">Gestiones</span>
+                    <span id="debt-badge" title="Servicios ya facturados por ejecutar" style="display:none; background:#ea580c; color:#fff; font-size:0.65rem; font-weight:800; border-radius:99px; padding:1px 6px; min-width:18px; text-align:center; line-height:1.6; margin-left:auto;"></span>
                 </a>
                 <a href="#" class="nav-item" id="nav-planning" data-view="planning" onclick="switchView('planning')">
                     <span class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="M4.5 10.5h2L8 7.5l2 5 1.3-2.5h1.2"/><circle cx="16.5" cy="11" r="2.2"/><path d="m18.2 12.7 1.6 1.6"/></svg></span>
@@ -316,6 +317,11 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Servicios facturados por ejecutar (solo admin) -->
+                <section id="debts-section" style="margin-bottom: 2rem; display:none;">
+                    <!-- Rendered by JS -->
+                </section>
 
                 <!-- Gauges CSAT por Analista (REQ-03) -->
                 <section id="analyst-gauges-section" style="margin-bottom: 2rem;">
