@@ -4982,7 +4982,7 @@ async function renderErpSyncPanel() {
     try {
         const [s, l] = await Promise.all([
             supabaseClient.from('erp_sync_settings').select('*').eq('id', 1).maybeSingle(),
-            supabaseClient.from('erp_billing_log').select('*').order('created_at', { ascending: false }).limit(60)
+            supabaseClient.from('erp_billing_log').select('*').order('created_at', { ascending: false }).limit(150)
         ]);
         if(s.error || l.error) { el.style.display = 'none'; return; }   // migración aún no ejecutada
         _erpSettings = s.data; _erpLog = l.data || [];
@@ -4992,6 +4992,19 @@ async function renderErpSyncPanel() {
     const isAdmin = currentUserProfile.role === 'admin';
     const mode = _erpSettings?.mode || 'prueba';
     const last = _erpSettings?.last_run_at ? new Date(_erpSettings.last_run_at).toLocaleString('es-CO') : 'nunca';
+    const suggested = _erpLog.filter(x => x.state === 'sugerido');
+    const confBadge = c => ({ alta: ['#dcfce7', '#15803d', 'Alta'], media: ['#dbeafe', '#1d4ed8', 'Media'], baja: ['#fef3c7', '#a16207', 'Baja: revisa el cliente'] }[c] || ['#f1f5f9', '#64748b', c || '—']);
+    const matchRow = x => {
+        const d = x.details || {}, [bg, fg, label] = confBadge(d.confidence);
+        const when = d.invoice_date ? new Date(d.invoice_date * 1000).toLocaleDateString('es-CO') : '';
+        return `<tr>
+            <td><strong>${_escHtml((x.invoice_refs || [])[0] || '')}</strong><div style="font-size:0.72rem;color:#64748b;">${_escHtml(d.erp_client || '')}${when ? ' · ' + when : ''}</div></td>
+            <td style="text-align:right;white-space:nowrap;">${money(x.invoiced_total)}</td>
+            <td style="font-size:0.78rem;">${(d.tasks || []).map(t => `${_escHtml(t.client)} <span style="color:#64748b;">(${money(t.budget)})</span>`).join('<br>')}</td>
+            <td><span style="background:${bg};color:${fg};font-size:0.68rem;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap;">${label}</span></td>
+            <td style="text-align:right;white-space:nowrap;">${canAct ? `<button class="btn-primary" style="font-size:0.72rem;padding:3px 10px;" onclick="erpConfirmMatch('${x.id}')">Confirmar</button>
+                <button class="btn-secondary" style="font-size:0.72rem;padding:3px 8px;" onclick="erpDismissMatch('${x.id}')">No es esta</button>` : ''}</td></tr>`;
+    };
     const pending = _erpLog.filter(x => x.state === 'por_revisar');
     const proposed = _erpLog.filter(x => x.state === 'propuesto');
     const applied = _erpLog.filter(x => x.state === 'aplicado').slice(0, 8);
@@ -5019,10 +5032,13 @@ async function renderErpSyncPanel() {
                 </div>
             </div>
             ${mode !== 'activo' ? '<p style="font-size:0.76rem;color:#a16207;background:#fffbeb;border-radius:8px;padding:0.5rem 0.75rem;margin:0 0 0.75rem;">En modo prueba solo se registra lo que se haría; no se cambia ninguna gestión.</p>' : ''}
+            ${suggested.length ? `<h4 style="margin:0.75rem 0 0.4rem;font-size:0.85rem;">Posibles facturas encontradas (${suggested.length})</h4>
+                <p style="font-size:0.74rem;color:#64748b;margin:0 0 0.4rem;">Mismo cliente y mismo valor antes de IVA. Al confirmar, la gestión pasa a facturada.</p>
+                <table class="data-table" style="font-size:0.82rem;"><thead><tr><th>Factura (ERP)</th><th style="text-align:right;">Antes de IVA</th><th>Gestiones del planner</th><th>Confianza</th><th></th></tr></thead><tbody>${suggested.map(matchRow).join('')}</tbody></table>` : ''}
             ${pending.length ? `<h4 style="margin:0.75rem 0 0.4rem;font-size:0.85rem;">Por revisar (${pending.length})</h4>${table(pending)}` : ''}
             ${proposed.length ? `<h4 style="margin:0.75rem 0 0.4rem;font-size:0.85rem;">Se facturaría al activar (${proposed.length})</h4>${table(proposed)}` : ''}
             ${applied.length ? `<h4 style="margin:0.75rem 0 0.4rem;font-size:0.85rem;">Facturado automáticamente (últimos ${applied.length})</h4>${table(applied)}` : ''}
-            ${!pending.length && !proposed.length && !applied.length ? '<p style="font-size:0.8rem;color:#94a3b8;margin:0.5rem 0 0;">Aún no hay movimientos. Asigna el N° de negocio a las gestiones para empezar.</p>' : ''}
+            ${!suggested.length && !pending.length && !proposed.length && !applied.length ? '<p style="font-size:0.8rem;color:#94a3b8;margin:0.5rem 0 0;">Aún no hay movimientos. Pulsa "Sincronizar ahora" para buscar facturas de las gestiones ejecutadas.</p>' : ''}
         </div>`;
 }
 
@@ -5036,7 +5052,8 @@ async function erpSyncNow() {
         const res = await fetch('/api/erp-billing-sync', { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || ''}` } });
         const out = await res.json().catch(() => ({}));
         if(!res.ok) throw new Error(out.error || `Error ${res.status}`);
-        showToast(`ERP conectado · ${out.invoices} facturas leídas, ${out.tasks_with_negocio} gestiones con negocio · ${out.applied} facturadas, ${out.proposed} propuestas, ${out.review} por revisar`, 'success');
+        showToast(`ERP conectado · ${out.invoices} facturas leídas, ${out.tasks_with_negocio} gestiones con negocio · ${out.suggested || 0} posibles facturas nuevas, ${out.applied} facturadas, ${out.proposed} propuestas, ${out.review} por revisar`, 'success');
+        if(out.matching_error) showToast('El conciliador no pudo guardar sugerencias: ' + out.matching_error + ' (¿falta ejecutar supabase_migration_erp_matching.sql?)', 'warning');
         if(out.applied) { await loadTasksFromSupabase(); renderTasksView(); }
     } catch(e) {
         showToast('No se pudo sincronizar con el ERP: ' + e.message, 'error');
@@ -5044,6 +5061,45 @@ async function erpSyncNow() {
         _erpBusy = false;
         renderErpSyncPanel();
     }
+}
+
+/** Confirma una sugerencia: las gestiones pasan a facturada con la factura del ERP como respaldo. */
+async function erpConfirmMatch(id) {
+    const row = _erpLog.find(x => x.id === id);
+    if(!row) return;
+    const ref = (row.invoice_refs || [])[0];
+    const lines = (row.details?.tasks || []).map(t => `• ${t.client} — $${Number(t.budget).toLocaleString('es-CO')}`).join('\n');
+    if(!confirm(`Factura ${ref} (antes de IVA $${Number(row.invoiced_total).toLocaleString('es-CO')}).\n\nSe pasarán a "facturada":\n${lines}\n\n¿Confirmar?`)) return;
+    const ids = row.task_ids || [];
+    const { data, error } = await supabaseClient.from('tasks').update({ status: 'facturada', erp_invoice_ref: ref })
+        .in('id', ids).eq('status', 'ejecutada').select('id');
+    if(error) { showToast('No se pudo facturar: ' + error.message, 'error'); return; }
+    if((data || []).length < ids.length) showToast('Algunas gestiones ya no estaban en "ejecutada" y no se tocaron.', 'warning');
+    (data || []).forEach(r => {
+        const t = tasks.find(x => x.id === r.id || x.supabaseId === r.id);
+        if(t) { t.status = 'facturada'; t.erpInvoiceRef = ref; }
+        resolveNotifsForTask({ task_id: r.id, type: 'lista_facturar' }).catch(() => {});
+        resolveNotifsForTask({ task_id: r.id, type: 'gestion_ejecutada' }).catch(() => {});
+    });
+    const by = currentUserProfile?.display_name || currentUser?.email || null;
+    const now = new Date().toISOString();
+    await supabaseClient.from('erp_billing_log').update({ state: 'confirmado', resolved_by: by, resolved_at: now }).eq('id', id);
+    // otras sugerencias que usaban la misma factura o alguna de estas gestiones ya no aplican
+    const stale = _erpLog.filter(x => x.id !== id && x.state === 'sugerido'
+        && ((x.invoice_refs || []).includes(ref) || (x.task_ids || []).some(t => ids.includes(t)))).map(x => x.id);
+    if(stale.length) await supabaseClient.from('erp_billing_log').update({ state: 'descartado', resolved_by: by, resolved_at: now }).in('id', stale);
+    saveTasks();
+    renderTasksView();
+    if(typeof renderBoard === 'function') renderBoard();
+    showToast('Gestión(es) facturada(s) ✓', 'success');
+    renderErpSyncPanel();
+}
+
+async function erpDismissMatch(id) {
+    const { error } = await supabaseClient.from('erp_billing_log').update({ state: 'descartado',
+        resolved_by: currentUserProfile?.display_name || currentUser?.email || null, resolved_at: new Date().toISOString() }).eq('id', id);
+    if(error) { showToast(error.message, 'error'); return; }
+    renderErpSyncPanel();
 }
 
 async function erpToggleMode() {

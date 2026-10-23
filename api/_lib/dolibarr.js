@@ -67,6 +67,8 @@ async function fetchInvoices({ limit = 100, pages = 5 } = {}) {
         if(!Array.isArray(rows) || !rows.length) break;
         rows.forEach(r => out.push({
             ref: r.ref,
+            socid: r.socid,
+            date: Number(r.date) || null,
             negocio: extractNegocio(r),
             total_ht: Number(r.total_ht),
             type: Number(r.type),
@@ -78,4 +80,10 @@ async function fetchInvoices({ limit = 100, pages = 5 } = {}) {
     return out;
 }
 
-module.exports = { erpGet, erpPing, fetchInvoices, extractNegocio, extractSent };
+/** Nombre de un tercero (cliente) del ERP. */
+async function fetchThirdpartyName(id) {
+    const tp = await erpGet(`/thirdparties/${encodeURIComponent(id)}`);
+    return (tp && (tp.name || tp.nom || tp.ref)) || '';
+}
+
+module.exports = { erpGet, erpPing, fetchThirdpartyName, fetchInvoices, extractNegocio, extractSent };
