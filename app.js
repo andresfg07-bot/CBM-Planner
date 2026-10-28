@@ -2132,7 +2132,7 @@ function renderTasksTable(container) {
                         </td>
                         <td><span class="card-analyst" style="font-size:0.75rem">${t.serviceType || '-'}</span></td>
                         <td style="color:var(--clr-green); font-weight:600">$${(t.budget || 0).toLocaleString('es-CO')}</td>
-                        <td>${formatAnalystDisplay(t)}</td>
+                        <td class="cell-name">${formatAnalystDisplay(t)}</td>
                         <td>
                             ${(role === 'commercial' || role === 'viewer') ? `
                                 <span style="padding: 0.4rem 0.6rem; font-size: 0.85rem; border-radius: 6px; background:#f1f5f9; font-weight: 600; display:inline-block;">${t.status.toUpperCase()}</span>

@@ -1,4 +1,6 @@
 :root {
+    /* Tamaño de los nombres (clientes, analistas) en las tablas. Subir/bajar aquí cambia todas. */
+    --fs-name: 0.8rem;
     --bg-color: #f1f5f9;
     --sidebar-bg: #ffffff;
     --card-bg: #ffffff;
@@ -1089,6 +1091,17 @@ h1 {
 .data-table tr:hover {
     background-color: #f8fafc;
 }
+
+/* Nombres de clientes y analistas: más pequeños y menos pesados que los números.
+   (La regla global `*` fuerza 0.9rem a cada elemento, por eso se fija aquí explícitamente.) */
+.data-table td strong,
+.data-table td.cell-name {
+    font-size: var(--fs-name);
+    font-weight: 600;
+    letter-spacing: 0.005em;
+}
+.data-table td.cell-name { font-weight: 500; }
+.data-table td { padding-top: 0.5rem; padding-bottom: 0.5rem; }
 
 .data-table input {
     width: 100%;
