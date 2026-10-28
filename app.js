@@ -3140,6 +3140,12 @@ function handleDragEnd(e) {
     document.querySelectorAll('.calendar-cell').forEach(c => c.classList.remove('drag-over'));
 }
 
+/** Analista de la gestión, o "Sin asignar" cuando aún no se ha definido. */
+function _sidebarAnalystLabel(t) {
+    const label = formatAnalystDisplay(t);
+    return (!label || label === '-') ? '⚠️ Sin asignar' : label;
+}
+
 function renderPlanningSidebar() {
     const sidebarContainer = document.getElementById('planning-sidebar-items');
     if(!sidebarContainer) return;
@@ -3211,7 +3217,7 @@ function renderPlanningSidebar() {
         item.title = [
             t.client,
             `Servicio: ${t.serviceType || '—'}`,
-            `Analista: ${formatAnalystDisplay(t) || '—'}`,
+            `Analista: ${_sidebarAnalystLabel(t)}`,
             t.plantName ? `Planta: ${t.plantName}` : '',
             `Días: ${t.daysField ?? 0} en campo${t.daysReport ? ` + ${t.daysReport} de informe` : ''}`,
             t.period ? `Mes: ${t.period}` : '',
@@ -3220,7 +3226,7 @@ function renderPlanningSidebar() {
         item.innerHTML = `
             <div style="font-weight:700; margin-bottom:0.15rem; pointer-events:none;">${t.client}</div>
             ${t.serviceType ? `<div style="font-size:0.68rem; font-weight:600; color:#334155; margin-bottom:0.15rem; pointer-events:none;">${_escHtml(t.serviceType)}</div>` : ''}
-            <div style="font-size:0.7rem; color:var(--text-secondary); pointer-events:none;">${formatAnalystDisplay(t)}</div>
+            <div style="font-size:0.7rem; color:var(--text-secondary); pointer-events:none;">${_sidebarAnalystLabel(t)}</div>
             ${debtDays !== null ? `<div style="margin-top:3px; pointer-events:none;"><span style="background:${debtAgeColor(debtDays)}; color:#fff; font-size:0.62rem; font-weight:800; padding:1px 7px; border-radius:99px;">💰 Facturada · por ejecutar · ${debtDays} d</span></div>` : ''}
         `;
         if(debtDays !== null) item.style.outline = `2px dashed ${debtAgeColor(debtDays)}`;
