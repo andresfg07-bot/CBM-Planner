@@ -3207,8 +3207,19 @@ function renderPlanningSidebar() {
         item.style.background  = clr.bg;
         item.style.borderLeft  = `3px solid ${clr.border}`;
         const debtDays = isServiceDebt(t) ? debtAgeDays(t) : null;
+        // Hint con los datos que distinguen dos gestiones del mismo cliente
+        item.title = [
+            t.client,
+            `Servicio: ${t.serviceType || '—'}`,
+            `Analista: ${formatAnalystDisplay(t) || '—'}`,
+            t.plantName ? `Planta: ${t.plantName}` : '',
+            `Días: ${t.daysField ?? 0} en campo${t.daysReport ? ` + ${t.daysReport} de informe` : ''}`,
+            t.period ? `Mes: ${t.period}` : '',
+            'Clic para ver el detalle · arrastra para programar'
+        ].filter(Boolean).join('\n');
         item.innerHTML = `
-            <div style="font-weight:700; margin-bottom:0.25rem; pointer-events:none;">${t.client}</div>
+            <div style="font-weight:700; margin-bottom:0.15rem; pointer-events:none;">${t.client}</div>
+            ${t.serviceType ? `<div style="font-size:0.68rem; font-weight:600; color:#334155; margin-bottom:0.15rem; pointer-events:none;">${_escHtml(t.serviceType)}</div>` : ''}
             <div style="font-size:0.7rem; color:var(--text-secondary); pointer-events:none;">${formatAnalystDisplay(t)}</div>
             ${debtDays !== null ? `<div style="margin-top:3px; pointer-events:none;"><span style="background:${debtAgeColor(debtDays)}; color:#fff; font-size:0.62rem; font-weight:800; padding:1px 7px; border-radius:99px;">💰 Facturada · por ejecutar · ${debtDays} d</span></div>` : ''}
         `;
