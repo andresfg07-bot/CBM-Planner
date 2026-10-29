@@ -5355,7 +5355,7 @@ function renderFinanceView() {
                             padding:0.35rem 0; border-bottom:1px solid ${c.clr}18;
                             font-size:0.78rem; gap:0.5rem;">
                     <div style="overflow:hidden; flex:1; min-width:0;">
-                        <div style="overflow:${overflowText}; text-overflow:${ellipsis}; white-space:${wrap}; color:#374151; word-break:break-word;">
+                        <div style="overflow:${overflowText}; text-overflow:${ellipsis}; white-space:${wrap}; color:#374151; word-break:break-word; font-size:var(--fs-name); font-weight:500;">
                             ${client}
                             ${monthAbbr ? `<span style="font-size:0.62rem; color:#94a3b8; font-weight:400;">(${monthAbbr})</span>` : ''}
                         </div>
