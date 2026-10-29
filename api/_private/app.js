@@ -4464,33 +4464,20 @@ function _reportDayAssignmentsBase(task) {
     return map;
 }
 
-/** % de participación según los días realmente trabajados por cada analista.
- *  Mantiene la regla de siempre: la mitad es de planta y la otra mitad de informe (o todo a uno si
- *  solo hay uno de los dos). Dentro de cada mitad, cada día se reparte entre quienes lo trabajaron.
- *  Si aún no hay días de un tipo, ese tipo se reparte parejo entre quienes lo marcan (Campo / Informe).
+/** % de participación proporcional a los días que trabajó cada analista (planta + informe).
+ *  Un día trabajado por varios cuenta completo para cada uno (cada quien lo trabajó).
+ *  Si aún no hay días, se reparte parejo entre los asignados.
  *  Retorna Map nombre → % (enteros que suman 100). */
 function computeDayBasedPercentages(task) {
     const assignments = task.analysts_assignment || [];
     const days = task.scheduledDays || [];
-    const weightsFor = (type, flag) => {
-        const w = new Map();
-        days.filter(d => d.type === type).forEach(d => {
-            const owners = assignments.filter(a => analystWorksDay(task, d, a.name));
-            owners.forEach(a => w.set(a.name, (w.get(a.name) || 0) + 1 / owners.length));
-        });
-        if (w.size === 0) assignments.filter(a => a[flag]).forEach(a => w.set(a.name, 1));
-        const total = [...w.values()].reduce((s, v) => s + v, 0);
-        if (total > 0) w.forEach((v, k) => w.set(k, v / total));
-        return w;
-    };
-    const field  = weightsFor('field',  'isTitular');
-    const report = weightsFor('report', 'makesReport');
-    const hasBoth = field.size > 0 && report.size > 0;
-    const fieldPool  = hasBoth ? 50 : (field.size  > 0 ? 100 : 0);
-    const reportPool = hasBoth ? 50 : (report.size > 0 ? 100 : 0);
-
-    const raw = new Map(assignments.map(a =>
-        [a.name, (field.get(a.name) || 0) * fieldPool + (report.get(a.name) || 0) * reportPool]));
+    const worked = new Map(assignments.map(a => [a.name, 0]));
+    days.forEach(d => assignments.forEach(a => {
+        if (analystWorksDay(task, d, a.name)) worked.set(a.name, worked.get(a.name) + 1);
+    }));
+    let total = [...worked.values()].reduce((s, v) => s + v, 0);
+    if (total === 0) { assignments.forEach(a => worked.set(a.name, 1)); total = assignments.length; }
+    const raw = new Map([...worked].map(([k, v]) => [k, total > 0 ? v * 100 / total : 0]));
     // Redondeo por mayor residuo para que sume exactamente 100
     const out = new Map([...raw].map(([k, v]) => [k, Math.floor(v)]));
     let left = Math.round([...raw.values()].reduce((s, v) => s + v, 0)) - [...out.values()].reduce((s, v) => s + v, 0);
