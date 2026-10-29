@@ -5326,129 +5326,95 @@ function renderFinanceView() {
     });
     
     const cards = [
-        { label: 'Proyectada', key: 'proyectada', val: stats.proyectada, clr: '#2563eb', bg: '#eff6ff', icon: '📋' },
-        { label: 'Programada', key: 'programada', val: stats.programada, clr: '#7c3aed', bg: '#f5f3ff', icon: '📅' },
-        { label: 'Ejecutada',  key: 'ejecutada',  val: stats.ejecutada,  clr: '#ea580c', bg: '#fff7ed', icon: '✅' },
-        { label: 'Facturada',  key: 'facturada',  val: stats.facturada,  clr: '#16a34a', bg: '#f0fdf4', icon: '💰' }
+        { label: 'Proyectada', key: 'proyectada', val: stats.proyectada, clr: '#3b82f6', total: 'Total proyectado' },
+        { label: 'Programada', key: 'programada', val: stats.programada, clr: '#8b5cf6', total: 'Total programado' },
+        { label: 'Ejecutada',  key: 'ejecutada',  val: stats.ejecutada,  clr: '#d97706', total: 'Total ejecutado', badge: 'Listas para facturar' },
+        { label: 'Facturada',  key: 'facturada',  val: stats.facturada,  clr: '#16a34a', total: 'Total facturado' }
     ];
-    
-    const periodLabel = financeFilters.type === 'single' ? monthNames[currentMonth-1] :
+
+    const periodLabel = financeFilters.type === 'single' ? `${monthNames[currentMonth-1]} ${currentYear}` :
                        financeFilters.type === 'year' ? `Todo ${currentYear}` :
                        `${filteredPeriods.length} meses seleccionados`;
 
     const grandTotal = stats.proyectada + stats.programada + stats.ejecutada + stats.facturada;
+    const money = v => '$' + Math.round(v).toLocaleString('es-CO');
+    const millions = v => v >= 1e6 ? '$' + (v / 1e6).toLocaleString('es-CO', { maximumFractionDigits: 1 }) + ' M' : money(v);
+    const pct = v => grandTotal > 0 ? Math.round(v / grandTotal * 100) : 0;
+    const count = key => Object.keys(breakdowns[key]).length;
+    const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+    const COLLAPSED_ROWS = 4;
 
-    container.innerHTML = cards.map(c => {
+    // ── Franja de indicadores ──
+    const kpis = `
+        <div class="fin-kpis">
+            <div class="fin-kpi"><div class="fin-kpi-l">Total del mes</div><div class="fin-kpi-v">${millions(grandTotal)}</div><div class="fin-kpi-s">${plural(financeTasks.length, 'gestión', 'gestiones')}</div></div>
+            <div class="fin-kpi"><div class="fin-kpi-l"><span class="fin-dot" style="background:#3b82f6"></span>Por programar</div><div class="fin-kpi-v">${millions(stats.proyectada)}</div><div class="fin-kpi-s">${pct(stats.proyectada)} % del total</div></div>
+            <div class="fin-kpi fin-kpi-hot"><div class="fin-kpi-l"><span class="fin-dot" style="background:#d97706"></span>Por facturar</div><div class="fin-kpi-v">${millions(stats.ejecutada)}</div><div class="fin-kpi-s">${plural(count('ejecutada'), 'ejecutada sin factura', 'ejecutadas sin factura')}</div></div>
+            <div class="fin-kpi"><div class="fin-kpi-l"><span class="fin-dot" style="background:#16a34a"></span>Facturado</div><div class="fin-kpi-v">${millions(stats.facturada)}</div><div class="fin-kpi-s">${pct(stats.facturada)} % del total</div></div>
+        </div>`;
+
+    // ── Barra de reparto por etapa ──
+    const stageBar = grandTotal > 0 ? `
+        <div class="fin-stage">
+            <div class="fin-stage-bar">
+                ${cards.filter(c => c.val > 0).map(c => `<div title="${c.label}: ${money(c.val)}" style="width:${c.val / grandTotal * 100}%; background:${c.clr};"></div>`).join('')}
+            </div>
+            <div class="fin-stage-legend">
+                ${cards.map(c => `<span><span class="fin-dot" style="background:${c.clr}"></span>${c.label} ${pct(c.val)} %</span>`).join('')}
+            </div>
+        </div>` : '';
+
+    // ── Tarjetas por estado ──
+    const cardsHtml = cards.map(c => {
         const bd = breakdowns[c.key];
+        const items = Object.values(bd).sort((x, y) => y.amount - x.amount);
         const expanded = financeExpandedCards.has(c.key);
-        const wrap = expanded ? 'normal' : 'nowrap';
-        const overflowText = expanded ? 'visible' : 'hidden';
-        const ellipsis = expanded ? 'clip' : 'ellipsis';
+        // Ejecutada (lo que hay que facturar) siempre se ve completa; las demás muestran las más grandes
+        const limit = c.key === 'ejecutada' || expanded ? items.length : COLLAPSED_ROWS;
+        const hidden = items.length - limit;
 
-        const rows = Object.keys(bd).length > 0
-            ? Object.values(bd).map(({ client, plantName, serviceType, analyst, amount, period }) => {
-                const monthAbbr = period
-                    ? monthNames[parseInt(period.split('-')[1]) - 1]?.substring(0, 3) || ''
-                    : '';
-                return `
-                <div style="display:flex; justify-content:space-between; align-items:${expanded ? 'flex-start' : 'center'};
-                            padding:0.35rem 0; border-bottom:1px solid ${c.clr}18;
-                            font-size:0.78rem; gap:0.5rem;">
-                    <div style="overflow:hidden; flex:1; min-width:0;">
-                        <div style="overflow:${overflowText}; text-overflow:${ellipsis}; white-space:${wrap}; color:#374151; word-break:break-word; font-size:var(--fs-name); font-weight:500;">
-                            ${client}
-                            ${monthAbbr ? `<span style="font-size:0.62rem; color:#94a3b8; font-weight:400;">(${monthAbbr})</span>` : ''}
-                        </div>
-                        ${plantName ? `<div style="font-size:0.68rem; color:${c.clr}; font-weight:600; white-space:${wrap}; overflow:${overflowText}; text-overflow:${ellipsis}; word-break:break-word;">📍 ${plantName}</div>` : ''}
-                        ${expanded && serviceType ? `<div style="font-size:0.68rem; color:#64748b; font-weight:500; margin-top:0.15rem;">🔧 ${serviceType}</div>` : ''}
-                        ${expanded && analyst && analyst !== '-' ? `<div style="font-size:0.68rem; color:#64748b; font-weight:500; margin-top:0.15rem;">👤 ${analyst}</div>` : ''}
-                    </div>
-                    <span style="font-weight:700; color:${c.clr}; white-space:nowrap;">$${amount.toLocaleString('es-CO')}</span>
-                </div>`;
-            }).join('')
-            : `<div style="color:#94a3b8; text-align:center; font-style:italic; padding:0.75rem 0; font-size:0.78rem;">Sin gestiones</div>`;
+        const rows = items.slice(0, limit).map(({ client, plantName, serviceType, analyst, amount, period }) => {
+            const monthAbbr = period ? (monthNames[parseInt(period.split('-')[1]) - 1] || '').substring(0, 3).toLowerCase() : '';
+            const sub = [plantName, monthAbbr].filter(Boolean).join(' · ');
+            const extra = expanded ? [serviceType, analyst && analyst !== '-' ? analyst : ''].filter(Boolean).join(' · ') : '';
+            return `
+            <div class="fin-row">
+                <div class="fin-row-main">
+                    <div class="fin-row-name">${_escHtml(client)}</div>
+                    ${sub ? `<div class="fin-row-sub">${_escHtml(sub)}</div>` : ''}
+                    ${extra ? `<div class="fin-row-sub">${_escHtml(extra)}</div>` : ''}
+                </div>
+                <div class="fin-row-amt">${money(amount)}</div>
+            </div>`;
+        }).join('');
+
+        const toggle = (c.key !== 'ejecutada' && items.length > COLLAPSED_ROWS)
+            ? `<button class="fin-more" onclick="toggleFinanceCardExpand('${c.key}')">${expanded ? 'Mostrar menos' : `Ver ${plural(hidden, 'restante', 'restantes')}`}</button>` : '';
+
+        const empty = `<div class="fin-empty">Aquí aparecerán las gestiones<br>cuando pasen a este estado.</div>`;
 
         return `
-        <div style="
-            background:${c.bg};
-            border-radius:12px;
-            border: 1px solid ${c.clr}30;
-            border-top: 5px solid ${c.clr};
-            display:flex; flex-direction:column;
-            box-shadow: 0 2px 8px ${c.clr}15;
-            overflow:hidden;
-        ">
-            <!-- Pill header con botón expandir -->
-            <div style="padding:1rem 1rem 0.75rem; display:flex; justify-content:space-between; align-items:center; gap:0.5rem;">
-                <span style="
-                    display:inline-flex; align-items:center; gap:0.35rem;
-                    background:${c.clr}; color:#fff;
-                    font-size:0.7rem; font-weight:700;
-                    padding:0.3rem 0.8rem; border-radius:20px;
-                    text-transform:uppercase; letter-spacing:0.04em;
-                ">${c.icon} ${c.label}</span>
-                ${Object.keys(bd).length > 0 ? `
-                <button onclick="toggleFinanceCardExpand('${c.key}')"
-                        title="${expanded ? 'Contraer' : 'Expandir para ver todo'}"
-                        style="background:transparent; border:1px solid ${c.clr}40; color:${c.clr}; cursor:pointer; padding:0.2rem 0.55rem; border-radius:6px; font-size:0.68rem; font-weight:700; line-height:1;">
-                    ${expanded ? '▲ Contraer' : '▼ Expandir'}
-                </button>` : ''}
+        <div class="fin-card${c.key === 'ejecutada' ? ' fin-card-hot' : ''}">
+            <div class="fin-card-head">
+                <span class="fin-card-title"><span class="fin-dot" style="background:${c.clr}"></span>${c.label}<span class="fin-card-count">· ${items.length}</span></span>
+                ${c.badge && items.length ? `<span class="fin-badge">${c.badge}</span>` : ''}
             </div>
-
-            <!-- Filas de clientes (siempre con scroll interno para no romper el layout) -->
-            <div style="flex:1; max-height:180px; overflow-y:auto; padding:0 1rem;">
-                ${rows}
-            </div>
-
-            <!-- Total destacado -->
-            <div style="
-                margin:0.75rem 1rem 1rem;
-                padding:0.6rem 0.75rem;
-                background:${c.clr}12;
-                border-radius:8px;
-                border-left:3px solid ${c.clr};
-            ">
-                <div style="font-size:0.62rem; font-weight:700; color:${c.clr}; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.2rem;">
-                    Total acumulado · ${periodLabel}
-                </div>
-                <div style="font-size:1.6rem; font-weight:900; color:${c.clr}; line-height:1.1;">
-                    $${c.val.toLocaleString('es-CO')}
-                </div>
+            <div class="fin-card-body">${items.length ? rows : empty}</div>
+            ${toggle}
+            <div class="fin-card-total">
+                <span>${c.total}</span>
+                <strong>${money(c.val)}</strong>
             </div>
         </div>`;
-    }).join('') + `
-        <div style="grid-column: 1 / -1; margin-top: 0.5rem;">
-            <div class="stats-card" style="
-                border-top: 4px solid #0f172a;
-                background: #0f172a;
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                padding: 1rem 1.5rem;
-                flex-direction: row;
-                gap: 1rem;
-            ">
-                <div style="display:flex; align-items:center; gap:0.75rem;">
-                    <span style="font-size:1.3rem;">📊</span>
-                    <div>
-                        <div style="font-size:0.7rem; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em;">
-                            Total Gestiones · ${periodLabel}
-                        </div>
-                        <div style="font-size:0.78rem; color:#64748b; margin-top:2px;">
-                            ${financeTasks.length} gestión${financeTasks.length !== 1 ? 'es' : ''} en el período
-                        </div>
-                    </div>
-                </div>
-                <div style="text-align:right;">
-                    <div style="font-size:0.65rem; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:2px;">
-                        Total Facturas
-                    </div>
-                    <div style="font-size:2rem; font-weight:900; color:#ffffff; line-height:1;">
-                        $${grandTotal.toLocaleString('es-CO')}
-                    </div>
-                </div>
-            </div>
-        </div>`;
+    }).join('');
+
+    container.innerHTML = `
+        <div class="fin-head">
+            <div class="fin-head-t">${periodLabel}</div>
+        </div>
+        ${kpis}
+        ${stageBar}
+        <div class="fin-cards">${cardsHtml}</div>`;
 }
 
 // Finance Multiple Selection Handler

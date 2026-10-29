@@ -2600,3 +2600,47 @@ body.role-assistant .calendar-task-pill:active {
 @media (max-width: 900px) {
     .sv-two-col { grid-template-columns: 1fr !important; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MÓDULO DE FINANZAS — indicadores, barra por etapa y tarjetas por estado
+   ══════════════════════════════════════════════════════════════════════════ */
+#finance-summary-container { display: block; }
+.fin-head { margin: 0.25rem 0 0.9rem; }
+.fin-head-t { font-size: 0.95rem; font-weight: 600; color: var(--text-primary); }
+
+.fin-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 0.4rem; vertical-align: middle; flex-shrink: 0; }
+
+.fin-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
+.fin-kpi { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 0.8rem 1rem; }
+.fin-kpi-l { font-size: 0.72rem; color: #64748b; display: flex; align-items: center; }
+.fin-kpi-v { font-size: 1.45rem; font-weight: 700; color: #0f172a; margin-top: 0.15rem; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.fin-kpi-s { font-size: 0.72rem; color: #94a3b8; margin-top: 0.1rem; }
+.fin-kpi-hot { border: 1.5px solid #d97706; }
+
+.fin-stage { margin-bottom: 1.25rem; }
+.fin-stage-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; gap: 2px; background: #e2e8f0; }
+.fin-stage-legend { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.45rem; font-size: 0.72rem; color: #64748b; }
+
+.fin-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; align-items: stretch; }
+.fin-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 0.9rem 1rem; display: flex; flex-direction: column; }
+.fin-card-hot { border: 1.5px solid #d97706; }
+.fin-card-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem; flex-wrap: wrap; }
+.fin-card-title { display: inline-flex; align-items: center; font-size: 0.85rem; font-weight: 600; color: #0f172a; }
+.fin-card-count { font-weight: 400; color: #94a3b8; margin-left: 0.35rem; }
+.fin-badge { font-size: 0.66rem; font-weight: 600; padding: 2px 9px; border-radius: 99px; background: #fef3c7; color: #92400e; white-space: nowrap; }
+
+.fin-card-body { flex: 1; }
+.fin-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; padding: 0.5rem 0; border-top: 1px solid #f1f5f9; }
+.fin-row:first-child { border-top: none; }
+.fin-row-main { min-width: 0; flex: 1; }
+.fin-row-name { font-size: var(--fs-name); font-weight: 500; color: #1e293b; line-height: 1.3; word-break: break-word; }
+.fin-row-sub { font-size: 0.68rem; color: #64748b; margin-top: 1px; }
+.fin-row-amt { font-size: 0.8rem; font-weight: 600; color: #0f172a; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+.fin-more { background: none; border: none; border-top: 1px solid #f1f5f9; color: #2563eb; font-size: 0.72rem; font-weight: 600; text-align: left; padding: 0.5rem 0 0.1rem; margin-top: 0.15rem; cursor: pointer; }
+.fin-more:hover { text-decoration: underline; }
+.fin-empty { text-align: center; color: #94a3b8; font-size: 0.78rem; padding: 1.5rem 0 1.75rem; line-height: 1.5; }
+
+.fin-card-total { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; margin-top: 0.75rem; padding-top: 0.65rem; border-top: 1px solid #cbd5e1; }
+.fin-card-total span { font-size: 0.72rem; color: #64748b; }
+.fin-card-total strong { font-size: 1.1rem; font-weight: 700; color: #0f172a; font-variant-numeric: tabular-nums; }
