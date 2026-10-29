@@ -2642,3 +2642,9 @@ body.role-assistant .calendar-task-pill:active {
 .fin-card-total { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; margin-top: 0.75rem; padding-top: 0.65rem; border-top: 1px solid #cbd5e1; }
 .fin-card-total span { font-size: 0.72rem; color: #64748b; }
 .fin-card-total strong { font-size: 1.1rem; font-weight: 700; color: #0f172a; font-variant-numeric: tabular-nums; }
+
+.fin-card-actions { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.fin-expand { background: none; border: 1px solid #e2e8f0; color: #475569; font-size: 0.66rem; font-weight: 600; padding: 2px 8px; border-radius: 6px; cursor: pointer; line-height: 1.4; white-space: nowrap; }
+.fin-expand:hover { background: #f8fafc; border-color: #cbd5e1; }
+.fin-row-det { font-size: 0.7rem; color: #475569; margin-top: 2px; line-height: 1.35; }
+.fin-row-det span { color: #94a3b8; font-size: inherit; }

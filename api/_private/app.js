@@ -5376,13 +5376,14 @@ function renderFinanceView() {
         const rows = items.slice(0, limit).map(({ client, plantName, serviceType, analyst, amount, period }) => {
             const monthAbbr = period ? (monthNames[parseInt(period.split('-')[1]) - 1] || '').substring(0, 3).toLowerCase() : '';
             const sub = [plantName, monthAbbr].filter(Boolean).join(' · ');
-            const extra = expanded ? [serviceType, analyst && analyst !== '-' ? analyst : ''].filter(Boolean).join(' · ') : '';
+            const hasAnalyst = analyst && analyst !== '-';
             return `
             <div class="fin-row">
                 <div class="fin-row-main">
                     <div class="fin-row-name">${_escHtml(client)}</div>
                     ${sub ? `<div class="fin-row-sub">${_escHtml(sub)}</div>` : ''}
-                    ${extra ? `<div class="fin-row-sub">${_escHtml(extra)}</div>` : ''}
+                    ${expanded && serviceType ? `<div class="fin-row-det"><span>Servicio:</span> ${_escHtml(serviceType)}</div>` : ''}
+                    ${expanded && hasAnalyst ? `<div class="fin-row-det"><span>${analyst.includes('%') ? 'Analistas:' : 'Analista:'}</span> ${_escHtml(analyst)}</div>` : ''}
                 </div>
                 <div class="fin-row-amt">${money(amount)}</div>
             </div>`;
@@ -5397,7 +5398,10 @@ function renderFinanceView() {
         <div class="fin-card" style="--fin-c:${c.clr};">
             <div class="fin-card-head">
                 <span class="fin-card-title"><span class="fin-dot" style="background:${c.clr}"></span>${c.label}<span class="fin-card-count">· ${items.length}</span></span>
-                ${c.badge && items.length ? `<span class="fin-badge">${c.badge}</span>` : ''}
+                <span class="fin-card-actions">
+                    ${c.badge && items.length ? `<span class="fin-badge">${c.badge}</span>` : ''}
+                    ${items.length ? `<button class="fin-expand" onclick="toggleFinanceCardExpand('${c.key}')" title="${expanded ? 'Contraer' : 'Ver el servicio y los analistas de cada gestión'}">${expanded ? '▲ Contraer' : '▼ Detalle'}</button>` : ''}
+                </span>
             </div>
             <div class="fin-card-body">${items.length ? rows : empty}</div>
             ${toggle}
