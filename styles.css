@@ -1101,7 +1101,7 @@ h1 {
     letter-spacing: 0.005em;
 }
 .data-table td.cell-name { font-weight: 500; }
-.data-table td { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+.data-table td { padding-top: 0.3rem; padding-bottom: 0.3rem; }
 
 .data-table input {
     width: 100%;
