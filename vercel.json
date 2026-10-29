@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "api/app.js": {
+      "includeFiles": "api/_private/**"
+    }
+  },
   "rewrites": [
     {
       "source": "/(.*)",

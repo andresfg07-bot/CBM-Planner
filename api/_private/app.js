@@ -6,7 +6,7 @@ let supabaseClient = null;
 
 try {
     if (window.supabase) {
-        supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
+        supabaseClient = window._bootClient || window.supabase.createClient(supabaseUrl, supabaseKey);
     }
 } catch (e) {
     console.error("Error initializing Supabase", e);
@@ -1192,9 +1192,10 @@ function renderMyWorkCard(task) {
     const fmt = (days) => days.length
         ? days.map(d => { const [,m,dd] = d.date.split('-'); return `${dd}/${m}`; }).join(', ')
         : null;
-    // Con medición por turnos solo se muestran los días de planta de ESTE analista
-    const myFieldDays = isFieldSplit(task)
-        ? (getFieldDayAssignments(task).get(currentUserProfile?.analyst_name) || []).map(date => ({ date }))
+    // Con turnos o equipo por día solo se muestran los días de planta de ESTE analista
+    const myFieldDays = (isFieldSplit(task) || hasDayCrew(task))
+        ? (task.scheduledDays || []).filter(d => d.type === 'field' && d.date
+            && analystWorksDay(task, d, currentUserProfile?.analyst_name))
         : (task.scheduledDays?.filter(d => d.type === 'field') || []);
     const fieldStr = fmt(myFieldDays);
 
@@ -3368,29 +3369,15 @@ function renderCalendar() {
                 }
                 if (!isAssigned) return false;
 
-                // ¿La tarea tiene un día programado en esta fecha?
-                const dayEntry = t.scheduledDays?.find(sd => sd.date === day.dateStr);
-                if (!dayEntry) return false;
-
-                // Días de campo → solo para analistas titulares (fueron a campo)
-                if (dayEntry.type === 'field') {
-                    if (isFieldSplit(t)) {
-                        return (getFieldDayAssignments(t).get(analyst.name) || []).includes(day.dateStr);
-                    }
-                    const assign = t.analysts_assignment?.find(a => a.name === analyst.name);
-                    return assign ? assign.isTitular : (t.analyst === analyst.name);
-                }
-
-                // Días de informe → solo para el analista responsable de ese día
-                const reportAssignments = getReportDayAssignments(t);
-                const myReportDays = reportAssignments.get(analyst.name) || [];
-                return myReportDays.includes(day.dateStr);
+                // ¿Hay un día programado en esta fecha que le toque a este analista?
+                // (campo → titulares / turnos / equipo del día; informe → responsable de ese día)
+                return scheduledDayIdxFor(t, day.dateStr, analyst.name) !== -1;
             });
-            
+
             dayTasks.forEach(t => {
                 const pill = document.createElement('div');
-                const dayInfo = t.scheduledDays.find(sd => sd.date === day.dateStr);
-                const dayIdx = t.scheduledDays.findIndex(sd => sd.date === day.dateStr);
+                const dayIdx = scheduledDayIdxFor(t, day.dateStr, analyst.name);
+                const dayInfo = t.scheduledDays[dayIdx];
                 
                 pill.className = `calendar-task-pill ${t.status} ${dayInfo.type}`;
                 // Medición → color sólido con texto blanco
@@ -4007,7 +3994,13 @@ async function handleCalendarDrop(cell, dragInfo) {
     if (isPillMove && Array.isArray(task.scheduledDays)) {
         const _clashEl  = document.getElementById(dragInfo);
         const _clashIdx = _clashEl ? parseInt(_clashEl.getAttribute('data-day-index'), 10) : parseInt(dragInfo.split('-').pop(), 10);
-        const occupied  = task.scheduledDays.some((d, i) => i !== _clashIdx && d.date === targetDateStr);
+        const _clashDay = task.scheduledDays[_clashIdx];
+        // Con equipo por día, mover a otra fila cambia solo a ese analista (queda como [destino])
+        const _clashSrc = _clashEl?.closest('td')?.getAttribute('data-analyst');
+        const _clashProbe = (dayCrew(_clashDay) && _clashSrc && _clashSrc !== targetAnalyst)
+            ? { ..._clashDay, analysts: [targetAnalyst] } : _clashDay;
+        const occupied  = task.scheduledDays.some((d, i) =>
+            i !== _clashIdx && d.date === targetDateStr && scheduledDaysClash(d, _clashProbe));
         if (occupied) {
             alert('Esta gestión ya tiene otro día programado en esa fecha. Elige un día libre: dos días de la misma gestión no pueden quedar en la misma fecha.');
             return;
@@ -4047,13 +4040,34 @@ async function handleCalendarDrop(cell, dragInfo) {
 
         const movedDay = task.scheduledDays[dayIdx];
 
+        // Equipo por día: arrastrar la pastilla a la fila de otro analista cambia solo a ese analista
+        const _srcAnalyst = dragEl?.closest('td')?.getAttribute('data-analyst');
+        if (dayCrew(movedDay) && _srcAnalyst && _srcAnalyst !== targetAnalyst) {
+            if (task.status === 'facturada' && !isServiceDebt(task)) { alert('Una gestión facturada no puede ser modificada.'); return; }
+            if (movedDay.date !== targetDateStr) {
+                alert('Este día lo trabajan varios analistas. Para cambiar de analista, suelta la pastilla en la misma fecha; para cambiar de fecha, muévela dentro de su propia fila.');
+                return;
+            }
+            movedDay.analysts = [...new Set(movedDay.analysts.filter(n => n !== _srcAnalyst).concat(targetAnalyst))];
+            const entries = task.analysts_assignment = task.analysts_assignment || [];
+            let targetEntry = entries.find(a => a.name === targetAnalyst);
+            if (!targetEntry) { targetEntry = { name: targetAnalyst, isTitular: false, makesReport: false, percentage: 0 }; entries.push(targetEntry); }
+            if (movedDay.type === 'field') targetEntry.isTitular = true; else targetEntry.makesReport = true;
+            recalculateAssignmentPercentages(task);
+            logActivity(`🚚 Un día de <strong>${task.client}</strong> pasó de <strong>${_srcAnalyst}</strong> a <strong>${targetAnalyst}</strong>.`, 'assign');
+            saveTasks();
+            postDropSync();
+            await saveTaskToSupabase(task);
+            return;
+        }
+
         // Medición por turnos: mover un día de planta a la fila de otro analista lo reasigna
-        if (movedDay?.type === 'field' && isFieldSplit(task)) {
+        if (movedDay?.type === 'field' && isFieldSplit(task) && !dayCrew(movedDay)) {
             if (task.status === 'facturada' && !isServiceDebt(task)) { alert('Una gestión facturada no puede ser modificada.'); return; }
             // Congelar los días implícitos para que no se redistribuyan al mover uno
             const currentFieldMap = getFieldDayAssignments(task);
             task.scheduledDays.forEach(d => {
-                if (d.type === 'field' && !d.analyst) {
+                if (d.type === 'field' && !d.analyst && !dayCrew(d)) {
                     for (const [name, dates] of currentFieldMap.entries()) {
                         if (dates.includes(d.date)) { d.analyst = name; break; }
                     }
@@ -4072,7 +4086,7 @@ async function handleCalendarDrop(cell, dragInfo) {
         }
 
         // Reasignación de día de informe a otro analista
-        if (movedDay?.type === 'report') {
+        if (movedDay?.type === 'report' && !dayCrew(movedDay)) {
             const reportMap = getReportDayAssignments(task);
             let currentOwner = movedDay.analyst;
             if (!currentOwner) {
@@ -4297,10 +4311,69 @@ function isFieldSplit(task) {
     return !!(task && task.analysts_assignment && task.analysts_assignment.some(a => a.splitField));
 }
 
+/** Equipo por día: un día programado puede llevar analysts[] con quiénes lo trabajaron
+ *  (planta o informe). Sin analysts[] rige la regla de siempre (juntos / turnos / reparto de informe).
+ *  Vive dentro de scheduledDays (JSON), sin columna nueva en Supabase. */
+function dayCrew(d) {
+    return d && Array.isArray(d.analysts) && d.analysts.length > 0 ? d.analysts : null;
+}
+function hasDayCrew(task) {
+    return (task?.scheduledDays || []).some(dayCrew);
+}
+
+/** Suma al mapa nombre → fechas los días que tienen equipo explícito. */
+function addCrewDays(map, task, type) {
+    (task.scheduledDays || []).filter(d => d.type === type && d.date && dayCrew(d)).forEach(d => {
+        dayCrew(d).forEach(name => {
+            if (!map.has(name)) map.set(name, []);
+            if (!map.get(name).includes(d.date)) map.get(name).push(d.date);
+        });
+    });
+}
+
+/** ¿El analista trabajó este día programado? Respeta equipo por día, turnos y reparto de informe. */
+function analystWorksDay(task, d, name) {
+    const crew = dayCrew(d);
+    if (crew) return crew.includes(name);
+    if (d.type === 'field') {
+        if (isFieldSplit(task)) return (getFieldDayAssignments(task).get(name) || []).includes(d.date);
+        const assign = task.analysts_assignment?.find(a => a.name === name);
+        return assign ? assign.isTitular : (task.analyst === name);
+    }
+    return (getReportDayAssignments(task).get(name) || []).includes(d.date);
+}
+
+/** Índice del día programado que le toca a este analista en esa fecha (-1 si ninguno).
+ *  Una fecha puede tener dos días (p. ej. planta de A e informe de B). */
+function scheduledDayIdxFor(task, dateStr, name) {
+    const days = task.scheduledDays || [];
+    for (let i = 0; i < days.length; i++) {
+        if (days[i].date === dateStr && analystWorksDay(task, days[i], name)) return i;
+    }
+    return -1;
+}
+
+/** Dos días de la misma gestión chocan en la misma fecha solo si comparten analista
+ *  (un día sin equipo explícito es de todos). */
+function scheduledDaysClash(a, b) {
+    const ca = dayCrew(a), cb = dayCrew(b);
+    if (!ca || !cb) return true;
+    return ca.some(n => cb.includes(n));
+}
+
 /** Reparte los días de planta entre los analistas titulares (mapa nombre → fechas).
  *  Días con analista explícito (movidos a mano) se respetan; el resto se reparte parejo,
  *  dando el sobrante al primero. */
 function getFieldDayAssignments(task) {
+    const map = _fieldDayAssignmentsBase({
+        ...task,
+        scheduledDays: (task.scheduledDays || []).filter(d => !dayCrew(d))
+    });
+    addCrewDays(map, task, 'field');
+    return map;
+}
+
+function _fieldDayAssignmentsBase(task) {
     const fieldDays = (task.scheduledDays || [])
         .filter(d => d.type === 'field' && d.date)
         .sort((a, b) => a.date.localeCompare(b.date));
@@ -4335,6 +4408,15 @@ function getFieldDayAssignments(task) {
 }
 
 function getReportDayAssignments(task) {
+    const map = _reportDayAssignmentsBase({
+        ...task,
+        scheduledDays: (task.scheduledDays || []).filter(d => !dayCrew(d))
+    });
+    addCrewDays(map, task, 'report');
+    return map;
+}
+
+function _reportDayAssignmentsBase(task) {
     const reportDays = (task.scheduledDays || [])
         .filter(d => d.type === 'report')
         .sort((a, b) => a.date.localeCompare(b.date));
@@ -4382,9 +4464,53 @@ function getReportDayAssignments(task) {
     return map;
 }
 
+/** % de participación según los días realmente trabajados por cada analista.
+ *  Mantiene la regla de siempre: la mitad es de planta y la otra mitad de informe (o todo a uno si
+ *  solo hay uno de los dos). Dentro de cada mitad, cada día se reparte entre quienes lo trabajaron.
+ *  Si aún no hay días de un tipo, ese tipo se reparte parejo entre quienes lo marcan (Campo / Informe).
+ *  Retorna Map nombre → % (enteros que suman 100). */
+function computeDayBasedPercentages(task) {
+    const assignments = task.analysts_assignment || [];
+    const days = task.scheduledDays || [];
+    const weightsFor = (type, flag) => {
+        const w = new Map();
+        days.filter(d => d.type === type).forEach(d => {
+            const owners = assignments.filter(a => analystWorksDay(task, d, a.name));
+            owners.forEach(a => w.set(a.name, (w.get(a.name) || 0) + 1 / owners.length));
+        });
+        if (w.size === 0) assignments.filter(a => a[flag]).forEach(a => w.set(a.name, 1));
+        const total = [...w.values()].reduce((s, v) => s + v, 0);
+        if (total > 0) w.forEach((v, k) => w.set(k, v / total));
+        return w;
+    };
+    const field  = weightsFor('field',  'isTitular');
+    const report = weightsFor('report', 'makesReport');
+    const hasBoth = field.size > 0 && report.size > 0;
+    const fieldPool  = hasBoth ? 50 : (field.size  > 0 ? 100 : 0);
+    const reportPool = hasBoth ? 50 : (report.size > 0 ? 100 : 0);
+
+    const raw = new Map(assignments.map(a =>
+        [a.name, (field.get(a.name) || 0) * fieldPool + (report.get(a.name) || 0) * reportPool]));
+    // Redondeo por mayor residuo para que sume exactamente 100
+    const out = new Map([...raw].map(([k, v]) => [k, Math.floor(v)]));
+    let left = Math.round([...raw.values()].reduce((s, v) => s + v, 0)) - [...out.values()].reduce((s, v) => s + v, 0);
+    [...raw].sort((a, b) => (b[1] - Math.floor(b[1])) - (a[1] - Math.floor(a[1])))
+        .forEach(([k]) => { if (left > 0) { out.set(k, out.get(k) + 1); left--; } });
+    return out;
+}
+
 function recalculateAssignmentPercentages(task) {
     const assignments = task.analysts_assignment || [];
     if (assignments.length === 0) return;
+    // El administrador fijó los % a mano: no se tocan
+    if (assignments.some(a => a.pctManual)) return;
+
+    // Con equipo por día, los % salen del reparto real de días
+    if (hasDayCrew(task)) {
+        const pcts = computeDayBasedPercentages(task);
+        assignments.forEach(a => { a.percentage = pcts.get(a.name) || 0; });
+        return;
+    }
 
     const fieldAnalysts  = assignments.filter(a => a.isTitular);
     const reportAnalysts = assignments.filter(a => a.makesReport);
@@ -4406,7 +4532,7 @@ async function reassignReportDay(task, dayIdx, newAnalyst, newDay, newDateStr) {
     // Así los días sin analista explícito quedan fijos y no se redistribuyen al nuevo analista.
     const currentMap = getReportDayAssignments(task);
     task.scheduledDays.forEach(d => {
-        if (d.type === 'report' && !d.analyst) {
+        if (d.type === 'report' && !d.analyst && !dayCrew(d)) {
             for (const [name, dates] of currentMap.entries()) {
                 if (dates.includes(d.date)) { d.analyst = name; break; }
             }
@@ -5622,6 +5748,7 @@ function openNewTaskModal() {
 
         const _splitEl = document.getElementById('taskSplitField');
         if(_splitEl) _splitEl.checked = false;
+        initCrewPanel(null);
 
         // Limpiar campo de observaciones y ocultarlo
         const notesEl    = document.getElementById('taskAbsenceNotes');
@@ -5807,6 +5934,7 @@ function openEditTaskModal(taskId) {
 
         const splitEl = document.getElementById('taskSplitField');
         if(splitEl) splitEl.checked = isFieldSplit(task);
+        initCrewPanel(task);
 
         // Observaciones de ausencia
         const notesEl    = document.getElementById('taskAbsenceNotes');
@@ -5832,6 +5960,199 @@ function closeModal(modalId) {
     if (modalId === 'serviceDetailsModal' && typeof _stopServiceDictation === 'function') _stopServiceDictation();
     const modal = document.getElementById(modalId);
     if (modal) modal.classList.remove('active');
+}
+
+// ── Analistas por día (cuadrante en el modal de la gestión) ──────────────────
+// _crewDraft guarda el borrador mientras el modal está abierto; se aplica al guardar.
+let _crewDraft = null;
+
+function initCrewPanel(task) {
+    const panel = document.getElementById('taskCrewPanel');
+    const grid  = document.getElementById('taskCrewGrid');
+    const container = document.getElementById('taskAnalystsContainer');
+    _crewDraft = null;
+    if (!panel) return;
+    if (grid) { grid.style.display = 'none'; grid.innerHTML = ''; }
+    // % fijados a mano por el administrador: se respetan hasta que pida recalcular
+    if (container) container.dataset.pctManual = (task?.analysts_assignment || []).some(a => a.pctManual) ? '1' : '';
+    const show = !!task && !task.isAbsence && (task.scheduledDays || []).length > 0;
+    panel.style.display = show ? '' : 'none';
+    if (!show) return;
+    _crewDraft = {
+        days: task.scheduledDays.map((d, i) => ({
+            idx: i, orig: d, date: d.date, type: d.type,
+            crew: dayCrew(d) ? [...d.analysts] : null, added: false
+        }))
+    };
+    if (container && !container._crewChangeBound) {
+        container._crewChangeBound = true;
+        container.addEventListener('change', () => {
+            if (document.getElementById('taskCrewGrid')?.style.display !== 'none') renderCrewGrid();
+        });
+    }
+}
+
+/** Asignaciones tal como están en el formulario (nombre, Campo, Informe, turnos). */
+function _crewFormAssignments() {
+    const rows = document.querySelectorAll('#taskAnalystsContainer .analyst-row');
+    const split = !!document.getElementById('taskSplitField')?.checked;
+    const out = [];
+    rows.forEach(r => {
+        const name = r.querySelector('.analyst-select')?.value;
+        if (!name || out.some(a => a.name === name)) return;
+        out.push({
+            name,
+            isTitular:   !!r.querySelector('.analyst-titular')?.checked,
+            makesReport: !!r.querySelector('.analyst-report')?.checked,
+            percentage:  parseFloat(r.querySelector('.analyst-pct')?.value) || 0,
+            ...(split ? { splitField: true } : {})
+        });
+    });
+    return out;
+}
+
+/** Días del borrador como scheduledDays (con el equipo editado); los analistas que ya no están
+ *  en el formulario se quitan, y un día que se queda sin nadie vuelve a la regla automática. */
+function _crewDraftDays(names) {
+    return _crewDraft.days.map(dd => {
+        const day = { ...dd.orig, date: dd.date, type: dd.type };
+        const crew = (dd.crew || []).filter(n => names.includes(n));
+        if (crew.length > 0) day.analysts = crew; else delete day.analysts;
+        return day;
+    });
+}
+
+function _crewTempTask(base) {
+    const assignments = _crewFormAssignments();
+    return {
+        ...(base || {}),
+        analysts_assignment: assignments,
+        scheduledDays: _crewDraftDays(assignments.map(a => a.name))
+    };
+}
+
+function _crewBaseTask() {
+    const id = document.getElementById('editTaskId')?.value;
+    return tasks.find(t => t.id === id) || {};
+}
+
+function toggleCrewGrid() {
+    const grid = document.getElementById('taskCrewGrid');
+    if (!grid || !_crewDraft) return;
+    const open = grid.style.display === 'none';
+    grid.style.display = open ? '' : 'none';
+    if (open) renderCrewGrid();
+}
+
+function renderCrewGrid() {
+    const grid = document.getElementById('taskCrewGrid');
+    if (!grid || !_crewDraft) return;
+    const task  = _crewTempTask(_crewBaseTask());
+    const names = task.analysts_assignment.map(a => a.name);
+    if (names.length === 0) {
+        grid.innerHTML = '<div style="font-size:0.78rem; color:#64748b;">Agrega primero los analistas de la gestión.</div>';
+        return;
+    }
+    const fmt = (s) => { const [, m, d] = (s || '').split('-'); return d ? `${d}/${m}` : '—'; };
+    const order = _crewDraft.days.map((dd, i) => i).sort((a, b) => {
+        const A = _crewDraft.days[a], B = _crewDraft.days[b];
+        return (A.date || '').localeCompare(B.date || '') || (A.type === 'field' ? -1 : 1);
+    });
+    const chip = (active, auto, label, onclick) => `<button type="button" onclick="${onclick}" style="padding:2px 9px; font-size:0.72rem; border-radius:999px; cursor:pointer; border:1px ${auto ? 'dashed' : 'solid'} ${active ? '#1d4ed8' : '#cbd5e1'}; background:${active ? (auto ? '#dbeafe' : '#2563eb') : '#fff'}; color:${active ? (auto ? '#1e3a8a' : '#fff') : '#64748b'};">${_escHtml(label)}</button>`;
+
+    grid.innerHTML = `
+        <div style="font-size:0.72rem; color:#64748b; margin-bottom:0.4rem;">
+            Marca quién trabajó cada día. Los chips con borde punteado siguen la regla automática; al tocarlos pasan a ser manuales.
+        </div>
+        ${order.map(i => {
+            const dd = _crewDraft.days[i];
+            const tmpDay = task.scheduledDays[i];
+            return `<div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap; padding:3px 0; border-top:1px solid #e2e8f0;">
+                <span style="font-size:0.75rem; font-weight:600; min-width:92px; color:${dd.type === 'field' ? '#0f172a' : '#7c3aed'};">${fmt(dd.date)} · ${dd.type === 'field' ? 'Planta' : 'Informe'}</span>
+                ${names.map((n, ni) => chip(analystWorksDay(task, tmpDay, n), !dd.crew, n, `toggleCrewChip(${i},${ni})`)).join('')}
+                ${dd.crew && !dd.added ? `<button type="button" onclick="resetCrewDay(${i})" title="Volver a la regla automática" style="background:none; border:none; cursor:pointer; color:#64748b; font-size:0.8rem;">↺</button>` : ''}
+                ${dd.added ? `<button type="button" onclick="removeCrewDay(${i})" title="Quitar este día" style="background:none; border:none; cursor:pointer; color:#ef4444; font-size:0.9rem;">&times;</button>` : ''}
+            </div>`;
+        }).join('')}
+        <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; margin-top:0.5rem; padding-top:0.5rem; border-top:1px solid #e2e8f0;">
+            <span style="font-size:0.72rem; color:#475569;">Añadir día:</span>
+            <input type="date" id="crewNewDate" style="padding:2px 4px; font-size:0.74rem;">
+            <select id="crewNewType" style="padding:2px 4px; font-size:0.74rem;"><option value="report">Informe</option><option value="field">Planta</option></select>
+            <button type="button" class="btn-secondary" onclick="addCrewDay()" style="padding:2px 9px; font-size:0.72rem; cursor:pointer;">+ Añadir</button>
+        </div>`;
+}
+
+function toggleCrewChip(rowIdx, nameIdx) {
+    if (!_crewDraft) return;
+    const task  = _crewTempTask(_crewBaseTask());
+    const names = task.analysts_assignment.map(a => a.name);
+    const name  = names[nameIdx];
+    const dd    = _crewDraft.days[rowIdx];
+    const current = names.filter(n => analystWorksDay(task, task.scheduledDays[rowIdx], n));
+    const next = current.includes(name) ? current.filter(n => n !== name) : [...current, name];
+    if (next.length === 0) { showToast('Cada día necesita al menos un analista.'); return; }
+    dd.crew = next;
+    _crewAfterChange();
+}
+
+function resetCrewDay(rowIdx) {
+    if (!_crewDraft) return;
+    _crewDraft.days[rowIdx].crew = null;
+    _crewAfterChange();
+}
+
+function removeCrewDay(rowIdx) {
+    if (!_crewDraft || !_crewDraft.days[rowIdx]?.added) return;
+    const [removed] = _crewDraft.days.splice(rowIdx, 1);
+    _crewBumpDays(removed.type, -1);
+    _crewAfterChange();
+}
+
+function addCrewDay() {
+    if (!_crewDraft) return;
+    const date = document.getElementById('crewNewDate')?.value;
+    const type = document.getElementById('crewNewType')?.value === 'field' ? 'field' : 'report';
+    if (!date) { showToast('Elige la fecha del día.'); return; }
+    const assignments = _crewFormAssignments();
+    const flag = type === 'field' ? 'isTitular' : 'makesReport';
+    const crew = assignments.filter(a => a[flag]).map(a => a.name);
+    if (crew.length === 0) crew.push(...assignments.map(a => a.name).slice(0, 1));
+    if (crew.length === 0) { showToast('Agrega primero los analistas de la gestión.'); return; }
+    _crewDraft.days.push({
+        idx: null, orig: { day: parseInt(date.slice(8), 10) }, date, type, crew, added: true
+    });
+    _crewBumpDays(type, 1);
+    _crewAfterChange();
+}
+
+/** Mantiene Días Planta / Días Informe del formulario al día cuando se añaden o quitan días aquí. */
+function _crewBumpDays(type, delta) {
+    const input = document.getElementById(type === 'field' ? 'taskDaysField' : 'taskDaysReport');
+    if (input) input.value = Math.max(0, (parseInt(input.value, 10) || 0) + delta);
+}
+
+function _crewAfterChange() {
+    // Mientras el administrador no haya fijado los % a mano, siguen el reparto real de días
+    if (document.getElementById('taskAnalystsContainer')?.dataset.pctManual !== '1') _crewFillPercentages();
+    renderCrewGrid();
+}
+
+function _crewFillPercentages() {
+    const task = _crewTempTask(_crewBaseTask());
+    const pcts = computeDayBasedPercentages(task);
+    document.querySelectorAll('#taskAnalystsContainer .analyst-row').forEach(r => {
+        const name = r.querySelector('.analyst-select')?.value;
+        const inp  = r.querySelector('.analyst-pct');
+        if (name && inp && pcts.has(name)) inp.value = pcts.get(name);
+    });
+}
+
+/** Botón "% según los días": vuelve al cálculo automático y descarta los % fijados a mano. */
+function applyAutoPercentages() {
+    const container = document.getElementById('taskAnalystsContainer');
+    if (container) container.dataset.pctManual = '';
+    _crewFillPercentages();
+    showToast('Porcentajes recalculados según los días de cada analista.', 'success');
 }
 
 function addAnalystToTask(analystData = null) {
@@ -6000,6 +6321,30 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
         }
         analystsAssignment.forEach(a => { if(splitRequested) a.splitField = true; });
 
+        // Analistas por día: el equipo editado en el cuadrante se aplica al guardar
+        let crewDays = null, crewAdded = { field: 0, report: 0 };
+        if(editId && _crewDraft && !isAbsence) {
+            const names = analystsAssignment.map(a => a.name);
+            crewDays = _crewDraftDays(names);
+            _crewDraft.days.filter(d => d.added).forEach(d => { crewAdded[d.type]++; });
+            // Quien trabaja un día de planta/informe cuenta como Campo/Informe
+            crewDays.filter(dayCrew).forEach(d => d.analysts.forEach(n => {
+                const a = analystsAssignment.find(x => x.name === n);
+                if(a) { if(d.type === 'field') a.isTitular = true; else a.makesReport = true; }
+            }));
+            if(crewDays.some(dayCrew)) {
+                const manual = document.getElementById('taskAnalystsContainer')?.dataset.pctManual === '1';
+                if(manual) analystsAssignment.forEach(a => { a.pctManual = true; });
+                else {
+                    const pcts = computeDayBasedPercentages({ ...tasks.find(t => t.id === editId), analysts_assignment: analystsAssignment, scheduledDays: crewDays });
+                    analystsAssignment.forEach(a => { a.percentage = pcts.get(a.name) || 0; });
+                    totalPercentage = analystsAssignment.reduce((s, a) => s + a.percentage, 0);
+                }
+            } else if(document.getElementById('taskAnalystsContainer')?.dataset.pctManual === '1') {
+                analystsAssignment.forEach(a => { a.pctManual = true; });
+            }
+        }
+
         if(!isAbsence && !isAdminContract && !isThirdParty && analystsAssignment.length > 0 && Math.abs(totalPercentage - 100) > 0.01) {
             alert("El porcentaje financiero total debe sumar exactamente 100%. Actualmente suma " + totalPercentage + "%.");
             return;
@@ -6017,8 +6362,10 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
         if(editId) {
             const idx = tasks.findIndex(t => t.id === editId);
             if(idx !== -1) {
-                const oldDaysField  = tasks[idx].daysField  ?? 1;
-                const oldDaysReport = tasks[idx].daysReport ?? 0;
+                // Los días añadidos desde el cuadrante ya están reflejados en los campos de días
+                const oldDaysField  = (tasks[idx].daysField  ?? 1) + crewAdded.field;
+                const oldDaysReport = (tasks[idx].daysReport ?? 0) + crewAdded.report;
+                if(crewDays) tasks[idx].scheduledDays = crewDays;
 
                 tasks[idx].client = finalClientName;
                 tasks[idx].clientId = clientId;
@@ -13598,6 +13945,9 @@ async function initializeApp() {
         // Delegación de eventos: auto-distribuir porcentajes de analistas
         document.addEventListener('input', e => {
             if (e.target.classList.contains('analyst-pct')) {
+                // Editar un % a mano lo fija: ya no se recalcula solo con los días
+                const c = document.getElementById('taskAnalystsContainer');
+                if (c) c.dataset.pctManual = '1';
                 autoDistributePercentages(e.target);
             }
         });
