@@ -5348,9 +5348,9 @@ function renderFinanceView() {
     const kpis = `
         <div class="fin-kpis">
             <div class="fin-kpi"><div class="fin-kpi-l">Total del mes</div><div class="fin-kpi-v">${millions(grandTotal)}</div><div class="fin-kpi-s">${plural(financeTasks.length, 'gestión', 'gestiones')}</div></div>
-            <div class="fin-kpi"><div class="fin-kpi-l"><span class="fin-dot" style="background:#3b82f6"></span>Por programar</div><div class="fin-kpi-v">${millions(stats.proyectada)}</div><div class="fin-kpi-s">${pct(stats.proyectada)} % del total</div></div>
-            <div class="fin-kpi fin-kpi-hot"><div class="fin-kpi-l"><span class="fin-dot" style="background:#d97706"></span>Por facturar</div><div class="fin-kpi-v">${millions(stats.ejecutada)}</div><div class="fin-kpi-s">${plural(count('ejecutada'), 'ejecutada sin factura', 'ejecutadas sin factura')}</div></div>
-            <div class="fin-kpi"><div class="fin-kpi-l"><span class="fin-dot" style="background:#16a34a"></span>Facturado</div><div class="fin-kpi-v">${millions(stats.facturada)}</div><div class="fin-kpi-s">${pct(stats.facturada)} % del total</div></div>
+            <div class="fin-kpi" style="--fin-c:#3b82f6;"><div class="fin-kpi-l"><span class="fin-dot" style="background:#3b82f6"></span>Por programar</div><div class="fin-kpi-v">${millions(stats.proyectada)}</div><div class="fin-kpi-s">${pct(stats.proyectada)} % del total</div></div>
+            <div class="fin-kpi" style="--fin-c:#d97706;"><div class="fin-kpi-l"><span class="fin-dot" style="background:#d97706"></span>Por facturar</div><div class="fin-kpi-v">${millions(stats.ejecutada)}</div><div class="fin-kpi-s">${plural(count('ejecutada'), 'ejecutada sin factura', 'ejecutadas sin factura')}</div></div>
+            <div class="fin-kpi" style="--fin-c:#16a34a;"><div class="fin-kpi-l"><span class="fin-dot" style="background:#16a34a"></span>Facturado</div><div class="fin-kpi-v">${millions(stats.facturada)}</div><div class="fin-kpi-s">${pct(stats.facturada)} % del total</div></div>
         </div>`;
 
     // ── Barra de reparto por etapa ──
@@ -5394,7 +5394,7 @@ function renderFinanceView() {
         const empty = `<div class="fin-empty">Aquí aparecerán las gestiones<br>cuando pasen a este estado.</div>`;
 
         return `
-        <div class="fin-card${c.key === 'ejecutada' ? ' fin-card-hot' : ''}">
+        <div class="fin-card" style="--fin-c:${c.clr};">
             <div class="fin-card-head">
                 <span class="fin-card-title"><span class="fin-dot" style="background:${c.clr}"></span>${c.label}<span class="fin-card-count">· ${items.length}</span></span>
                 ${c.badge && items.length ? `<span class="fin-badge">${c.badge}</span>` : ''}
