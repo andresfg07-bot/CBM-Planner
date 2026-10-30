@@ -5149,19 +5149,26 @@ async function renderErpSyncPanel() {
     const table = (rows) => `<table class="data-table" style="font-size:0.82rem;"><thead><tr><th>Negocio</th><th>Facturas</th><th style="text-align:right;">Total antes de IVA</th><th>Detalle</th><th></th></tr></thead><tbody>${rows.map(row).join('')}</tbody></table>`;
 
     el.style.display = '';
+    const toConfirm = suggested.length, toReview = pending.length;
+    const hasDetail = toConfirm + toReview + proposed.length + applied.length + confirmed.length > 0;
+    const chip = (n, text, bg, fg) => n ? `<span onclick="erpTogglePanel()" title="Ver detalle" style="cursor:pointer;background:${bg};color:${fg};font-size:0.7rem;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap;">${n} ${text}</span>` : '';
     el.innerHTML = `
-        <div class="stats-card" style="padding:1.25rem;">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;margin-bottom:0.75rem;">
-                <div>
-                    <h3 style="margin:0 0 0.2rem;font-size:1rem;">Facturación desde el ERP</h3>
-                    <p style="margin:0;font-size:0.75rem;color:var(--text-secondary);">Compara las facturas enviadas en el ERP con los N° de negocio del planner. El ERP solo se consulta. Última revisión: ${last}.</p>
+        <div class="stats-card" style="padding:0.75rem 1rem;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
+                    <h3 style="margin:0;font-size:0.9rem;">Facturación desde el ERP</h3>
+                    <span style="background:${mode === 'activo' ? '#dcfce7' : '#fef3c7'};color:${mode === 'activo' ? '#15803d' : '#a16207'};font-size:0.66rem;font-weight:700;padding:2px 9px;border-radius:999px;">${mode === 'activo' ? 'Activo' : 'Modo prueba'}</span>
+                    <span style="font-size:0.72rem;color:var(--text-secondary);">Última revisión: ${last}</span>
+                    ${chip(toConfirm, 'por confirmar', '#dbeafe', '#1d4ed8')}
+                    ${chip(toReview, 'por revisar', '#fef3c7', '#92400e')}
                 </div>
                 <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
-                    <span style="background:${mode === 'activo' ? '#dcfce7' : '#fef3c7'};color:${mode === 'activo' ? '#15803d' : '#a16207'};font-size:0.68rem;font-weight:700;padding:3px 10px;border-radius:999px;text-transform:uppercase;">${mode === 'activo' ? 'Activo' : 'Modo prueba'}</span>
-                    ${isAdmin ? `<button class="btn-outline" onclick="erpToggleMode()">${mode === 'activo' ? 'Volver a modo prueba' : 'Activar'}</button>` : ''}
-                    ${canAct ? `<button class="btn-primary" id="erp-sync-btn" onclick="erpSyncNow()" ${_erpBusy ? 'disabled' : ''}>Sincronizar ahora</button>` : ''}
+                    ${hasDetail ? `<button class="btn-outline" style="font-size:0.74rem;padding:3px 10px;" onclick="erpTogglePanel()">${_erpPanelOpen ? 'Ocultar detalle' : 'Ver detalle'}</button>` : ''}
+                    ${isAdmin ? `<button class="btn-outline" style="font-size:0.74rem;padding:3px 10px;" onclick="erpToggleMode()">${mode === 'activo' ? 'Volver a modo prueba' : 'Activar'}</button>` : ''}
+                    ${canAct ? `<button class="btn-primary" style="font-size:0.74rem;padding:3px 12px;" id="erp-sync-btn" onclick="erpSyncNow()" ${_erpBusy ? 'disabled' : ''}>Sincronizar ahora</button>` : ''}
                 </div>
             </div>
+            ${_erpPanelOpen && hasDetail ? `<div style="margin-top:0.5rem;">
             ${mode !== 'activo' ? '<p style="font-size:0.76rem;color:#a16207;background:#fffbeb;border-radius:8px;padding:0.5rem 0.75rem;margin:0 0 0.75rem;">En modo prueba, la sincronización automática (por N° de negocio) solo registra lo que haría. Ojo: el botón <strong>Confirmar</strong> de las facturas encontradas sí pasa la gestión a facturada, en cualquier modo.</p>' : ''}
             ${suggested.length ? `<h4 style="margin:0.75rem 0 0.4rem;font-size:0.85rem;">Posibles facturas encontradas (${suggested.length})</h4>
                 <p style="font-size:0.74rem;color:#64748b;margin:0 0 0.4rem;">Mismo cliente y mismo valor antes de IVA. Al confirmar, la gestión pasa a facturada.</p>
@@ -5182,8 +5189,12 @@ async function renderErpSyncPanel() {
             ${proposed.length ? `<h4 style="margin:0.75rem 0 0.4rem;font-size:0.85rem;">Se facturaría al activar (${proposed.length})</h4>${table(proposed)}` : ''}
             ${applied.length ? `<h4 style="margin:0.75rem 0 0.4rem;font-size:0.85rem;">Facturado automáticamente (últimos ${applied.length})</h4>${table(applied)}` : ''}
             ${!suggested.length && !pending.length && !proposed.length && !applied.length && !confirmed.length ? '<p style="font-size:0.8rem;color:#94a3b8;margin:0.5rem 0 0;">Aún no hay movimientos. Pulsa "Sincronizar ahora" para buscar facturas de las gestiones ejecutadas.</p>' : ''}
+            </div>` : ''}
         </div>`;
 }
+
+let _erpPanelOpen = false;
+function erpTogglePanel() { _erpPanelOpen = !_erpPanelOpen; renderErpSyncPanel(); }
 
 async function erpSyncNow() {
     if(_erpBusy) return;
