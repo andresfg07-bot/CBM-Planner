@@ -5302,6 +5302,20 @@ async function erpResolve(id) {
     renderErpSyncPanel();
 }
 
+/** Rango de fechas de los días programados de un tipo ('field' = planta, 'report' = informe).
+ *  Solo el primer y el último día (sin importar fines de semana): "Oct 5-10" · "Oct 28 - Nov 5" · "Oct 5". */
+function _scheduledRange(task, type) {
+    const dates = (task.scheduledDays || []).filter(d => d.type === type && d.date).map(d => d.date).sort();
+    if(!dates.length) return '';
+    const parse = iso => { const [y, m, d] = iso.split('-').map(Number); return { y, m, d }; };
+    const mon = m => (monthNames[m - 1] || '').substring(0, 3);
+    const a = parse(dates[0]), b = parse(dates[dates.length - 1]);
+    const yearSuffix = a.y !== b.y ? y => ` ${y}` : () => '';
+    if(dates[0] === dates[dates.length - 1]) return `${mon(a.m)} ${a.d}`;
+    if(a.y === b.y && a.m === b.m) return `${mon(a.m)} ${a.d}-${b.d}`;
+    return `${mon(a.m)} ${a.d}${yearSuffix(a.y)} - ${mon(b.m)} ${b.d}${yearSuffix(b.y)}`;
+}
+
 function renderFinanceView() {
     renderErpSyncPanel();
     const container = document.getElementById('finance-summary-container');
@@ -5375,7 +5389,9 @@ function renderFinanceView() {
                     serviceType: t.serviceType || '',
                     analyst:     formatAnalystDisplay(t),
                     amount:      taskValue,
-                    period:      t.period || ''
+                    period:      t.period || '',
+                    rangeP:      _scheduledRange(t, 'field'),
+                    rangeI:      _scheduledRange(t, 'report')
                 };
             }
         }
@@ -5429,7 +5445,7 @@ function renderFinanceView() {
         const limit = c.key === 'ejecutada' || expanded ? items.length : COLLAPSED_ROWS;
         const hidden = items.length - limit;
 
-        const rows = items.slice(0, limit).map(({ client, plantName, serviceType, analyst, amount, period }) => {
+        const rows = items.slice(0, limit).map(({ client, plantName, serviceType, analyst, amount, period, rangeP, rangeI }) => {
             const monthAbbr = period ? (monthNames[parseInt(period.split('-')[1]) - 1] || '').substring(0, 3).toLowerCase() : '';
             const sub = [plantName, monthAbbr].filter(Boolean).join(' · ');
             const hasAnalyst = analyst && analyst !== '-';
@@ -5440,6 +5456,8 @@ function renderFinanceView() {
                     ${sub ? `<div class="fin-row-sub">${_escHtml(sub)}</div>` : ''}
                     ${expanded && serviceType ? `<div class="fin-row-det"><span>Servicio:</span> ${_escHtml(serviceType)}</div>` : ''}
                     ${expanded && hasAnalyst ? `<div class="fin-row-det"><span>${analyst.includes('%') ? 'Analistas:' : 'Analista:'}</span> ${_escHtml(analyst)}</div>` : ''}
+                    ${expanded && rangeP ? `<div class="fin-row-det"><span>P:</span> ${_escHtml(rangeP)}</div>` : ''}
+                    ${expanded && rangeI ? `<div class="fin-row-det"><span>I:</span> ${_escHtml(rangeI)}</div>` : ''}
                 </div>
                 <div class="fin-row-amt">${money(amount)}</div>
             </div>`;
