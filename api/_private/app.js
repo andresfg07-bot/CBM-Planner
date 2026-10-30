@@ -5138,6 +5138,7 @@ async function renderErpSyncPanel() {
     const pending = _erpLog.filter(x => x.state === 'por_revisar');
     const proposed = _erpLog.filter(x => x.state === 'propuesto');
     const applied = _erpLog.filter(x => x.state === 'aplicado').slice(0, 8);
+    const confirmed = _erpLog.filter(x => x.state === 'confirmado').slice(0, 6);
     const money = v => v === null || v === undefined ? '—' : '$' + Number(v).toLocaleString('es-CO');
     const row = x => `<tr>
         <td><strong>${_escHtml(x.negocio)}</strong></td>
@@ -5161,14 +5162,26 @@ async function renderErpSyncPanel() {
                     ${canAct ? `<button class="btn-primary" id="erp-sync-btn" onclick="erpSyncNow()" ${_erpBusy ? 'disabled' : ''}>Sincronizar ahora</button>` : ''}
                 </div>
             </div>
-            ${mode !== 'activo' ? '<p style="font-size:0.76rem;color:#a16207;background:#fffbeb;border-radius:8px;padding:0.5rem 0.75rem;margin:0 0 0.75rem;">En modo prueba solo se registra lo que se haría; no se cambia ninguna gestión.</p>' : ''}
+            ${mode !== 'activo' ? '<p style="font-size:0.76rem;color:#a16207;background:#fffbeb;border-radius:8px;padding:0.5rem 0.75rem;margin:0 0 0.75rem;">En modo prueba, la sincronización automática (por N° de negocio) solo registra lo que haría. Ojo: el botón <strong>Confirmar</strong> de las facturas encontradas sí pasa la gestión a facturada, en cualquier modo.</p>' : ''}
             ${suggested.length ? `<h4 style="margin:0.75rem 0 0.4rem;font-size:0.85rem;">Posibles facturas encontradas (${suggested.length})</h4>
                 <p style="font-size:0.74rem;color:#64748b;margin:0 0 0.4rem;">Mismo cliente y mismo valor antes de IVA. Al confirmar, la gestión pasa a facturada.</p>
                 <table class="data-table" style="font-size:0.82rem;"><thead><tr><th>Factura (ERP)</th><th style="text-align:right;">Antes de IVA</th><th>Gestiones del planner</th><th>Confianza</th><th></th></tr></thead><tbody>${suggested.map(matchRow).join('')}</tbody></table>` : ''}
+            ${confirmed.length ? `<h4 style="margin:0.75rem 0 0.4rem;font-size:0.85rem;">Confirmadas recientemente (${confirmed.length})</h4>
+                <p style="font-size:0.74rem;color:#64748b;margin:0 0 0.4rem;">Estas facturas ya se aplicaron: la gestión quedó facturada.${isAdmin ? ' Si te equivocaste, <strong>Deshacer</strong> devuelve la gestión a ejecutada y la factura vuelve a quedar como sugerencia.' : ''}</p>
+                <table class="data-table" style="font-size:0.82rem;"><thead><tr><th>Factura (ERP)</th><th style="text-align:right;">Antes de IVA</th><th>Gestiones</th><th>Confirmó</th><th></th></tr></thead><tbody>${confirmed.map(x => {
+                    const d = x.details || {};
+                    const when = x.resolved_at ? new Date(x.resolved_at).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+                    return `<tr>
+                        <td><strong>${_escHtml((x.invoice_refs || [])[0] || '')}</strong><div style="font-size:0.72rem;color:#64748b;">${_escHtml(d.erp_client || '')}</div></td>
+                        <td style="text-align:right;white-space:nowrap;">${money(x.invoiced_total)}</td>
+                        <td style="font-size:0.78rem;">${(d.tasks || []).map(t => `${_escHtml(t.client)} <span style="color:#64748b;">(${money(t.budget)})</span>`).join('<br>')}</td>
+                        <td style="font-size:0.74rem;color:#64748b;">${_escHtml(x.resolved_by || '')}<div>${when}</div></td>
+                        <td style="text-align:right;">${isAdmin ? `<button class="btn-secondary" style="font-size:0.72rem;padding:2px 8px;" onclick="erpUndoConfirm('${x.id}')">Deshacer</button>` : ''}</td></tr>`;
+                }).join('')}</tbody></table>` : ''}
             ${pending.length ? `<h4 style="margin:0.75rem 0 0.4rem;font-size:0.85rem;">Por revisar (${pending.length})</h4>${table(pending)}` : ''}
             ${proposed.length ? `<h4 style="margin:0.75rem 0 0.4rem;font-size:0.85rem;">Se facturaría al activar (${proposed.length})</h4>${table(proposed)}` : ''}
             ${applied.length ? `<h4 style="margin:0.75rem 0 0.4rem;font-size:0.85rem;">Facturado automáticamente (últimos ${applied.length})</h4>${table(applied)}` : ''}
-            ${!suggested.length && !pending.length && !proposed.length && !applied.length ? '<p style="font-size:0.8rem;color:#94a3b8;margin:0.5rem 0 0;">Aún no hay movimientos. Pulsa "Sincronizar ahora" para buscar facturas de las gestiones ejecutadas.</p>' : ''}
+            ${!suggested.length && !pending.length && !proposed.length && !applied.length && !confirmed.length ? '<p style="font-size:0.8rem;color:#94a3b8;margin:0.5rem 0 0;">Aún no hay movimientos. Pulsa "Sincronizar ahora" para buscar facturas de las gestiones ejecutadas.</p>' : ''}
         </div>`;
 }
 
@@ -5222,6 +5235,38 @@ async function erpConfirmMatch(id) {
     renderTasksView();
     if(typeof renderBoard === 'function') renderBoard();
     showToast('Gestión(es) facturada(s) ✓', 'success');
+    renderErpSyncPanel();
+}
+
+/** Admin: deshace una confirmación. La gestión vuelve a "ejecutada" y la factura vuelve a quedar como sugerencia. */
+async function erpUndoConfirm(id) {
+    if(currentUserProfile?.role !== 'admin') return;
+    const row = _erpLog.find(x => x.id === id);
+    if(!row || row.state !== 'confirmado') return;
+    const ref = (row.invoice_refs || [])[0];
+    const lines = (row.details?.tasks || []).map(t => `• ${t.client}`).join('\n');
+    if(!confirm(`¿Deshacer la confirmación de la factura ${ref}?
+
+Estas gestiones vuelven de "facturada" a "ejecutada":
+${lines}
+
+La factura volverá a salir en "Posibles facturas encontradas".`)) return;
+    const ids = row.task_ids || [];
+    const { data, error } = await supabaseClient.from('tasks').update({ status: 'ejecutada', erp_invoice_ref: null })
+        .in('id', ids).eq('status', 'facturada').eq('erp_invoice_ref', ref).select('id');
+    if(error) { showToast('No se pudo deshacer: ' + error.message, 'error'); return; }
+    if(!(data || []).length) { showToast('Esas gestiones ya no están facturadas con esa factura; no se cambió nada.', 'warning'); return; }
+    if((data || []).length < ids.length) showToast('Algunas gestiones ya no estaban facturadas con esta factura y no se tocaron.', 'warning');
+    (data || []).forEach(r => {
+        const t = tasks.find(x => x.id === r.id || x.supabaseId === r.id);
+        if(t) { t.status = 'ejecutada'; t.erpInvoiceRef = null; }
+    });
+    const { error: e2 } = await supabaseClient.from('erp_billing_log').update({ state: 'sugerido', resolved_by: null, resolved_at: null }).eq('id', id);
+    if(e2) showToast('La gestión volvió a ejecutada, pero no se pudo restaurar la sugerencia: ' + e2.message, 'warning');
+    saveTasks();
+    renderTasksView();
+    if(typeof renderBoard === 'function') renderBoard();
+    showToast('Confirmación deshecha: la factura volvió a quedar como sugerencia.', 'success');
     renderErpSyncPanel();
 }
 
