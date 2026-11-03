@@ -9727,6 +9727,40 @@ function getExecutionMonths(task) {
     }).join(', ');
 }
 
+/** Texto del comentario (tooltip) con las fechas reales de planta e informe de una gestión.
+ *  Con varios analistas añade qué días trabajó cada uno. Retorna '' si no hay días programados. */
+function getExecutionTooltip(t) {
+    const days = (t.scheduledDays || []).filter(d => d.date);
+    if(days.length === 0) return '';
+    const years = new Set(days.map(d => d.date.slice(0, 4)));
+    const fmt = (date) => {
+        const [y, m, d] = date.split('-');
+        return years.size > 1 ? `${d}/${m}/${y}` : `${d}/${m}`;
+    };
+    const list = (arr) => arr.map(d => fmt(d.date)).join(', ');
+    const byType = (type, src = days) => src.filter(d => d.type === type).sort((a, b) => a.date.localeCompare(b.date));
+    const yearNote = years.size === 1 ? ` (${[...years][0]})` : '';
+
+    const lines = [];
+    const field = byType('field'), report = byType('report');
+    if(field.length)  lines.push(`Planta${yearNote}: ${list(field)}`);
+    if(report.length) lines.push(`Informe${yearNote}: ${list(report)}`);
+
+    const people = t.analysts_assignment || [];
+    if(people.length > 1) {
+        lines.push('');
+        people.forEach(a => {
+            const mine = days.filter(d => analystWorksDay(t, d, a.name));
+            const f = byType('field', mine), r = byType('report', mine);
+            const parts = [];
+            if(f.length) parts.push(`planta ${list(f)}`);
+            if(r.length) parts.push(`informe ${list(r)}`);
+            lines.push(`${a.name} (${mine.length} d): ${parts.join(' · ') || 'sin días'}`);
+        });
+    }
+    return lines.join('\n');
+}
+
 function formatAnalystDisplay(t) {
     if(t.analysts_assignment && t.analysts_assignment.length > 1) {
         return t.analysts_assignment.map(a => `${a.name} (${a.percentage}%)`).join(', ');
@@ -9812,7 +9846,12 @@ function renderReportsTable() {
                     return `
                     <tr>
                         <td>${formatReportPeriod(t.mesFacturacion || t.period)}</td>
-                        <td style="font-size:0.75rem; color:var(--text-secondary);">${getExecutionMonths(t)}</td>
+                        ${(() => {
+                            const tip = getExecutionTooltip(t);
+                            return tip
+                                ? `<td title="${_escHtml(tip)}" style="font-size:0.75rem; color:var(--text-secondary); cursor:help;"><span style="border-bottom:1px dotted #94a3b8;">${getExecutionMonths(t)}</span></td>`
+                                : `<td style="font-size:0.75rem; color:var(--text-secondary);">${getExecutionMonths(t)}</td>`;
+                        })()}
                         <td><strong>${t.client}</strong>${t.plantName ? `<br><span style="font-size:0.72rem;color:var(--clr-blue);font-weight:600;">📍 ${t.plantName}</span>` : ''}</td>
                         <td style="text-align:right; color:var(--clr-green); font-weight:700;">$${(t.budget||0).toLocaleString('es-CO')}</td>
                         <td style="font-size:0.75rem">${formatAnalystDisplay(t)}</td>
