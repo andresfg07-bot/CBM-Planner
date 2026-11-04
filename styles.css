@@ -2648,3 +2648,10 @@ body.role-assistant .calendar-task-pill:active {
 .fin-expand:hover { background: #f8fafc; border-color: #cbd5e1; }
 .fin-row-det { font-size: 0.7rem; color: #475569; margin-top: 2px; line-height: 1.35; }
 .fin-row-det span { color: #94a3b8; font-size: inherit; }
+
+/* Formulario de ausencias: oculta lo que solo aplica a las gestiones (turnos de medición, Campo/Informe y % por analista) */
+#taskForm.absence-mode .analyst-row > label,
+#taskForm.absence-mode .analyst-row .analyst-pct,
+#taskForm.absence-mode .analyst-row .analyst-pct-sign,
+#taskForm.absence-mode #group-split,
+#taskForm.absence-mode #taskCrewPanel { display: none !important; }

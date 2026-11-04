@@ -4845,6 +4845,9 @@ function onTaskServiceTypeChange() {
     const billingSel = document.getElementById('taskBillingMonth');
     if(billingSel) billingSel.required = !isAbsence;
 
+    // Medición por turnos, Campo / Informe y % por analista solo aplican a gestiones (ver CSS .absence-mode)
+    document.getElementById('taskForm')?.classList.toggle('absence-mode', isAbsence);
+
     // Campo de observaciones: solo en ausencias
     const notesGroup = document.getElementById('group-absence-notes');
     if(notesGroup) notesGroup.style.display = isAbsence ? 'block' : 'none';
@@ -5933,8 +5936,6 @@ function openEditTaskModal(taskId) {
 
         const budgetEl = document.getElementById('taskBudget');
         if (budgetEl) budgetEl.value = task.budget;
-        const negocioEl = document.getElementById('taskNegocio');
-        if (negocioEl) negocioEl.value = task.negocio || '';
 
         const fieldEl = document.getElementById('taskDaysField');
         if (fieldEl) fieldEl.value = task.daysField ?? 1;
@@ -6312,7 +6313,10 @@ function addAnalystToTask(analystData = null) {
     row.appendChild(titularLabel);
     row.appendChild(reportLabel);
     row.appendChild(pctInput);
-    row.appendChild(document.createTextNode('%'));
+    const pctSign = document.createElement('span');
+    pctSign.className = 'analyst-pct-sign';
+    pctSign.textContent = '%';
+    row.appendChild(pctSign);
     row.appendChild(removeBtn);
 
     container.appendChild(row);
@@ -6454,10 +6458,6 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
                 tasks[idx].period = document.getElementById('taskPeriodMonth')?.value || tasks[idx].period;
                 tasks[idx].mesFacturacion = isAbsence ? tasks[idx].period : document.getElementById('taskBillingMonth').value;
                 if(isAbsence) tasks[idx].absenceNotes = absenceNotes;
-                if(!isAbsence) {
-                    const negNew = (document.getElementById('taskNegocio')?.value || '').toUpperCase().replace(/\s+/g, '');
-                    if(negNew !== (tasks[idx].negocio || '')) { tasks[idx].negocio = negNew; tasks[idx].negocioLoaded = true; }
-                }
                 // Si se desactivó la medición por turnos, los días de planta vuelven a ser comunes
                 if(!splitRequested) (tasks[idx].scheduledDays || []).forEach(d => { if(d.type === 'field') delete d.analyst; });
                 // Un día de planta asignado a mano a alguien que ya no es titular se vuelve a repartir
@@ -6532,8 +6532,7 @@ document.getElementById('taskForm').addEventListener('submit', async e => {
                 mesFacturacion: isAbsence
                     ? (document.getElementById('taskPeriodMonth')?.value || formatPeriod())
                     : document.getElementById('taskBillingMonth').value,
-                absenceNotes: absenceNotes || '',
-                negocio: isAbsence ? '' : (document.getElementById('taskNegocio')?.value || '').toUpperCase().replace(/\s+/g, '')
+                absenceNotes: absenceNotes || ''
             };
             tasks.push(newTask);
 
