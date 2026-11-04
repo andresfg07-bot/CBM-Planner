@@ -5441,16 +5441,17 @@ function renderFinanceView() {
         const bd = breakdowns[c.key];
         const items = Object.values(bd).sort((x, y) => y.amount - x.amount);
         const expanded = financeExpandedCards.has(c.key);
-        // Ejecutada (lo que hay que facturar) siempre se ve completa; las demás muestran las más grandes
-        const limit = c.key === 'ejecutada' || expanded ? items.length : COLLAPSED_ROWS;
-        const hidden = items.length - limit;
+        // Ejecutada (lo que hay que facturar) siempre se ve completa. Las demás se renderizan completas pero
+        // las filas "extra" quedan ocultas: fitFinanceCards() las muestra mientras quepan en el alto de la fila de tarjetas.
+        const fitMode = c.key !== 'ejecutada' && !expanded;
+        const hidden = fitMode ? Math.max(0, items.length - COLLAPSED_ROWS) : 0;
 
-        const rows = items.slice(0, limit).map(({ client, plantName, serviceType, analyst, amount, period, rangeP, rangeI }) => {
+        const rows = items.map(({ client, plantName, serviceType, analyst, amount, period, rangeP, rangeI }, idx) => {
             const monthAbbr = period ? (monthNames[parseInt(period.split('-')[1]) - 1] || '').substring(0, 3).toLowerCase() : '';
             const sub = [plantName, monthAbbr].filter(Boolean).join(' · ');
             const hasAnalyst = analyst && analyst !== '-';
             return `
-            <div class="fin-row">
+            <div class="fin-row"${fitMode && idx >= COLLAPSED_ROWS ? ' data-extra="1" style="display:none"' : ''}>
                 <div class="fin-row-main">
                     <div class="fin-row-name">${_escHtml(client)}</div>
                     ${sub ? `<div class="fin-row-sub">${_escHtml(sub)}</div>` : ''}
@@ -5493,7 +5494,46 @@ function renderFinanceView() {
         ${kpis}
         ${stageBar}
         <div class="fin-cards">${cardsHtml}</div>`;
+    fitFinanceCards();
+    if(document.fonts?.ready) document.fonts.ready.then(fitFinanceCards);
 }
+
+/** Llena el espacio libre de cada tarjeta con más gestiones (las más grandes primero), sin scroll interno.
+ *  El alto de la fila lo marca la tarjeta más alta; cada tarjeta muestra tantas filas como quepan y el resto
+ *  queda en "Ver N restantes". */
+function fitFinanceCards() {
+    const grid = document.querySelector('#finance-summary-container .fin-cards');
+    if(!grid) return;
+    grid.style.gridAutoRows = 'auto';
+    const cards = [...grid.querySelectorAll('.fin-card')];
+    const extrasOf = c => [...c.querySelectorAll('.fin-row[data-extra]')];
+    cards.forEach(c => extrasOf(c).forEach(r => { r.style.display = 'none'; }));
+    const H = Math.max(0, ...cards.map(c => c.getBoundingClientRect().height));
+    if(H <= 0) return;   // la vista no está visible todavía: se recalcula al mostrarla
+    grid.style.gridAutoRows = H + 'px';
+    cards.forEach(c => {
+        const extras = extrasOf(c);
+        if(!extras.length) return;
+        let shown = 0;
+        for(const r of extras) {
+            r.style.display = '';
+            if(c.scrollHeight > c.clientHeight + 1) { r.style.display = 'none'; break; }
+            shown++;
+        }
+        const left = extras.length - shown;
+        const more = c.querySelector('.fin-more');
+        if(more) {
+            more.style.display = left > 0 ? '' : 'none';
+            if(left > 0) more.textContent = `Ver ${left} ${left === 1 ? 'restante' : 'restantes'}`;
+        }
+    });
+}
+
+let _finFitTimer = null;
+window.addEventListener('resize', () => {
+    clearTimeout(_finFitTimer);
+    _finFitTimer = setTimeout(() => { if(document.getElementById('view-finance')?.classList.contains('active-view')) fitFinanceCards(); }, 150);
+});
 
 // Finance Multiple Selection Handler
 function updateFinanceSelectedMonths() {
