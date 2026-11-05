@@ -2037,7 +2037,9 @@ function getGlobalFiltersHTML() {
         </div>`;
 }
 
-let tasksSortState = { column: null, dir: 'asc' };
+// Por defecto la tabla de Gestiones se ordena por cliente (A–Z); switchView('tasks') la restablece al abrir la pantalla
+const TASKS_DEFAULT_SORT = { column: 'client', dir: 'asc' };
+let tasksSortState = { ...TASKS_DEFAULT_SORT };
 
 function sortTasksBy(column) {
     if (tasksSortState.column === column) {
@@ -6849,6 +6851,7 @@ function switchView(viewName) {
         renderMyWorkView();
         updateCsatBadge();
     } else if(viewName === 'tasks') {
+        tasksSortState = { ...TASKS_DEFAULT_SORT };
         renderTasksView();
     } else if(viewName === 'finance') {
         populateFinanceMonths();
