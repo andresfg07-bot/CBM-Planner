@@ -7082,6 +7082,7 @@ async function updateEquipment(e, equipmentId) {
 // ══════════════════════════════════════════
 
 let dbSurveyRounds = [], dbSurveyInvites = [], dbSurveyResponses = [], dbClientContacts = [], dbSurveyCompanyMap = [];
+let dbSurveyAnalystMap = [], _svAliasMap = new Map(), _svFormerKeys = new Set(), _svAnalystMapMissing = false;   // equivalencias de analistas (ver survey_analyst_map)
 let _svAllInvites = [], _svAllContacts = [];   // tal como están en la base; dbSurveyInvites / dbClientContacts excluyen las compañías excluidas
 let _svTab = 'rounds';          // 'rounds' | 'dashboard' | 'contacts'
 let _svOpenRound = null;        // id de la ronda abierta
@@ -7175,12 +7176,13 @@ function _svRoundDate(r) { return r.survey_date || (r.created_at || '').slice(0,
 
 async function loadSurveyData() {
     if(!supabaseClient) return;
-    const [r1, r2, r3, r4, r5] = await Promise.all([
+    const [r1, r2, r3, r4, r5, r6] = await Promise.all([
         supabaseClient.from('survey_rounds').select('*'),
         supabaseClient.from('survey_invites').select('*'),
         supabaseClient.from('survey_responses').select('*'),
         supabaseClient.from('client_contacts').select('*').order('sort_order'),
-        supabaseClient.from('survey_company_map').select('*')
+        supabaseClient.from('survey_company_map').select('*'),
+        supabaseClient.from('survey_analyst_map').select('*')
     ]);
     _svMissing = !!(r1.error && /survey_rounds|schema cache|does not exist/i.test(r1.error.message || ''));
     if(r1.data) dbSurveyRounds = r1.data;
@@ -7188,6 +7190,9 @@ async function loadSurveyData() {
     if(r3.data) dbSurveyResponses = r3.data;
     if(r4.data) _svAllContacts = r4.data;
     if(r5.data) dbSurveyCompanyMap = r5.data;
+    _svAnalystMapMissing = !!r6.error;
+    if(r6.data) dbSurveyAnalystMap = r6.data;
+    _svBuildAliasMap();
     _svApplyCompanyMap();
 }
 
@@ -7216,6 +7221,7 @@ function renderSurveysView() {
     if(canFill || canRes) tabs.push({ id: 'rounds', label: '📋 Rondas' });
     if(canRes) tabs.push({ id: 'dashboard', label: '📊 Resultados' });
     if(canFill) tabs.push({ id: 'contacts', label: '👥 Contactos' });
+    if(canFill) { const pendA = _svAnalystRows().filter(r => r.status === 'pending' || r.status === 'suggested').length; tabs.push({ id: 'analysts', label: `👤 Analistas${pendA ? ` <span style="background:#d97706;color:#fff;border-radius:99px;padding:0 7px;font-size:0.68rem;margin-left:4px;">${pendA}</span>` : ''}` }); }
     if(canFill) { const pend = _svReconcileRows().filter(r => r.status === 'pending' || r.status === 'suggested').length; tabs.push({ id: 'reconcile', label: `🔗 Conciliar clientes${pend ? ` <span style="background:#d97706;color:#fff;border-radius:99px;padding:0 6px;font-size:0.7rem;margin-left:4px;">${pend}</span>` : ''}` }); }
     if(!tabs.some(t => t.id === _svTab)) _svTab = tabs[0].id;
 
@@ -7223,6 +7229,7 @@ function renderSurveysView() {
     if(_svTab === 'rounds') body = _svOpenRound ? _svRoundDetail() : _svRoundsList();
     else if(_svTab === 'dashboard') body = _svDashboard();
     else if(_svTab === 'reconcile') body = _svReconcileTab();
+    else if(_svTab === 'analysts') body = _svAnalystsTab();
     else body = _svContactsTab();
 
     el.innerHTML = `
@@ -7311,7 +7318,7 @@ function _svRoundDetail() {
         const phone = (i.contact_phone || '').trim();
         const tel = phone.replace(/[^\d+]/g, '');
         return `<tr style="${i.status === 'omitida' ? 'opacity:.55;' : ''}">
-            <td><strong>${_escHtml(i.company_name)}</strong>${i.service_months ? `<div style="font-size:0.7rem;color:#64748b;">Servicio: ${_escHtml(i.service_months)}</div>` : ''}${i.analysts ? `<div style="font-size:0.7rem;color:#94a3b8;">${_escHtml(i.analysts)}</div>` : ''}</td>
+            <td><strong>${_escHtml(i.company_name)}</strong>${i.service_months ? `<div style="font-size:0.7rem;color:#64748b;">Servicio: ${_escHtml(i.service_months)}</div>` : ''}${i.analysts ? `<div style="font-size:0.7rem;color:#94a3b8;">${_escHtml(_svAnalystList(i.analysts).map(_svAnalystLabel).join(', '))}</div>` : ''}</td>
             <td>${i.contact_name ? `<div>${_escHtml(i.contact_name)}</div><div style="font-size:0.7rem;color:#64748b;">${_escHtml(i.contact_role || '')}</div>` : '<span style="color:#dc2626;font-size:0.78rem;">Sin contacto</span>'}</td>
             <td style="font-size:0.78rem;white-space:nowrap;">${phone ? `<a href="tel:${_escHtml(tel)}" style="color:var(--clr-blue);text-decoration:none;">📞 ${_escHtml(phone)}</a>` : '<span style="color:#cbd5e1;">—</span>'}${i.contact_email ? `<div><a href="mailto:${_escHtml(i.contact_email)}" style="color:#64748b;text-decoration:none;font-size:0.72rem;">✉ ${_escHtml(i.contact_email)}</a></div>` : ''}</td>
             <td><span style="background:${st.bg};color:${st.color};border-radius:99px;padding:2px 10px;font-size:0.72rem;font-weight:700;white-space:nowrap;">${st.label}</span>${resp && canRes ? ` ${_svBadge(_svResponseScore(resp), false)}` : ''}</td>
@@ -7925,8 +7932,41 @@ function svClearFilters() {
 function svToggleAlerts() { _svOnlyAlerts = !_svOnlyAlerts; renderSurveysView(); }
 function svSetTrendMetric(v) { _svTrendMetric = v; _svDrawChart(); }
 
-function _svAnalystList(text) {
+function _svRawAnalystList(text) {
     return String(text || '').split(/\s*(?:,|\/|&|\+|\by\b)\s*/i).map(s => s.trim()).filter(s => s.length > 1);
+}
+
+/** Índice de equivalencias: nombre normalizado de la encuesta → { kind, planner_name }. */
+function _svBuildAliasMap() {
+    _svAliasMap = new Map(dbSurveyAnalystMap.map(m => [m.survey_key, m]));
+    _svFormerKeys = new Set(dbSurveyAnalystMap.filter(m => m.kind === 'ex').map(m => m.survey_key));
+}
+
+/** Analistas de una invitación, ya resueltos: "Nelson" → "Nelson Morán", los ignorados se quitan,
+ *  los ex-analistas conservan su nombre. Sin equivalencia, queda como vino (o como el analista del planner si coincide). */
+function _svAnalystList(text) {
+    const planner = new Map(dbAnalysts.map(a => [_svKey(a.name), a.name]));
+    const out = new Map();
+    _svRawAnalystList(text).forEach(raw => {
+        const k = _svKey(raw);
+        if(!k) return;
+        const m = _svAliasMap.get(k);
+        let name = raw;
+        if(m) {
+            if(m.kind === 'ignorar') return;
+            if(m.kind === 'analista' && m.planner_name) name = m.planner_name;
+        } else if(planner.has(k)) {
+            name = planner.get(k);
+        }
+        const nk = _svKey(name);
+        if(!out.has(nk)) out.set(nk, name);
+    });
+    return [...out.values()];
+}
+
+/** Nombre para mostrar: los ex-analistas llevan la etiqueta "(ya no está)". */
+function _svAnalystLabel(name) {
+    return _svFormerKeys.has(_svKey(name)) ? `${name} (ya no está)` : name;
 }
 
 function _svCompanyOptions() {
@@ -7945,7 +7985,7 @@ function _svAnalystOptions() {
         if(!_svResponseOf(inv.id)) return;
         _svAnalystList(inv.analysts).forEach(a => { const k = _svKey(a); if(k && !map.has(k)) map.set(k, a); });
     });
-    return [...map.entries()].map(([key, name]) => ({ key, name })).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    return [...map.entries()].map(([key, name]) => ({ key, name: _svAnalystLabel(name) })).sort((a, b) => a.name.localeCompare(b.name, 'es'));
 }
 
 function _svInviteMatches(inv) {
@@ -8178,7 +8218,7 @@ function _svDashboard() {
             byAnalyst.get(k).rs.push(x.resp);
         });
     });
-    const analystRows = [...byAnalyst.values()].map(a => ({ name: a.name, n: a.rs.length, avg: _svAverages(a.rs) })).sort((a, b) => (b.avg.overall ?? 0) - (a.avg.overall ?? 0));
+    const analystRows = [...byAnalyst.values()].map(a => ({ name: _svAnalystLabel(a.name), n: a.rs.length, avg: _svAverages(a.rs) })).sort((a, b) => (b.avg.overall ?? 0) - (a.avg.overall ?? 0));
 
     const comments = rows.filter(x => x.resp.comments).sort((a, b) => String(b.resp.answered_at).localeCompare(String(a.resp.answered_at))).slice(0, 25);
 
@@ -8282,7 +8322,7 @@ function svExportCSV() {
     if(!rows.length) { showToast('No hay respuestas para exportar', 'error'); return; }
     const head = ['Ronda', 'Fecha', 'Empresa', 'Contacto', 'Cargo', 'Analistas', ..._SV_DIMS.map(d => d.label), 'Promedio', 'Reunión de cierre', 'Nota reunión', 'Emoción', 'Comentarios'];
     const data = rows.map(x => [
-        x.round?.name || '', _svRoundDate(x.round || {}), x.inv.company_name, x.inv.contact_name || '', x.inv.contact_role || '', x.inv.analysts || '',
+        x.round?.name || '', _svRoundDate(x.round || {}), x.inv.company_name, x.inv.contact_name || '', x.inv.contact_role || '', _svAnalystList(x.inv.analysts).map(_svAnalystLabel).join(', '),
         ..._SV_DIMS.map(d => x.resp[d.k] ?? ''), _svFmt(_svResponseScore(x.resp), 2), x.resp.q_closing_meeting ?? '', x.resp.closing_meeting_note || '', x.resp.emotion || '', x.resp.comments || ''
     ]);
     const csv = [head, ...data].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -8424,6 +8464,140 @@ function _svReconcileTab() {
                     ${r.status === 'excluded' ? `<button class="btn-secondary" onclick="svUndoMap('${_escHtml(r.key)}')" title="Restaurar en las encuestas" style="font-size:0.74rem;padding:2px 8px;">↺ Restaurar</button>
                         ${isAdmin ? `<button class="btn-secondary" onclick="svPurgeCompany('${_escHtml(r.key)}')" title="Eliminar definitivamente de la base de datos" style="font-size:0.74rem;padding:2px 8px;color:#b91c1c;">Eliminar definitivo</button>` : ''}` : ''}</td>
             </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;padding:2rem;color:#94a3b8;">Aún no hay compañías en las encuestas.</td></tr>'}</tbody></table></div>`;
+}
+
+// ── Equivalencias de analistas (nombres del Excel ↔ analistas del planner) ────────────────────
+const _SV_NOT_ANALYSTS = ['todos', 'todas', 'equipo', 'varios', 'todo el equipo'];
+
+/** Si el nombre de la encuesta coincide con UN solo analista del planner (Nelson → Nelson Morán), lo propone. */
+function _svSuggestAnalyst(key) {
+    if(_SV_NOT_ANALYSTS.includes(key)) return { kind: 'ignorar', name: '' };
+    const toks = key.split(' ').filter(Boolean);
+    if(!toks.length) return null;
+    const hits = dbAnalysts.filter(a => { const at = _svKey(a.name).split(' '); return toks.every(t => at.some(w => w.startsWith(t))); });
+    return hits.length === 1 ? { kind: 'analista', name: hits[0].name } : null;
+}
+
+/** Cada nombre distinto de analista que aparece en las encuestas, con su estado. */
+function _svAnalystRows() {
+    const planner = new Map(dbAnalysts.map(a => [_svKey(a.name), a.name]));
+    const rows = new Map();
+    dbSurveyInvites.forEach(i => {
+        const resp = _svResponseOf(i.id);
+        _svRawAnalystList(i.analysts).forEach(a => {
+            const k = _svKey(a);
+            if(!k) return;
+            if(!rows.has(k)) rows.set(k, { key: k, name: a, invites: 0, responses: 0 });
+            const r = rows.get(k);
+            r.invites++;
+            if(resp) r.responses++;
+        });
+    });
+    return [...rows.values()].map(r => {
+        const m = _svAliasMap.get(r.key);
+        let status, target = '', suggestion = null;
+        if(m) {
+            status = m.kind === 'ex' ? 'ex' : m.kind === 'ignorar' ? 'ignored' : 'mapped';
+            target = m.planner_name || '';
+        } else if(planner.has(r.key)) {
+            status = 'match'; target = planner.get(r.key);
+        } else {
+            suggestion = _svSuggestAnalyst(r.key);
+            status = suggestion ? 'suggested' : 'pending';
+        }
+        return { ...r, status, target, suggestion };
+    }).sort((a, b) => {
+        const rank = { pending: 0, suggested: 1, mapped: 2, ex: 3, ignored: 4, match: 5 };
+        return rank[a.status] - rank[b.status] || b.responses - a.responses || a.name.localeCompare(b.name, 'es');
+    });
+}
+
+function _svAnalystsTab() {
+    if(_svAnalystMapMissing) return '<div style="text-align:center;padding:3rem;color:#b45309;">Falta ejecutar la migración de equivalencias de analistas en Supabase (supabase_migration_survey_analyst_map.sql).</div>';
+    const rows = _svAnalystRows();
+    const planner = dbAnalysts.map(a => a.name).sort((a, b) => a.localeCompare(b, 'es'));
+    const cnt = st => rows.filter(r => r.status === st).length;
+    const todo = cnt('pending') + cnt('suggested');
+    const pill = (bg, fg, text) => `<span style="background:${bg};color:${fg};border-radius:99px;padding:2px 10px;font-size:0.72rem;font-weight:700;white-space:nowrap;">${text}</span>`;
+    const chip = r => ({
+        match:     pill('#dcfce7', '#15803d', '✓ Coincide'),
+        mapped:    pill('#dbeafe', '#1d4ed8', '✓ Asociado'),
+        ex:        pill('#f1f5f9', '#475569', 'Ya no está'),
+        ignored:   pill('#f1f5f9', '#94a3b8', 'No es analista'),
+        suggested: pill('#fef3c7', '#b45309', 'Sugerido'),
+        pending:   pill('#fee2e2', '#b91c1c', 'Sin asociar')
+    }[r.status]);
+    const options = r => {
+        const sug = r.suggestion;
+        const sugValue = sug ? (sug.kind === 'ignorar' ? '__ignore__' : sug.name) : null;
+        const current = r.status === 'ex' ? '__ex__' : r.status === 'ignored' ? '__ignore__' : (r.status === 'mapped' || r.status === 'match') ? r.target : (r.status === 'suggested' ? sugValue : '');
+        const opt = (value, label) => `<option value="${_escHtml(value)}" ${current === value ? 'selected' : ''}>${_escHtml(label)}</option>`;
+        return `<option value="">— Elegir analista del planner —</option>
+            ${sug && sug.kind === 'analista' ? opt(sug.name, `★ ${sug.name} (sugerido)`) : ''}
+            ${planner.filter(n => !(sug && sug.kind === 'analista' && n === sug.name)).map(n => opt(n, n)).join('')}
+            ${opt('__ex__', 'Ya no está en la empresa (ex-analista)')}
+            ${opt('__ignore__', sug && sug.kind === 'ignorar' ? '★ No es un analista (ignorar) (sugerido)' : 'No es un analista (ignorar)')}`;
+    };
+    return `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.8rem;">
+            <div style="font-size:0.82rem;color:#64748b;max-width:680px;">Asocia cada nombre que viene del Excel con el analista del planner (por ejemplo, "Nelson" con "Nelson Morán"). Así los indicadores por analista y el filtro cuentan a la misma persona una sola vez. Los que ya no están en la empresa conservan su nombre con la etiqueta "(ya no está)". Las encuestas originales no se modifican.
+                <div style="margin-top:4px;"><strong>${cnt('match') + cnt('mapped')}</strong> asociados · <strong style="color:#b45309;">${todo}</strong> por revisar · ${cnt('ex')} ex-analistas · ${cnt('ignored')} ignorados</div></div>
+            ${cnt('suggested') ? `<button class="btn-primary" onclick="svAcceptAnalystSuggestions()">✔ Aceptar las ${cnt('suggested')} sugerencias</button>` : ''}
+        </div>
+        <div class="stats-card" style="padding:0;overflow-x:auto;"><table class="data-table" style="font-size:0.82rem;">
+            <thead><tr><th>Nombre en las encuestas</th><th style="text-align:center;">Respuestas</th><th style="min-width:280px;">Analista del planner</th><th>Estado</th><th></th></tr></thead>
+            <tbody>${rows.map(r => `<tr>
+                <td><strong>${_escHtml(r.name)}</strong></td>
+                <td style="text-align:center;">${r.responses}</td>
+                <td><select onchange="svMapAnalyst('${_escHtml(r.key)}', this.value)" style="width:100%;padding:0.4rem 0.5rem;border:1px solid ${r.status === 'pending' ? '#fca5a5' : '#cbd5e1'};border-radius:6px;font-size:0.8rem;">${options(r)}</select></td>
+                <td>${chip(r)}</td>
+                <td style="text-align:right;white-space:nowrap;">
+                    ${r.status === 'suggested' ? `<button class="btn-outline" onclick="svMapAnalyst('${_escHtml(r.key)}', '${r.suggestion.kind === 'ignorar' ? '__ignore__' : _escHtml(r.suggestion.name)}')" style="font-size:0.74rem;padding:2px 10px;">Aceptar</button>` : ''}
+                    ${(r.status === 'mapped' || r.status === 'ex' || r.status === 'ignored') ? `<button class="btn-secondary" onclick="svUndoAnalystMap('${_escHtml(r.key)}')" title="Deshacer" style="font-size:0.74rem;padding:2px 8px;">↺</button>` : ''}
+                </td>
+            </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;padding:2rem;color:#94a3b8;">Aún no hay analistas en las encuestas.</td></tr>'}</tbody></table></div>`;
+}
+
+async function _svSaveAnalystMap(rows) {
+    const by = currentUserProfile?.display_name || currentUser?.email || null;
+    const { error } = await supabaseClient.from('survey_analyst_map').upsert(
+        rows.map(r => ({ survey_key: r.key, survey_name: r.name, kind: r.kind, planner_name: r.kind === 'analista' ? r.plannerName : null, confirmed_by: by, updated_at: new Date().toISOString() })),
+        { onConflict: 'survey_key' });
+    if(error) {
+        showToast(/survey_analyst_map|schema cache/i.test(error.message || '') ? 'Falta ejecutar la migración de equivalencias de analistas en Supabase.' : error.message, 'error');
+        return false;
+    }
+    return true;
+}
+
+async function svMapAnalyst(key, value) {
+    if(!value) return;
+    const row = _svAnalystRows().find(r => r.key === key);
+    if(!row) return;
+    const kind = value === '__ex__' ? 'ex' : value === '__ignore__' ? 'ignorar' : 'analista';
+    const ok = await _svSaveAnalystMap([{ key, name: row.name, kind, plannerName: value }]);
+    if(!ok) return;
+    await loadSurveyData();
+    renderSurveysView();
+}
+
+async function svAcceptAnalystSuggestions() {
+    const sug = _svAnalystRows().filter(r => r.status === 'suggested');
+    if(!sug.length) return;
+    const lines = sug.slice(0, 12).map(r => `• ${r.name} → ${r.suggestion.kind === 'ignorar' ? 'no es un analista (ignorar)' : r.suggestion.name}`).join(', ');
+    if(!confirm(`Se aceptarán las ${sug.length} sugerencias: ${lines}${sug.length > 12 ? ` y ${sug.length - 12} más` : ''}. ¿Continuar?`)) return;
+    const ok = await _svSaveAnalystMap(sug.map(r => ({ key: r.key, name: r.name, kind: r.suggestion.kind, plannerName: r.suggestion.name })));
+    if(!ok) return;
+    await loadSurveyData();
+    renderSurveysView();
+    showToast(`${sug.length} nombres asociados ✓`, 'success');
+}
+
+async function svUndoAnalystMap(key) {
+    const { error } = await supabaseClient.from('survey_analyst_map').delete().eq('survey_key', key);
+    if(error) { showToast(error.message, 'error'); return; }
+    await loadSurveyData();
+    renderSurveysView();
 }
 
 async function _svSaveMapping(rows) {
