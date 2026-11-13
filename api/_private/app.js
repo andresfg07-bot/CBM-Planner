@@ -8736,10 +8736,14 @@ function svGoToResults() {
 }
 
 // ══════════════════════════════════════════
-// MÓDULO DE EFICIENCIA (clientes y analistas) — solo admin, Vibraciones y Termografía
-// Prioridad 1: subsistemas (leídos del texto del "ojito") frente a los días de medición
-// del planner. Prioridad 2 (si no hay subsistemas): horas de la planilla.
-// Cada métrica se compara con la mediana de A-MAQ en el mismo servicio → nota 1–10.
+// MÓDULO DE EFICIENCIA (clientes y analistas) — solo admin: Vibraciones, Termografía y Rotodinámico
+// Cada gestión se califica con el mejor dato disponible:
+//   1) subsistemas (leídos del texto del "ojito") frente a los días de medición del planner;
+//   2) si no hay subsistemas: valor facturado por día-analista (planta + informe; con dos analistas
+//      el mismo día cuenta doble) — sale del planner, así que existe para todas las gestiones;
+//   3) como último recurso, las horas de la planilla.
+// Cada métrica se compara con la mediana de A-MAQ en el mismo servicio → nota 1–10; la nota del
+// cliente o del analista es la mediana de las notas de sus gestiones.
 // ══════════════════════════════════════════
 
 let _effTab = 'clients';          // 'clients' | 'analysts' | 'compare' | 'missing'
@@ -8747,6 +8751,8 @@ let _effService = 'predictive';   // 'predictive' | 'Vibraciones' | 'Termografí
 let _effScope = 'year';           // 'year' | 'last12' | 'all'
 
 const _EFF_PREDICTIVE = ['Vibraciones', 'Termografía'];
+const _EFF_SERVICES   = [..._EFF_PREDICTIVE, 'Rotodinámico'];   // servicios que se califican (cada uno con su propia referencia)
+const _EFF_MIN_REF    = 5;                                        // gestiones mínimas para que la referencia sea confiable
 const _EFF_MONEY = (v) => '$' + Math.round(v).toLocaleString('es-CO');
 const _EFF_METRICS = {
     vps:         { short: '$/subsistema',        group: 'subs',  fmt: _EFF_MONEY },
@@ -8754,10 +8760,12 @@ const _EFF_METRICS = {
     vpd:         { short: '$/día medición',      group: 'subs',  fmt: _EFF_MONEY },
     vph_site:    { short: '$/h planta',          group: 'hours', fmt: _EFF_MONEY },
     vph_charged: { short: '$/h cobrada',         group: 'hours', fmt: _EFF_MONEY },
-    bill_eff:    { short: 'Cobrado vs real',     group: 'hours', fmt: (v) => v.toFixed(2) + '×' }
+    bill_eff:    { short: 'Cobrado vs real',     group: 'hours', fmt: (v) => v.toFixed(2) + '×' },
+    vpd_all:     { short: '$/día-analista',      group: 'days',  fmt: _EFF_MONEY, title: 'Valor ÷ días de planta + informe de todos los analistas' },
+    dtot:        { short: 'Días-analista',       group: 'info',  fmt: (v) => v.toFixed(1), scored: false, title: 'Días de planta + informe; con dos analistas el mismo día cuenta doble' }
 };
-const _EFF_CLIENT_METRICS  = ['vps', 'sps_day', 'vpd', 'vph_site', 'vph_charged', 'bill_eff'];
-const _EFF_ANALYST_METRICS = ['sps_day', 'vps', 'vpd', 'vph_site', 'bill_eff'];
+const _EFF_CLIENT_METRICS  = ['vpd_all', 'dtot', 'vps', 'sps_day', 'vpd', 'vph_site', 'vph_charged', 'bill_eff'];
+const _EFF_ANALYST_METRICS = ['vpd_all', 'sps_day', 'vps', 'vpd', 'vph_site', 'bill_eff'];
 
 /** Subsistemas: planilla ("Cantidad de subsistemas: 12") o texto libre ("se midieron 120 subsistemas"). */
 function _effExtractSubsystems(src, labelValue, serviceType) {
@@ -8866,11 +8874,34 @@ function _effFieldDays(t) {
     return scheduled || parseInt(t.daysField, 10) || 0;
 }
 
+/** Días-analista de la gestión: planta + informe. Si dos analistas trabajan el mismo día, ese día cuenta dos veces
+ *  (se respeta el equipo por día, los turnos y el reparto de informe). Sin días programados usa lo planeado. */
+function _effPersonDays(t) {
+    const days = (t.scheduledDays || []).filter(d => d.date);
+    const names = (t.analysts_assignment || []).map(a => a.name).filter(Boolean);
+    if(!names.length && t.analyst) names.push(t.analyst);
+    if(days.length) {
+        let field = 0, report = 0;
+        days.forEach(d => {
+            const n = Math.max(1, names.filter(nm => analystWorksDay(t, d, nm)).length);
+            if(d.type === 'field') field += n; else report += n;
+        });
+        return { field, report, total: field + report };
+    }
+    const titulars = (t.analysts_assignment || []).filter(a => a.isTitular).length || 1;
+    const field = (parseInt(t.daysField, 10) || 0) * (isFieldSplit(t) ? 1 : titulars);
+    const report = parseInt(t.daysReport, 10) || 0;
+    return { field, report, total: field + report };
+}
+
 function _effTaskMetrics(t) {
     const d = parseServiceDetailsMetrics(t.serviceDetails, t.serviceType) || {};
     const budget = parseFloat(t.budget) || 0;
     const fieldDays = _effFieldDays(t);
     const m = {};
+    // Valor por día-analista (planta + informe): existe para toda gestión con valor y días en el planner
+    const pd = _effPersonDays(t);
+    if(budget > 0 && pd.total > 0) m.vpd_all = budget / pd.total;
     // Camino 1: subsistemas frente a los días de medición del planner
     if(d.subsystems) {
         if(budget > 0) m.vps = budget / d.subsystems;
@@ -8889,9 +8920,9 @@ function _effTaskMetrics(t) {
 function _effAllRows() {
     return tasks
         .filter(t => !t.isAbsence && (t.status === 'ejecutada' || t.status === 'facturada')
-            && _EFF_PREDICTIVE.includes(t.serviceType)
+            && _EFF_SERVICES.includes(t.serviceType)
             && !String(t.id).startsWith('t_'))
-        .map(t => ({ t, m: _effTaskMetrics(t) }));
+        .map(t => ({ t, m: _effTaskMetrics(t), pd: _effPersonDays(t) }));
 }
 
 /** Mediana de A-MAQ por tipo de servicio y métrica (con todo el histórico). */
@@ -8934,8 +8965,22 @@ function _effAnalystsOf(t) {
     return t.analyst ? [t.analyst] : [];
 }
 
-/** Agrupa filas por entidad: medianas, nota por métrica y nota global
- *  (promedio de las métricas de subsistemas; si no hay, de las de horas). */
+/** Nota de UNA gestión con el mejor dato disponible: subsistemas → valor por día-analista → horas. */
+function _effTaskScore(r, baselines) {
+    const base = baselines[r.t.serviceType] || {};
+    const sc = k => (r.m[k] !== undefined && base[k]) ? _effScore(r.m[k] / base[k]) : null;
+    const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+    const subs = avg(['vps', 'sps_day', 'vpd'].map(sc).filter(v => v !== null));
+    if(subs !== null) return { score: subs, basis: 'subs' };
+    const days = sc('vpd_all');
+    if(days !== null) return { score: days, basis: 'days' };
+    const hours = avg(['vph_site', 'vph_charged', 'bill_eff'].map(sc).filter(v => v !== null));
+    if(hours !== null) return { score: hours, basis: 'hours' };
+    return null;
+}
+
+/** Agrupa filas por entidad: medianas por métrica y nota global
+ *  (mediana de las notas de sus gestiones, cada una con su mejor dato). */
 function _effAggregate(rows, baselines, keysOf, metricKeys) {
     const groups = new Map();
     rows.forEach(r => {
@@ -8949,25 +8994,32 @@ function _effAggregate(rows, baselines, keysOf, metricKeys) {
     groups.forEach((list, key) => {
         const raw = {}, scores = {};
         metricKeys.forEach(k => {
+            if(k === 'dtot') {
+                const v = list.map(r => r.pd?.total || 0).filter(x => x > 0);
+                if(v.length) raw[k] = _effMedian(v);
+                return;
+            }
             const vals = list.filter(r => r.m[k] !== undefined);
             if(!vals.length) return;
             raw[k] = _effMedian(vals.map(r => r.m[k]));
+            if(_EFF_METRICS[k].scored === false) return;
             const ratios = vals.map(r => {
                 const b = baselines[r.t.serviceType]?.[k];
                 return b ? r.m[k] / b : null;
             }).filter(v => v !== null);
             if(ratios.length) scores[k] = _effScore(_effMedian(ratios));
         });
-        const byGroup = { subs: [], hours: [] };
-        Object.keys(scores).forEach(k => byGroup[_EFF_METRICS[k].group].push(scores[k]));
-        const avg = (a) => a.reduce((x, y) => x + y, 0) / a.length;
-        const basis = byGroup.subs.length ? 'subs' : (byGroup.hours.length ? 'hours' : null);
+        const taskScores = list.map(r => _effTaskScore(r, baselines)).filter(Boolean);
+        const counts = { subs: 0, days: 0, hours: 0 };
+        taskScores.forEach(ts => { counts[ts.basis]++; });
+        const used = Object.keys(counts).filter(k => counts[k] > 0);
         out.push({
             key,
             n: list.length,
-            nData: list.filter(r => Object.keys(r.m).length > 0).length,
-            raw, scores, basis,
-            overall: basis ? avg(byGroup[basis]) : null,
+            nData: taskScores.length,
+            raw, scores, counts,
+            basis: used.length === 0 ? null : (used.length === 1 ? used[0] : 'mixed'),
+            overall: taskScores.length ? _effMedian(taskScores.map(ts => ts.score)) : null,
             total: list.reduce((s, r) => s + (parseFloat(r.t.budget) || 0), 0)
         });
     });
@@ -8983,17 +9035,20 @@ function setEfficiencyFilter(kind, value) {
 }
 
 function _effBasisChip(e) {
-    if(!e.basis) return '<span style="color:#cbd5e1;">—</span>';
-    return e.basis === 'subs'
-        ? '<span title="Calificada con subsistemas y días de medición" style="background:#eff6ff;color:#1d4ed8;border-radius:99px;padding:1px 8px;font-size:0.7rem;font-weight:700;">Subsistemas</span>'
-        : '<span title="No hay subsistemas: calificada con horas" style="background:#faf5ff;color:#7e22ce;border-radius:99px;padding:1px 8px;font-size:0.7rem;font-weight:700;">Horas</span>';
+    if(!e.basis || !e.counts) return '<span style="color:#cbd5e1;">—</span>';
+    const chip = (n, label, bg, fg, title) => n ? `<span title="${title}" style="background:${bg};color:${fg};border-radius:99px;padding:1px 8px;font-size:0.7rem;font-weight:700;white-space:nowrap;">${n} ${label}</span>` : '';
+    return `<span style="display:inline-flex;gap:4px;flex-wrap:wrap;">
+        ${chip(e.counts.subs, 'subs.', '#eff6ff', '#1d4ed8', 'Gestiones calificadas con subsistemas y días de medición')}
+        ${chip(e.counts.days, 'días', '#ecfeff', '#0e7490', 'Sin subsistemas: calificadas con el valor por día-analista (planta + informe)')}
+        ${chip(e.counts.hours, 'horas', '#faf5ff', '#7e22ce', 'Sin subsistemas ni días: calificadas con las horas de la planilla')}
+    </span>`;
 }
 
 function _effMetricCell(entity, k) {
     const v = entity.raw[k];
     if(v === undefined) return '<td style="text-align:right;color:#cbd5e1;">—</td>';
     const sc = entity.scores[k];
-    return `<td style="text-align:right;white-space:nowrap;" title="Calificación de esta métrica: ${sc !== undefined ? sc.toFixed(1) : '—'}">${_EFF_METRICS[k].fmt(v)}${sc !== undefined ? ` <span style="opacity:.85;">${_effScoreBadge(sc, false)}</span>` : ''}</td>`;
+    return `<td style="text-align:right;white-space:nowrap;" title="${_EFF_METRICS[k].title ? _EFF_METRICS[k].title + '. ' : ''}${sc !== undefined ? 'Calificación de esta métrica: ' + sc.toFixed(1) : ''}">${_EFF_METRICS[k].fmt(v)}${sc !== undefined ? ` <span style="opacity:.85;">${_effScoreBadge(sc, false)}</span>` : ''}</td>`;
 }
 
 function _effCountCell(e) {
@@ -9013,6 +9068,10 @@ function renderEfficiencyView() {
     const baselines = _effBaselines(all);
     const rows = all.filter(r => _effServiceOk(r.t) && _effPeriodOk(r.t));
     const withData = rows.filter(r => Object.keys(r.m).length > 0).length;
+    // Referencia débil: servicios con pocas gestiones para calcular la mediana de $/día-analista
+    const weakRef = [...new Set(rows.map(r => r.t.serviceType))]
+        .map(svc => ({ svc, n: all.filter(r => r.t.serviceType === svc && r.m.vpd_all !== undefined).length }))
+        .filter(x => x.n < _EFF_MIN_REF);
     const withText = rows.filter(r => (r.t.serviceDetails || '').trim()).length;
 
     const tabs = [
@@ -9039,7 +9098,7 @@ function renderEfficiencyView() {
         <div class="kanban-header" style="margin-bottom:1.25rem;">
             <div>
                 <h2>Eficiencia de Clientes y Analistas</h2>
-                <p class="subtitle">Vibraciones y Termografía: subsistemas medidos frente a los días de medición del planner (y horas cuando no hay subsistemas).</p>
+                <p class="subtitle">Qué tan eficiente es atender y facturar a cada cliente: subsistemas frente a los días de medición y, cuando no hay subsistemas, el valor facturado por día-analista (planta + informe).</p>
             </div>
         </div>
         <div class="filter-toolbar" style="align-items:flex-end;">
@@ -9047,7 +9106,7 @@ function renderEfficiencyView() {
                 <label class="filter-label">Servicio</label><br>
                 <select class="filter-select" style="margin-top:4px;width:100%;" onchange="setEfficiencyFilter('service', this.value)">
                     <option value="predictive" ${_effService === 'predictive' ? 'selected' : ''}>Vibraciones + Termografía</option>
-                    ${_EFF_PREDICTIVE.map(s => `<option value="${s}" ${_effService === s ? 'selected' : ''}>${s}</option>`).join('')}
+                    ${_EFF_SERVICES.map(s => `<option value="${s}" ${_effService === s ? 'selected' : ''}>${s}</option>`).join('')}
                 </select>
             </div>
             <div style="min-width:170px;">
@@ -9063,14 +9122,15 @@ function renderEfficiencyView() {
             </div>
         </div>
         <div style="margin:0.75rem 0;font-size:0.8rem;color:${withData < rows.length / 2 ? '#b45309' : '#64748b'};">
-            📊 ${rows.length} gestiones ejecutadas · ${withText} tienen texto en el ojito · ${withData} se pudieron leer (subsistemas u horas)${withData < rows.length ? ' — las demás no cuentan en la calificación. Mira la pestaña "Datos faltantes".' : '.'}
+            📊 ${rows.length} gestiones ejecutadas · ${withText} tienen texto en el ojito · ${withData} se pudieron calificar (subsistemas, días u horas)${withData < rows.length ? ' — las demás no cuentan en la calificación (sin valor o sin días). Mira la pestaña "Datos faltantes".' : '.'}
         </div>
+        ${weakRef.length ? `<div style="margin:0 0 0.75rem;font-size:0.78rem;color:#b45309;">⚠ La referencia de ${weakRef.map(x => `${x.svc} (${x.n} gestión${x.n !== 1 ? 'es' : ''})`).join(', ')} se calcula con pocas gestiones: las notas son poco confiables hasta tener al menos ${_EFF_MIN_REF}.</div>` : ''}
         <div class="stats-card" style="padding:0;overflow-x:auto;">${body}</div>
         <p style="font-size:0.74rem;color:#94a3b8;margin-top:0.75rem;line-height:1.5;">
             <strong>Cómo se califica (1 a 10):</strong> cada métrica se compara con la mediana de A-MAQ en el mismo servicio.
             5.5 = igual a la mediana · 10 = el doble o más · 1 = la mitad o menos.
-            Si la gestión tiene subsistemas, la nota promedia $/subsistema, subsistemas por día de medición y $/día de medición; si no, usa las horas ($/h planta, $/h cobrada, cobrado vs real).
-            Los subsistemas se leen del texto que escriben los analistas; los viáticos y costos logísticos no están separados del valor.
+            Cada gestión se califica con el mejor dato disponible: si tiene subsistemas, promedia $/subsistema, subsistemas por día de medición y $/día de medición; si no, usa el <strong>$/día-analista</strong> (valor ÷ días de planta + informe, y con dos analistas el mismo día cuenta doble); y solo si falta eso, las horas. La nota del cliente es la mediana de las notas de sus gestiones.
+            Los subsistemas se leen del texto que escriben los analistas; los días salen de lo programado en el planner; los viáticos y costos logísticos no están separados del valor.
         </p>`;
 }
 
@@ -9178,10 +9238,10 @@ function _effCompareSection(rows) {
     <div style="padding:0 1rem 1rem;font-size:0.74rem;color:#94a3b8;">▲ marca al mejor de cada métrica dentro del mismo cliente.</div>`;
 }
 
-/** Gestiones ejecutadas sin subsistemas ni horas legibles: qué decir al analista. */
+/** Gestiones ejecutadas que no se pudieron calificar (sin valor, sin días ni subsistemas): qué decir al analista. */
 function _effMissingSection(rows) {
     const missing = rows.filter(r => Object.keys(r.m).length === 0);
-    if(!missing.length) return '<div style="text-align:center;padding:3rem;color:#16a34a;">✅ Todas las gestiones tienen datos legibles.</div>';
+    if(!missing.length) return '<div style="text-align:center;padding:3rem;color:#16a34a;">✅ Todas las gestiones se pudieron calificar.</div>';
     const sorted = missing.slice().sort((a, b) => String(b.t.mesFacturacion || b.t.period).localeCompare(String(a.t.mesFacturacion || a.t.period)));
     return `
         <table class="data-table" style="font-size:0.8rem;">
