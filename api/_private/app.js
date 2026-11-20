@@ -3991,20 +3991,20 @@ async function handleCalendarDrop(cell, dragInfo) {
         // Es un día de informe → se permite reasignar, continúa al bloque isPillMove
     }
 
-    // Dos días de la misma gestión no pueden caer en la misma fecha (el calendario solo
-    // dibuja uno y el otro "desaparece"). Aplica a planta e informe.
+    // Dos días de la misma gestión solo chocan en la misma fecha si los trabaja el mismo analista
+    // (el calendario dibuja un día por analista y fecha, y el otro "desaparecería"). Con turnos o
+    // equipo por día, dos analistas sí pueden medir el mismo día, o uno medir y el otro hacer informe.
     if (isPillMove && Array.isArray(task.scheduledDays)) {
         const _clashEl  = document.getElementById(dragInfo);
         const _clashIdx = _clashEl ? parseInt(_clashEl.getAttribute('data-day-index'), 10) : parseInt(dragInfo.split('-').pop(), 10);
         const _clashDay = task.scheduledDays[_clashIdx];
-        // Con equipo por día, mover a otra fila cambia solo a ese analista (queda como [destino])
+        // Mover la pastilla a la fila de otro analista deja el día a cargo de ese analista
         const _clashSrc = _clashEl?.closest('td')?.getAttribute('data-analyst');
-        const _clashProbe = (dayCrew(_clashDay) && _clashSrc && _clashSrc !== targetAnalyst)
-            ? { ..._clashDay, analysts: [targetAnalyst] } : _clashDay;
+        const _movedWorkers = (_clashSrc && _clashSrc !== targetAnalyst) ? [targetAnalyst] : dayWorkers(task, _clashDay);
         const occupied  = task.scheduledDays.some((d, i) =>
-            i !== _clashIdx && d.date === targetDateStr && scheduledDaysClash(d, _clashProbe));
+            i !== _clashIdx && d.date === targetDateStr && dayWorkers(task, d).some(n => _movedWorkers.includes(n)));
         if (occupied) {
-            alert('Esta gestión ya tiene otro día programado en esa fecha. Elige un día libre: dos días de la misma gestión no pueden quedar en la misma fecha.');
+            alert('Ese analista ya tiene otro día de esta gestión en esa fecha. Elige un día libre para él: dos días de la misma gestión no pueden quedar en la misma fecha para el mismo analista.');
             return;
         }
     }
@@ -4355,12 +4355,13 @@ function scheduledDayIdxFor(task, dateStr, name) {
     return -1;
 }
 
-/** Dos días de la misma gestión chocan en la misma fecha solo si comparten analista
- *  (un día sin equipo explícito es de todos). */
-function scheduledDaysClash(a, b) {
-    const ca = dayCrew(a), cb = dayCrew(b);
-    if (!ca || !cb) return true;
-    return ca.some(n => cb.includes(n));
+/** Analistas que trabajan un día programado: el equipo explícito, o quienes lo trabajan según
+ *  turnos / titulares / reparto de informe. */
+function dayWorkers(task, d) {
+    const crew = dayCrew(d);
+    if (crew) return crew;
+    const names = new Set([task.analyst, ...(task.analysts_assignment || []).map(a => a.name)].filter(Boolean));
+    return [...names].filter(n => analystWorksDay(task, d, n));
 }
 
 /** Reparte los días de planta entre los analistas titulares (mapa nombre → fechas).
