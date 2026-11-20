@@ -4107,16 +4107,23 @@ async function handleCalendarDrop(cell, dragInfo) {
         }
 
         // Movimiento normal de fecha (mismo analista)
+        const _isReportMove = movedDay?.type === 'report';
+        // Un día de informe sin dueño explícito se reparte por orden de fecha: al cambiarle la fecha
+        // el reparto se recalcularía y los días de informe saltarían de fila o quedarían tapados.
+        if (_isReportMove && !dayCrew(movedDay)) freezeImplicitReportDays(task);
         task.scheduledDays[dayIdx].day = targetDay;
         task.scheduledDays[dayIdx].date = targetDateStr;
-        task.analyst = targetAnalyst;
-        // Preservar la asignación múltiple si existe
-        if (!task.analysts_assignment || task.analysts_assignment.length === 0) {
-            task.analysts_assignment = [{ name: targetAnalyst, isTitular: true, makesReport: true, percentage: 100 }];
-        } else {
-            // Asegurar que el targetAnalyst sea titular; no tocar isTitular de los demás (tarea multi-analista)
-            const found = task.analysts_assignment.find(a => a.name === targetAnalyst);
-            if (found) { found.isTitular = true; }
+        // Mover un día de informe no convierte a su dueño en titular de planta (ni cambia al analista de la gestión)
+        if (!_isReportMove) {
+            task.analyst = targetAnalyst;
+            // Preservar la asignación múltiple si existe
+            if (!task.analysts_assignment || task.analysts_assignment.length === 0) {
+                task.analysts_assignment = [{ name: targetAnalyst, isTitular: true, makesReport: true, percentage: 100 }];
+            } else {
+                // Asegurar que el targetAnalyst sea titular; no tocar isTitular de los demás (tarea multi-analista)
+                const found = task.analysts_assignment.find(a => a.name === targetAnalyst);
+                if (found) { found.isTitular = true; }
+            }
         }
         logActivity(`🚚 Se movió un día de la gestión <strong>${task.client}</strong> al día <strong>${targetDay}</strong>.`, 'assign');
     } else {
@@ -4517,9 +4524,8 @@ function recalculateAssignmentPercentages(task) {
     });
 }
 
-async function reassignReportDay(task, dayIdx, newAnalyst, newDay, newDateStr) {
-    // Paso 1: congelar todos los días implícitos ANTES de mover cualquier cosa.
-    // Así los días sin analista explícito quedan fijos y no se redistribuyen al nuevo analista.
+/** Fija en cada día de informe sin dueño explícito al analista que hoy le toca según el reparto. */
+function freezeImplicitReportDays(task) {
     const currentMap = getReportDayAssignments(task);
     task.scheduledDays.forEach(d => {
         if (d.type === 'report' && !d.analyst && !dayCrew(d)) {
@@ -4528,6 +4534,12 @@ async function reassignReportDay(task, dayIdx, newAnalyst, newDay, newDateStr) {
             }
         }
     });
+}
+
+async function reassignReportDay(task, dayIdx, newAnalyst, newDay, newDateStr) {
+    // Paso 1: congelar todos los días implícitos ANTES de mover cualquier cosa.
+    // Así los días sin analista explícito quedan fijos y no se redistribuyen al nuevo analista.
+    freezeImplicitReportDays(task);
 
     const day = task.scheduledDays[dayIdx];
     const currentOwner = day.analyst;
