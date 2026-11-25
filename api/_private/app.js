@@ -3402,7 +3402,7 @@ function renderCalendar() {
                 pill.id = `pill-${t.id}-${dayIdx}`;
                 pill.setAttribute('data-task-id', t.id);
                 pill.setAttribute('data-day-index', dayIdx);
-                pill.draggable = (t.status !== 'facturada' || isServiceDebt(t));
+                pill.draggable = true;   // las facturadas también se mueven (con aviso al soltar)
                 if(isServiceDebt(t)) pill.classList.add('service-debt');
 
                 let label = t.isAbsence
@@ -3622,7 +3622,7 @@ function setupCalendarListeners() {
             const dayIdx  = parseInt(this.getAttribute('data-day-index'));
             const _pt = tasks.find(t => t.id === taskId);
             const canMove = !this.classList.contains('absence') &&
-                            (!_pt?.status?.match(/facturada/) || isServiceDebt(_pt));
+                            true;   // una facturada también se puede mover (pide confirmación al aplicar el cambio)
             if(canMove) {
                 showMoveDayPopover(taskId, dayIdx, e);
             } else {
@@ -3728,6 +3728,7 @@ async function confirmMoveDay(taskId, dayIndex) {
 
     const oldDate = task.scheduledDays[dayIndex].date;
     if(newDate === oldDate) { pop?.remove(); return; }
+    if(!confirmBilledChange(task)) return;
 
     // Actualizar el día
     const [, , dd] = newDate.split('-');
@@ -3936,6 +3937,20 @@ async function processDrop(target, taskId) {
     }
 }
 
+/** Gestión facturada (y no servicio pendiente): pide confirmar una vez por sesión antes de tocar su programación. */
+const _billedChangeOk = new Set();
+function confirmBilledChange(task) {
+    if(!task || task.status !== 'facturada' || isServiceDebt(task)) return true;
+    if(_billedChangeOk.has(task.id)) return true;
+    const ok = confirm(`⚠️ Esta gestión ya fue facturada y está cerrada.
+
+"${task.client}"
+
+¿Seguro que deseas modificar su programación? Un cambio mal aplicado podría dañar el historial de facturación.`);
+    if(ok) _billedChangeOk.add(task.id);
+    return ok;
+}
+
 async function handleCalendarDrop(cell, dragInfo) {
     let isPillMove = dragInfo && dragInfo.startsWith('pill-');
     let taskId = dragInfo;
@@ -3969,10 +3984,7 @@ async function handleCalendarDrop(cell, dragInfo) {
     const task = tasks[taskIndex];
 
     // Una gestión facturada solo se puede programar si es un servicio facturado por ejecutar
-    if (task.status === 'facturada' && !isServiceDebt(task)) {
-        alert('Una gestión facturada no puede ser modificada.');
-        return;
-    }
+    if (!confirmBilledChange(task)) return;
     const debtHadNoDays = isServiceDebt(task) && (!task.scheduledDays || task.scheduledDays.length === 0);
 
     let isAssignedToTarget = (task.analyst === targetAnalyst);
@@ -4045,7 +4057,7 @@ async function handleCalendarDrop(cell, dragInfo) {
         // Equipo por día: arrastrar la pastilla a la fila de otro analista cambia solo a ese analista
         const _srcAnalyst = dragEl?.closest('td')?.getAttribute('data-analyst');
         if (dayCrew(movedDay) && _srcAnalyst && _srcAnalyst !== targetAnalyst) {
-            if (task.status === 'facturada' && !isServiceDebt(task)) { alert('Una gestión facturada no puede ser modificada.'); return; }
+            if (!confirmBilledChange(task)) return;
             if (movedDay.date !== targetDateStr) {
                 alert('Este día lo trabajan varios analistas. Para cambiar de analista, suelta la pastilla en la misma fecha; para cambiar de fecha, muévela dentro de su propia fila.');
                 return;
@@ -4065,7 +4077,7 @@ async function handleCalendarDrop(cell, dragInfo) {
 
         // Medición por turnos: mover un día de planta a la fila de otro analista lo reasigna
         if (movedDay?.type === 'field' && isFieldSplit(task) && !dayCrew(movedDay)) {
-            if (task.status === 'facturada' && !isServiceDebt(task)) { alert('Una gestión facturada no puede ser modificada.'); return; }
+            if (!confirmBilledChange(task)) return;
             // Congelar los días implícitos para que no se redistribuyan al mover uno
             const currentFieldMap = getFieldDayAssignments(task);
             task.scheduledDays.forEach(d => {
@@ -4097,7 +4109,7 @@ async function handleCalendarDrop(cell, dragInfo) {
                 }
             }
             if (currentOwner !== targetAnalyst) {
-                if (task.status === 'facturada' && !isServiceDebt(task)) { alert('Una gestión facturada no puede ser modificada.'); return; }
+                if (!confirmBilledChange(task)) return;
                 await reassignReportDay(task, dayIdx, targetAnalyst, targetDay, targetDateStr);
                 saveTasks();
                 postDropSync();
@@ -4197,6 +4209,8 @@ async function handleCalendarDrop(cell, dragInfo) {
                 }
             }
         }
+    } else if(task.status === 'facturada') {
+        // Gestión facturada corregida a mano: conserva su estado (no vuelve a 'programada')
     } else {
         task.status = 'programada';
         // Notif: al pasar a programada por primera vez → notificar a los analistas
@@ -4273,6 +4287,10 @@ async function handleSidebarDrop(e) {
             refreshDebtViews();
             try { await saveTaskToSupabase(task); } catch (err) { console.error("Error saving debt to sidebar:", err); }
         }
+        return;
+    }
+    if (task && task.status === 'facturada') {
+        alert('Una gestión facturada no puede devolverse a Por programar.');
         return;
     }
     if (task && task.status !== 'proyectada') {
