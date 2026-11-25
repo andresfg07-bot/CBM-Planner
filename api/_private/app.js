@@ -5043,9 +5043,13 @@ function openTaskInfoModal(taskId) {
 
     if(editBtn) {
         if(task.status === 'facturada') {
-            editBtn.style.opacity = '0.5';
-            editBtn.style.cursor = 'not-allowed';
-            editBtn.onclick = () => alert("Las gestiones facturadas están bloqueadas y no pueden ser editadas.");
+            // Facturada = cerrada, pero se puede corregir (p. ej. analista equivocado) tras confirmar el riesgo
+            editBtn.style.opacity = '1';
+            editBtn.style.cursor = 'pointer';
+            editBtn.onclick = () => {
+                if(!confirm(`⚠️ Esta gestión ya fue facturada y está cerrada.\n\n"${task.client}"\n\n¿Seguro que deseas modificarla? Un cambio mal aplicado podría dañar el historial de facturación (valores, mes de facturación, analistas y reportes).\n\nCambia solo lo necesario.`)) return;
+                openEditTaskModal(taskId);
+            };
         } else {
             editBtn.style.opacity = '1';
             editBtn.style.cursor = 'pointer';
