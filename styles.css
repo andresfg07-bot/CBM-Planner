@@ -2655,3 +2655,22 @@ body.role-assistant .calendar-task-pill:active {
 #taskForm.absence-mode .analyst-row .analyst-pct-sign,
 #taskForm.absence-mode #group-split,
 #taskForm.absence-mode #taskCrewPanel { display: none !important; }
+
+/* Calendario en pantalla completa (botón ⛶ del cronograma; se restaura con Esc) */
+.calendar-max-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px; padding: 0; cursor: pointer;
+    border: 1px solid var(--border-color); border-radius: var(--radius-md);
+    background: white; color: var(--text-secondary);
+}
+.calendar-max-btn:hover { color: var(--clr-blue); border-color: var(--clr-blue); }
+.calendar-max-btn .icon-restore { display: none; }
+body.calendar-max .calendar-max-btn .icon-max { display: none; }
+body.calendar-max .calendar-max-btn .icon-restore { display: block; }
+body.calendar-max { overflow: hidden; }
+body.calendar-max .calendar-card {
+    position: fixed !important; inset: 0; z-index: 350;
+    width: 100vw; height: 100vh; box-sizing: border-box;
+    border-radius: 0 !important; padding: 1rem 1.25rem !important;
+}
+body.calendar-max .modal { z-index: 400; } /* los detalles de una gestión se abren por encima */

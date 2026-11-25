@@ -6799,7 +6799,20 @@ document.getElementById('csatForm').addEventListener('submit', async e => {
     }
 });
 
+/** Calendario en pantalla completa: sin argumento alterna; con true/false fuerza el estado. */
+function toggleCalendarMaximize(force) {
+    const on = typeof force === 'boolean' ? force : !document.body.classList.contains('calendar-max');
+    document.body.classList.toggle('calendar-max', on);
+    const btn = document.getElementById('btn-calendar-max');
+    if (btn) {
+        btn.title = on ? 'Restaurar (Esc)' : 'Pantalla completa (Esc para salir)';
+        btn.setAttribute('aria-label', btn.title);
+    }
+    window.dispatchEvent(new Event('resize'));
+}
+
 function switchView(viewName) {
+    toggleCalendarMaximize(false);   // al cambiar de vista siempre se sale de pantalla completa
     // La vista Semana del cronograma solo tiene sentido dentro de "planning": si se sale
     // de esa vista con Semana activa, se vuelve a Mes para no dejar el selector de período
     // global (usado por todas las demás pantallas) atascado en modo semana.
@@ -14297,7 +14310,9 @@ async function initializeApp() {
         window._escapeListenerAttached = true;
         document.addEventListener('keydown', e => {
             if (e.key === 'Escape') {
-                document.querySelectorAll('.modal.active').forEach(m => m.classList.remove('active'));
+                const openModals = document.querySelectorAll('.modal.active');
+                if (openModals.length) openModals.forEach(m => m.classList.remove('active'));
+                else if (document.body.classList.contains('calendar-max')) toggleCalendarMaximize(false);   // Esc restaura el calendario
             }
         });
 

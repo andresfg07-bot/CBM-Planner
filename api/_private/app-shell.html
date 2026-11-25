@@ -276,7 +276,13 @@
                                      <button class="view-btn" id="btn-view-week" onclick="changeCalendarView('week')">Semana</button>
                                  </div>
                              </div>
-                             <button class="btn-secondary" onclick="goToToday()" style="padding: 0.4rem 1rem; font-size: 0.8rem; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; border: 1px solid var(--border-color); background: white;">Hoy</button>
+                             <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                 <button class="btn-secondary" onclick="goToToday()" style="padding: 0.4rem 1rem; font-size: 0.8rem; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; border: 1px solid var(--border-color); background: white;">Hoy</button>
+                                 <button id="btn-calendar-max" class="calendar-max-btn" onclick="toggleCalendarMaximize()" title="Pantalla completa (Esc para salir)" aria-label="Pantalla completa">
+                                     <svg class="icon-max" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+                                     <svg class="icon-restore" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>
+                                 </button>
+                             </div>
                          </div>
                          <div class="calendar-container">
                              <table class="calendar-table">
