@@ -5107,11 +5107,18 @@ function populateFinanceMonths() {
 }
 
 /** Estado de expansión por tarjeta en la vista de Finanzas (per-sesión). */
-const financeExpandedCards = new Set();
+const financeExpandedCards = new Set();   // "Detalle": muestra servicio, analistas y fechas de cada gestión
+const financeShowAllCards = new Set();    // "Ver restantes": muestra todas las gestiones, sin detalle
 
 function toggleFinanceCardExpand(key) {
     if(financeExpandedCards.has(key)) financeExpandedCards.delete(key);
     else financeExpandedCards.add(key);
+    renderFinanceView();
+}
+
+function toggleFinanceCardShowAll(key) {
+    if(financeShowAllCards.has(key)) financeShowAllCards.delete(key);
+    else financeShowAllCards.add(key);
     renderFinanceView();
 }
 
@@ -5458,10 +5465,11 @@ function renderFinanceView() {
     const cardsHtml = cards.map(c => {
         const bd = breakdowns[c.key];
         const items = Object.values(bd).sort((x, y) => y.amount - x.amount);
-        const expanded = financeExpandedCards.has(c.key);
+        const expanded = financeExpandedCards.has(c.key);   // con detalle
+        const showAll = financeShowAllCards.has(c.key);     // todas las filas
         // Ejecutada (lo que hay que facturar) siempre se ve completa. Las demás se renderizan completas pero
         // las filas "extra" quedan ocultas: fitFinanceCards() las muestra mientras quepan en el alto de la fila de tarjetas.
-        const fitMode = c.key !== 'ejecutada' && !expanded;
+        const fitMode = c.key !== 'ejecutada' && !showAll;
         const hidden = fitMode ? Math.max(0, items.length - COLLAPSED_ROWS) : 0;
 
         const rows = items.map(({ client, plantName, serviceType, analyst, amount, period, rangeP, rangeI }, idx) => {
@@ -5483,7 +5491,7 @@ function renderFinanceView() {
         }).join('');
 
         const toggle = (c.key !== 'ejecutada' && items.length > COLLAPSED_ROWS)
-            ? `<button class="fin-more" onclick="toggleFinanceCardExpand('${c.key}')">${expanded ? 'Mostrar menos' : `Ver ${plural(hidden, 'restante', 'restantes')}`}</button>` : '';
+            ? `<button class="fin-more" onclick="toggleFinanceCardShowAll('${c.key}')">${showAll ? 'Mostrar menos' : `Ver ${plural(hidden, 'restante', 'restantes')}`}</button>` : '';
 
         const empty = `<div class="fin-empty">Aquí aparecerán las gestiones<br>cuando pasen a este estado.</div>`;
 
